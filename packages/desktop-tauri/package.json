@@ -13,10 +13,22 @@
     "typecheck:tsc": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@opencode/app": "workspace:*",
+    "@opencode/client": "workspace:*",
+    "@opencode/gui-plugins": "workspace:*",
+    "@opencode/plugin": "workspace:*",
+    "@opencode/schema": "workspace:*",
+    "@opencode/ui": "workspace:*",
+    "@sentry/solid": "catalog:",
+    "@solidjs/router": "catalog:",
     "@tauri-apps/api": "^2.10.0",
+    "effect": "catalog:",
     "solid-js": "1.9.17"
   },
   "devDependencies": {
+    "@types/bun": "catalog:",
+    "@types/node": "catalog:",
+    "@tailwindcss/vite": "4.3.3",
     "@tauri-apps/cli": "^2.10.0",
     "@typescript/native": "npm:typescript@7.1.0-beta",
     "vite": "8.3.5",

@@ -14,6 +14,10 @@ impl Credentials {
 
     pub fn set(provider: &str, secret: &str) -> Result<()> {
         ensure!(!secret.trim().is_empty(), "credential cannot be empty");
+        ensure!(
+            secret.len() <= 16_384 && !secret.contains(['\r', '\n']),
+            "invalid credential format"
+        );
         Self::entry(provider)?
             .set_password(secret)
             .context("save credential")

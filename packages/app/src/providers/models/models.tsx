@@ -17,7 +17,7 @@ function modelKey(model: ModelKey) {
 }
 
 export const isFreeModel = (model: { provider: { id: string }; cost?: { input: number } }) =>
-  model.provider.id === "opencode" && (!model.cost || model.cost.input === 0)
+  model.provider.id === "cryzo" || (model.provider.id === "opencode" && (!model.cost || model.cost.input === 0))
 
 // The newest release of each family per provider. A free model shares its family and release date with its paid twin,
 // so the two are grouped apart. A tie keeps the first model listed.

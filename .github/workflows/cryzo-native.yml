@@ -2,11 +2,6 @@ name: Cryzo native
 
 on:
   workflow_dispatch:
-  push:
-    branches: [cryzo-native]
-    paths: ["native/**", "packages/desktop-tauri/**", ".github/workflows/cryzo-native.yml"]
-  pull_request:
-    paths: ["native/**", "packages/desktop-tauri/**", ".github/workflows/cryzo-native.yml"]
 
 permissions:
   contents: read
@@ -66,7 +61,7 @@ jobs:
         with:
           workspaces: native
       - name: Install frontend
-        run: npm ci --prefix packages/desktop-tauri --workspaces=false --ignore-scripts
+        run: bun install --frozen-lockfile --filter '@cryzo/desktop' --filter '@opencode/app' --ignore-scripts
       - name: Frontend types
         working-directory: packages/desktop-tauri
         run: bun run typecheck:tsc

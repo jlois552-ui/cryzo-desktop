@@ -21,17 +21,44 @@ use tokio::sync::{Mutex, mpsc};
 use tokio_util::sync::CancellationToken;
 
 pub struct Engine {
+    _ownership: std::fs::File,
     pub store: Store,
     pub catalog: Catalog,
-    running: Mutex<HashMap<String, CancellationToken>>,
+    pub(crate) running: Mutex<HashMap<String, CancellationToken>>,
+    pub(crate) permissions: Mutex<HashMap<String, crate::native_sessions::PendingPermission>>,
+    pub(crate) desktop_events: tokio::sync::broadcast::Sender<Value>,
+    pub ptys: crate::pty::PtyManager,
+    pub(crate) login_attempts: crate::free_tier::Attempts,
+    pub(crate) chatgpt_attempts: crate::chatgpt::Attempts,
+    pub(crate) chatgpt_token: crate::chatgpt::Token,
 }
 
 impl Engine {
     pub fn open(path: &std::path::Path) -> Result<Self> {
+        // Recovery may reset running claims only after the previous process has released ownership.
+        let ownership = std::fs::File::options()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(path.with_extension("lock"))?;
+        ownership
+            .try_lock()
+            .map_err(|error| anyhow::anyhow!("cannot acquire local engine ownership: {error}"))?;
+        let desktop_events = tokio::sync::broadcast::channel(1024).0;
+        let mut catalog = Catalog::load()?;
+        crate::free_tier::configure(&mut catalog);
         Ok(Self {
+            _ownership: ownership,
             store: Store::open(path)?,
-            catalog: Catalog::load()?,
+            catalog,
+            login_attempts: Mutex::new(HashMap::new()),
+            chatgpt_attempts: Mutex::new(HashMap::new()),
+            chatgpt_token: Mutex::new(None),
             running: Mutex::new(HashMap::new()),
+            permissions: Mutex::new(HashMap::new()),
+            ptys: crate::pty::PtyManager::new(desktop_events.clone()),
+            desktop_events,
         })
     }
 
@@ -191,6 +218,7 @@ struct App {
 }
 
 pub fn router(engine: Arc<Engine>, token: String) -> Router {
+    let desktop = crate::desktop_api::router(engine.clone());
     let state = App { engine, token };
     Router::new()
         .route("/v0/health", get(health))
@@ -201,6 +229,7 @@ pub fn router(engine: Arc<Engine>, token: String) -> Router {
         .route("/v0/session/{session}/cancel", post(cancel))
         .route("/v0/session/{session}/tool", post(tool))
         .route("/v0/session/{session}/approval/{approval}", post(approval))
+        .merge(desktop.with_state(()))
         .layer(axum::extract::DefaultBodyLimit::max(3_000_000))
         .layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state)

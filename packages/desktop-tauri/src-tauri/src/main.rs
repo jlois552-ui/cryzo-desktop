@@ -1,9 +1,13 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
+mod desktop;
+use desktop::{DesktopHost, desktop_call, native_bootstrap, native_fetch, native_interrupt};
+use desktop::{native_socket_close, native_socket_open, native_socket_send};
 
 use cryzo_engine::{credentials::Credentials, service::Engine, tools::Operation};
 use serde_json::{Value, json};
 use std::sync::Arc;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 type NativeResult = Result<Value, String>;
@@ -80,8 +84,9 @@ async fn prompt(
 }
 
 #[tauri::command]
-async fn cancel(engine: State<'_, Arc<Engine>>, session: String) {
+async fn cancel(engine: State<'_, Arc<Engine>>, session: String) -> Result<(), String> {
     engine.cancel(&session).await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -135,13 +140,42 @@ async fn save_credential(
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Resized(_) = event {
+                let _ = window.emit("cryzo:desktop", json!({"_tag":"WindowCaptionChanged","maximized":window.is_maximized().unwrap_or(false),"fullscreen":window.is_fullscreen().unwrap_or(false)}));
+            }
+            if let tauri::WindowEvent::Focused(focused) = event {
+                let _ = window.emit(
+                    "cryzo:desktop",
+                    json!({"_tag":"WindowFocusChanged","focused":focused}),
+                );
+            }
+        })
         .setup(|app| {
-            let directory = app.path().app_data_dir()?;
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("main") {
+                window.set_decorations(false)?;
+            }
+            let directory = std::env::var_os("CRYZO_DATA_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or(app.path().app_data_dir()?);
             std::fs::create_dir_all(&directory)?;
-            app.manage(Arc::new(Engine::open(&directory.join("cryzo.sqlite"))?));
+            let engine = Arc::new(Engine::open(&directory.join("cryzo.sqlite"))?);
+            app.manage(tauri::async_runtime::block_on(DesktopHost::start(
+                &directory,
+                engine.clone(),
+            ))?);
+            app.manage(engine);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            native_bootstrap,
+            desktop_call,
+            native_fetch,
+            native_interrupt,
+            native_socket_open,
+            native_socket_send,
+            native_socket_close,
             bootstrap,
             list_sessions,
             choose_directory,

@@ -99,6 +99,9 @@ impl Workspace {
             Operation::Write { path, content } => {
                 ensure!(content.len() <= 2_000_000, "write exceeds size limit");
                 let path = self.resolve(path)?;
+                if let Some(parent) = path.parent() {
+                    tokio::fs::create_dir_all(parent).await?;
+                }
                 tokio::fs::write(path, content).await?;
                 Ok(json!({"written":true}))
             }
@@ -121,6 +124,8 @@ impl Workspace {
     async fn process(&self, program: &str, args: &[String]) -> Result<Value> {
         ensure!(!program.is_empty(), "program is required");
         let mut command = Command::new(program);
+        #[cfg(windows)]
+        command.creation_flags(0x08000000);
         command
             .args(args)
             .current_dir(&self.0)

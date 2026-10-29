@@ -9,6 +9,104 @@ use serde_json::json;
 use std::{path::Path, sync::Arc};
 use tower::ServiceExt;
 
+#[tokio::test]
+async fn desktop_location_registers_a_durable_project_and_requires_authentication() {
+    use axum::{body::Body, http::Request};
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("sessions.sqlite");
+    let engine = Arc::new(Engine::open(&database).unwrap());
+    let app = router(engine, "private-native-token".into());
+    let unauthorized = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/info")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), 401);
+    // Global settings use the unchanged desktop client's empty Location ref.
+    // It must resolve to home, rather than attempting to canonicalize "".
+    for endpoint in ["location", "integration", "provider", "model"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/{endpoint}?location%5Bdirectory%5D="))
+                    .header("authorization", "Bearer private-native-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200, "global {endpoint} settings failed");
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        if endpoint == "location" {
+            assert_eq!(body["project"]["id"], "global");
+        }
+        if endpoint == "integration" {
+            for provider in ["nvidia", "openrouter", "openai", "anthropic", "google"] {
+                assert!(
+                    body["data"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|row| row["id"] == provider),
+                    "missing BYOK {provider}"
+                );
+            }
+        }
+    }
+    let query: String = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("location[directory]", directory.path().to_str().unwrap())
+        .finish();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/location?{query}"))
+                .header("authorization", "Bearer private-native-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let location: serde_json::Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert!(
+        location["project"]["id"]
+            .as_str()
+            .unwrap()
+            .starts_with("prj_")
+    );
+    assert_eq!(location["directory"], location["project"]["canonical"]);
+    let project_id = location["project"]["id"].clone();
+    drop(app);
+    let engine = Arc::new(Engine::open(&database).unwrap());
+    let app = router(engine, "new-native-token".into());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/project")
+                .header("authorization", "Bearer new-native-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let projects: serde_json::Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(projects.as_array().unwrap().len(), 1);
+    assert_eq!(projects[0]["id"], project_id);
+    assert!(projects[0]["time"]["created"].as_u64().unwrap() > 0);
+}
+
 #[test]
 fn durable_admission_is_idempotent_across_restarts_and_session_scoped() {
     let directory = tempfile::tempdir().unwrap();
@@ -47,6 +145,26 @@ fn durable_admission_is_idempotent_across_restarts_and_session_scoped() {
             .unwrap()
     );
     assert_eq!(store.events(&first.id, 0).unwrap().len(), 2);
+}
+
+#[test]
+fn a_second_engine_cannot_reset_the_running_owners_claims() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("sessions.sqlite");
+    let engine = Engine::open(&path).unwrap();
+    let session = engine
+        .store
+        .create_session(directory.path(), "Owner")
+        .unwrap();
+    engine.store.claim(&session.id).unwrap();
+    assert!(Engine::open(&path).is_err());
+    assert_eq!(engine.store.session(&session.id).unwrap().status, "running");
+    drop(engine);
+    let recovered = Engine::open(&path).unwrap();
+    assert_eq!(
+        recovered.store.session(&session.id).unwrap().status,
+        "interrupted"
+    );
 }
 
 #[test]

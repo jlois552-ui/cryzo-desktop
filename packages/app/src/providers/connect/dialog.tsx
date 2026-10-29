@@ -229,7 +229,7 @@ export const DialogConnectProvider: Component<{
 }
 
 // Same groups and order as the TUI's integration list.
-const POPULAR = ["opencode", "opencode-go", "openai", "github-copilot", "anthropic", "google"]
+const POPULAR = ["nvidia", "openrouter", "opencode", "opencode-go", "openai", "github-copilot", "anthropic", "google"]
 
 function ProviderPicker(props: { directory?: string; onSelect: (provider: string) => void; onPrepare?: () => void }) {
   const integrations = useIntegrations(() => props.directory)
@@ -1201,6 +1201,7 @@ function ProviderConnection(props: {
 
       setFormStore("error", undefined)
       await controller.auth.connectKey(key)
+      setFormStore("value", "")
     }
 
     return (
@@ -1220,6 +1221,7 @@ function ProviderConnection(props: {
               ref={apiKey}
               class="!w-full"
               name="apiKey"
+              type="password"
               data-input="provider-api-key"
               placeholder={language.t("provider.connect.apiKey.placeholder")}
               value={formStore.value}

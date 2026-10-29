@@ -1,3 +1,13 @@
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+*.lock
+!Cargo.lock
+/desktop-check.log
+/engine-correction-tests.log
+/engine-correction-lint.log
+/desktop-correction-build.log
+/native-desktop-build.log
+/native-desktop-portable.log
+/engine-finish-*.log
+/desktop-finish-*.log

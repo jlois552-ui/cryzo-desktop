@@ -1,0 +1,25 @@
+{
+  "name": "@cryzo/model-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "convex dev",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "tsc --noEmit",
+    "deploy": "convex deploy"
+  },
+  "dependencies": {
+    "@convex-dev/better-auth": "0.12.5",
+    "better-auth": "1.6.15",
+    "convex": "1.48.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.3",
+    "typescript": "^5.9.3",
+    "convex-test": "^0.0.43"
+  }
+}

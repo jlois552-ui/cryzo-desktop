@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::{path::Path, sync::Mutex};
 use uuid::Uuid;
 
-pub struct Store(Mutex<Connection>);
+pub struct Store(pub(crate) Mutex<Connection>);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Session {
@@ -43,6 +43,12 @@ impl Store {
              CREATE TABLE IF NOT EXISTS approvals (
                id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
                operation TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending');
+             CREATE TABLE IF NOT EXISTS desktop_projects (
+               id TEXT PRIMARY KEY, directory TEXT NOT NULL UNIQUE, info TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS desktop_state (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS desktop_log (session_id TEXT NOT NULL, seq INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(session_id,seq));
+             CREATE TABLE IF NOT EXISTS desktop_meta (namespace TEXT NOT NULL, key TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(namespace,key));
+             CREATE TABLE IF NOT EXISTS desktop_prompt_owners (id TEXT PRIMARY KEY, session_id TEXT NOT NULL);
              PRAGMA user_version=1;",
         )?;
         let store = Self(Mutex::new(connection));
@@ -51,7 +57,68 @@ impl Store {
             "UPDATE sessions SET status='interrupted' WHERE status='running'",
             [],
         )?;
+        for state in store.desktop_states()? {
+            if state["status"] == "running" {
+                let id = state["info"]["id"].as_str().unwrap();
+                store.desktop_append(
+                    id,
+                    "session.execution.interrupted",
+                    serde_json::json!({"reason":"shutdown"}),
+                )?;
+            }
+        }
         Ok(store)
+    }
+
+    pub fn desktop_project(&self, directory: &Path) -> Result<Value> {
+        let directory = directory.canonicalize()?;
+        ensure!(directory.is_dir(), "project location must be a directory");
+        let directory = directory
+            .to_string_lossy()
+            .trim_start_matches(r"\\?\")
+            .to_owned();
+        let mut db = self.0.lock().unwrap();
+        let tx = db.transaction()?;
+        let existing: Option<String> = tx
+            .query_row(
+                "SELECT info FROM desktop_projects WHERE directory=?1",
+                [&directory],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis() as u64;
+        let mut info = match existing {
+            Some(info) => serde_json::from_str::<Value>(&info)?,
+            None => {
+                let mut info = serde_json::json!({
+                    "id":format!("prj_{}", Uuid::new_v4()),"canonical":directory,
+                    "time":{"created":now,"updated":now,"active":now},"sandboxes":[]
+                });
+                if Path::new(&directory).join(".git").exists() {
+                    info["vcs"] = Value::String("git".into());
+                }
+                info
+            }
+        };
+        info["time"]["active"] = serde_json::json!(now);
+        tx.execute("INSERT INTO desktop_projects(id,directory,info) VALUES(?1,?2,?3) ON CONFLICT(directory) DO UPDATE SET info=excluded.info", params![info["id"].as_str(),directory,info.to_string()])?;
+        tx.commit()?;
+        Ok(info)
+    }
+
+    pub fn desktop_projects(&self) -> Result<Vec<Value>> {
+        let db = self.0.lock().unwrap();
+        let mut query = db.prepare(
+            "SELECT info FROM desktop_projects ORDER BY json_extract(info,'$.time.active') DESC",
+        )?;
+        let rows = query
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|row| Ok(serde_json::from_str(&row)?))
+            .collect()
     }
 
     pub fn create_session(&self, directory: &Path, title: &str) -> Result<Session> {
