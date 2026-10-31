@@ -361,6 +361,9 @@ impl Engine {
                     let operation=parsed.context("invalid tool arguments")?;
                     ensure!(!plan || !operation.needs_approval(),"plan mode cannot change files or run commands");
                     let approval=if operation.needs_approval(){Some(self.ask_permission(session,&message,&call.id,&operation,cancel.clone()).await?)}else{None};
+                    if operation.is_market() {
+                        return tokio::select!{_=cancel.cancelled()=>anyhow::bail!("tool interrupted"),result=self.market_tool(session,&call.id,&operation,approval.as_deref())=>result};
+                    }
                     tokio::select!{_=cancel.cancelled()=>anyhow::bail!("tool interrupted"),result=workspace.execute(&self.store,session,&operation,approval.as_deref())=>result}
                 }.await;
                 match outcome {
@@ -502,6 +505,97 @@ impl Engine {
         );
         Ok(approval)
     }
+
+    /// Marketing tools. Scheduling consumes the approval bound to the exact post; the tool call ID
+    /// is the request key, so a retried step returns the same post instead of creating another.
+    async fn market_tool(
+        &self,
+        session: &str,
+        call: &str,
+        operation: &Operation,
+        approval: Option<&str>,
+    ) -> Result<Value> {
+        use axum::http::Method;
+        let failed = |error: crate::market::Error| match error {
+            crate::market::Error::SignIn => anyhow::anyhow!(crate::market::SIGN_IN_REQUIRED),
+            crate::market::Error::Request(message) => anyhow::anyhow!(message),
+        };
+        if operation.needs_approval() {
+            self.store.consume_approval(
+                session,
+                approval.context("operation needs approval")?,
+                &serde_json::to_value(operation)?,
+            )?;
+        }
+        match operation {
+            Operation::MarketChannels {} => {
+                let data = crate::market::call(self, Method::GET, "accounts", None, None)
+                    .await
+                    .map_err(failed)?;
+                Ok(json!(data["accounts"].as_array().into_iter().flatten().map(|account| json!({
+                    "id":account["connectedAccountId"],"network":account["channel"],"name":account["name"],
+                    "ready":!matches!(account["channel"].as_str(),Some("facebook"|"instagram"))||account["targetId"].is_string(),
+                })).collect::<Vec<_>>()))
+            }
+            Operation::MarketPosts { days } => {
+                let from = session_store::now();
+                let to = from + u64::from((*days).clamp(1, 90)) * 86_400_000;
+                let posts = crate::market::call(
+                    self,
+                    Method::GET,
+                    "posts",
+                    Some(&format!("from={from}&to={to}")),
+                    None,
+                )
+                .await
+                .map_err(failed)?;
+                Ok(json!(posts.as_array().into_iter().flatten().map(|post| json!({
+                    "content":post["content"],"status":post["status"],"scheduledFor":post["scheduledFor"],
+                    "channels":post["targets"].as_array().into_iter().flatten().map(|target|target["connectedAccountId"].clone()).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>()))
+            }
+            Operation::MarketPost {
+                content,
+                channels,
+                when,
+                schedule,
+            } => {
+                let scheduled_for = crate::market::epoch_ms(when)
+                    .context("use an ISO 8601 date-time with a UTC offset, such as 2026-11-02T09:00:00-05:00")?;
+                let accounts = crate::market::call(self, Method::GET, "accounts", None, None)
+                    .await
+                    .map_err(failed)?;
+                let targets = channels
+                    .iter()
+                    .map(|id| {
+                        accounts["accounts"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .find(|account| account["connectedAccountId"] == id.as_str())
+                            .map(|account| json!({"channel":account["channel"],"connectedAccountId":id}))
+                            .with_context(|| format!("unknown channel {id}; call market_channels first"))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let id = crate::market::call(
+                    self,
+                    Method::POST,
+                    "posts/create",
+                    None,
+                    Some(json!({
+                        "requestKey":format!("{session}:{call}"),"content":content,"targets":targets,
+                        "scheduledFor":scheduled_for,"status":if *schedule {"scheduled"} else {"draft"},"mediaIds":[],
+                    })),
+                )
+                .await
+                .map_err(failed)?;
+                Ok(
+                    json!({"postId":id,"status":if *schedule {"scheduled"} else {"draft"},"scheduledFor":scheduled_for}),
+                )
+            }
+            _ => anyhow::bail!("not a marketing tool"),
+        }
+    }
 }
 
 fn tool_definitions(plan: bool) -> Value {
@@ -530,6 +624,24 @@ fn tool_definitions(plan: bool) -> Value {
             "Run a program with arguments after exact user approval",
             json!({"program":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}),
             vec!["program", "args"],
+        ),
+        (
+            "market_channels",
+            "List the user's connected social media channels in Cryzo Marketing",
+            json!({}),
+            vec![],
+        ),
+        (
+            "market_posts",
+            "List Cryzo Marketing posts in the next number of days",
+            json!({"days":{"type":"integer","minimum":1,"maximum":90}}),
+            vec!["days"],
+        ),
+        (
+            "market_post",
+            "Create a social media post in Cryzo Marketing. A draft needs no approval; schedule=true asks the user to approve this exact post before it is scheduled",
+            json!({"content":{"type":"string"},"channels":{"type":"array","items":{"type":"string"},"description":"Channel ids from market_channels"},"when":{"type":"string","description":"ISO 8601 date-time with UTC offset"},"schedule":{"type":"boolean"}}),
+            vec!["content", "channels", "when", "schedule"],
         ),
     ];
     json!(specs.into_iter().filter(|(name,_,_,_)|!plan||!["write","shell"].contains(name)).map(|(name,description,properties,required)|json!({"type":"function","function":{"name":name,"description":description,"parameters":{"type":"object","properties":properties,"required":required,"additionalProperties":false}}})).collect::<Vec<_>>())

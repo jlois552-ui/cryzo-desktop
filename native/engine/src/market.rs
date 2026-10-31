@@ -14,6 +14,57 @@ use std::sync::Arc;
 
 pub const SIGN_IN_REQUIRED: &str = "Sign in with Google to use Marketing.";
 
+/// Epoch milliseconds for `YYYY-MM-DD`, or for an RFC 3339 date-time that carries its UTC offset
+/// (`Z` or `±HH:MM`). Uses Howard Hinnant's days_from_civil; the engine has no date library.
+pub fn epoch_ms(value: &str) -> Option<i64> {
+    let (date, time) = value.split_once('T').unwrap_or((value, ""));
+    let mut parts = date.splitn(3, '-').map(str::parse::<i64>);
+    let (year, month, day) = (
+        parts.next()?.ok()?,
+        parts.next()?.ok()?,
+        parts.next()?.ok()?,
+    );
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    let shifted = if month <= 2 { year - 1 } else { year };
+    let era = shifted.div_euclid(400);
+    let year_of_era = shifted - era * 400;
+    let day_of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let days = era * 146_097 + year_of_era * 365 + year_of_era / 4 - year_of_era / 100
+        + day_of_year
+        - 719_468;
+    if time.is_empty() {
+        return Some(days * 86_400_000);
+    }
+    let (clock, offset) = match time.strip_suffix('Z') {
+        Some(clock) => (clock, 0),
+        None => {
+            let (clock, zone) = time.split_at(time.rfind(['+', '-'])?);
+            let (hours, minutes) = zone[1..].split_once(':')?;
+            let minutes = hours.parse::<i64>().ok()? * 60 + minutes.parse::<i64>().ok()?;
+            (
+                clock,
+                if zone.starts_with('-') {
+                    -minutes
+                } else {
+                    minutes
+                },
+            )
+        }
+    };
+    let mut clock = clock.split(':');
+    let hour = clock.next()?.parse::<i64>().ok()?;
+    let minute = clock.next()?.parse::<i64>().ok()?;
+    let second = clock
+        .next()
+        .map_or(Some(0.0), |value| value.parse::<f64>().ok())? as i64;
+    if hour > 23 || minute > 59 || second > 60 {
+        return None;
+    }
+    Some(((days * 86_400) + hour * 3600 + minute * 60 + second - offset * 60) * 1000)
+}
+
 pub enum Error {
     SignIn,
     Request(String),
@@ -84,6 +135,7 @@ pub async fn call(
 pub fn router(engine: Arc<Engine>) -> Router {
     Router::new()
         .route("/api/market/media/upload", post(upload))
+        .route("/api/market/media/file", axum::routing::get(file))
         .route("/api/market/{*path}", any(proxy))
         .with_state(engine)
 }
@@ -119,6 +171,62 @@ async fn proxy(
         .await
         .map_err(reject)?;
     Ok(Json(json!({ "data": data })))
+}
+
+/// Streams one stored media file so the renderer can show it as a `blob:` URL under the desktop's
+/// content policy. Only the configured deployment's own storage URLs are fetched.
+async fn file(
+    State(engine): State<Arc<Engine>>,
+    RawQuery(query): RawQuery,
+) -> Result<axum::response::Response, (StatusCode, Json<Value>)> {
+    if !free_tier::signed_in(&engine).map_err(|error| reject(error.into()))? {
+        return Err(reject(Error::SignIn));
+    }
+    let requested = url::form_urlencoded::parse(query.unwrap_or_default().as_bytes())
+        .find(|(name, _)| name == "url")
+        .map(|(_, value)| value.into_owned())
+        .ok_or_else(|| reject(Error::Request("missing media URL".into())))?;
+    let requested = url::Url::parse(&requested)
+        .map_err(|_| reject(Error::Request("invalid media URL".into())))?;
+    let site = url::Url::parse(&free_tier::gateway().map_err(|error| reject(error.into()))?)
+        .map_err(|_| reject(Error::Request("invalid gateway URL".into())))?;
+    // Convex serves storage from the deployment's .convex.cloud host; its HTTP actions use .convex.site.
+    let storage = site
+        .host_str()
+        .and_then(|host| host.strip_suffix(".convex.site"))
+        .map(|name| format!("{name}.convex.cloud"));
+    if requested.scheme() != "https"
+        || requested.host_str() != storage.as_deref()
+        || !requested.path().starts_with("/api/storage/")
+    {
+        return Err(reject(Error::Request(
+            "media is not from Cryzo cloud".into(),
+        )));
+    }
+    let response = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|error| reject(Error::Request(error.to_string())))?
+        .get(requested)
+        .send()
+        .await
+        .map_err(|_| reject(Error::Request("could not load media".into())))?;
+    if !response.status().is_success() {
+        return Err(reject(Error::Request("could not load media".into())));
+    }
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| value.starts_with("image/") || value.starts_with("video/"))
+        .ok_or_else(|| reject(Error::Request("not an image or video".into())))?
+        .to_owned();
+    axum::response::Response::builder()
+        .header("content-type", content_type)
+        .header("cache-control", "private, max-age=3600")
+        .body(axum::body::Body::from_stream(response.bytes_stream()))
+        .map_err(|error| reject(Error::Request(error.to_string())))
 }
 
 /// Uploads a local image or video the user picked to Cryzo cloud storage and adds it to the

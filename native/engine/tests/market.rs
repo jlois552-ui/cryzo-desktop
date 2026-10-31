@@ -21,6 +21,20 @@ async fn call(app: &axum::Router, method: &str, uri: &str, body: Option<Value>) 
     )
 }
 
+#[test]
+fn agent_dates_need_an_offset_and_convert_to_utc() {
+    use cryzo_engine::market::epoch_ms;
+    assert_eq!(epoch_ms("2026-09-10"), Some(1_788_998_400_000));
+    assert_eq!(
+        epoch_ms("2026-11-02T09:00:00-05:00"),
+        Some(1_793_628_000_000)
+    );
+    assert_eq!(epoch_ms("2026-11-02T14:30:00Z"), Some(1_793_629_800_000));
+    // A local time without an offset is ambiguous; the tool rejects it.
+    assert_eq!(epoch_ms("2026-11-02T09:00:00"), None);
+    assert_eq!(epoch_ms("2026-13-02"), None);
+}
+
 // Its own test binary: the gateway origin is process-wide configuration.
 #[tokio::test]
 async fn marketing_asks_for_cryzo_sign_in_before_contacting_the_cloud() {
@@ -34,6 +48,11 @@ async fn marketing_asks_for_cryzo_sign_in_before_contacting_the_cloud() {
     let app = cryzo_engine::service::router(engine, "fixture-key".into());
     for (method, uri, body) in [
         ("GET", "/api/market/accounts", None),
+        (
+            "GET",
+            "/api/market/media/file?url=https%3A%2F%2Fexample.convex.cloud%2Fapi%2Fstorage%2Fabc",
+            None,
+        ),
         (
             "POST",
             "/api/market/posts/create",

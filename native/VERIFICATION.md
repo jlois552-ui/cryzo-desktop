@@ -98,3 +98,13 @@ Checks: 23 Rust tests (2 new ChatGPT tests: offered method, authorize URL, forge
 ## Session message order after restart, 2026-10-29
 
 `GET /api/session/{id}/message` now honours `order`, `limit` (default 100, at most 200), `type` and opaque cursors. The desktop reopens a session with `order=desc` and reverses the page; the engine previously ignored the order and returned oldest first, so reopened timelines showed newest at the top. Cursors carry the order and the last message ID returned, so messages arriving between pages cannot shift them; an unknown cursor returns `InvalidCursorError`. `tests/messages.rs` failed before the change and passes after it. Verified in the installed app: a reopened ChatGPT session shows its messages oldest to newest. 24 Rust tests and engine clippy pass.
+
+## Marketing tab, 2026-10-31
+
+Postiz-style Marketing tab (`packages/app/src/market`): a rail with Calendar, Analytics and Media; a Channels column with Add Channel, Create Post, Write with Cryzo and grouped channels; week/day/month/list calendar with drag-to-reschedule; a post editor with per-channel versions, media, network settings, preview and delivery status; and a chat bar that opens a new session with a marketing brief and the local time. The Marketing button sits beside Search in the titlebar and in the vertical tab sidebar.
+
+Backend: `services/model-gateway/convex/market` on the Cryzo cloud deployment, ported from cryzo.me's Composio publishing for X, Facebook, Instagram, YouTube, TikTok and Reddit, with Convex-scheduled publishing, leases and unknown-outcome protection. The engine proxies `/api/market/*` with the Cryzo sign-in token, streams uploads, and serves stored media as blobs, because the desktop content policy only allows `blob:` images. The agent gains `market_channels`, `market_posts` and `market_post`; scheduling needs exact-operation approval, and drafts do not.
+
+Checks: gateway `bun run test` (6 quota and 6 marketing tests) and `tsc`; 26 Rust tests, including the marketing sign-in gate and date parsing; engine clippy with warnings denied; desktop type check and build. Installed UI: Marketing opened signed in, and the request reached Cryzo cloud, which reported `COMPOSIO_API_KEY is missing` as expected. Calendar week and month, Add Channel with six networks, Analytics, Media and the chat bar's prefilled session were all observed.
+
+Not yet verified: connecting a real channel and publishing, which need the Composio environment values (`copy-composio-env.ps1`) and, for X and TikTok, custom auth configs. No live post was made.

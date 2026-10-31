@@ -46,22 +46,11 @@ pub fn model_info(provider: &str, model: &Model, enabled: bool) -> Value {
         }
         _ => json!([]),
     };
-    // Catalog "YYYY-MM-DD" as epoch milliseconds (days_from_civil). The renderer hides models that are
-    // neither recent nor the newest of their family, so an unknown date must not read as 1970.
-    let released = data["release_date"].as_str().and_then(|date| {
-        let mut parts = date.splitn(3, '-').map(str::parse::<i64>);
-        let (year, month, day) = (
-            parts.next()?.ok()?,
-            parts.next()?.ok()?,
-            parts.next()?.ok()?,
-        );
-        let year = if month <= 2 { year - 1 } else { year };
-        let era = year.div_euclid(400);
-        let year_of_era = year - era * 400;
-        let day_of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
-        let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-        Some((era * 146_097 + day_of_era - 719_468) * 86_400_000)
-    });
+    // The renderer hides models that are neither recent nor the newest of their family, so an
+    // unknown date must not read as 1970.
+    let released = data["release_date"]
+        .as_str()
+        .and_then(crate::market::epoch_ms);
     json!({"id":model.id,"modelID":model.id,"providerID":provider,"name":model.name,"type":"chat","family":data["family"].as_str().unwrap_or(&model.id),
         "capabilities":{"tools":data.pointer("/capabilities/tools/supported").and_then(Value::as_bool).unwrap_or(false),"input":data.pointer("/modalities/input").cloned().unwrap_or(json!(["text"])),"output":data.pointer("/modalities/output").cloned().unwrap_or(json!(["text"]))},
         "variants":variants,"time":{"released":released.unwrap_or(0)},"cost":cost,

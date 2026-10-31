@@ -324,7 +324,9 @@ pub async fn desktop_call(
             let mut files = Vec::new();
             for path in &paths {
                 let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
-                if !metadata.is_file() || metadata.len() > 20_000_000 { return Err("selected file exceeds the attachment limit".into()); }
+                // Attachment reads enforce their own 20 MB limit in FilesReadPickedFile; path-only picks
+                // (Marketing media uploads, streamed by the engine) may be larger.
+                if !metadata.is_file() || metadata.len() > 1_073_741_824 { return Err("selected file exceeds the 1 GB limit".into()); }
                 files.push(json!({"path":path.to_string_lossy(),"name":path.file_name().unwrap_or_default().to_string_lossy(),"size":metadata.len()}));
             }
             let token = uuid::Uuid::new_v4().to_string();

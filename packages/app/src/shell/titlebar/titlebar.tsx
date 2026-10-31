@@ -512,6 +512,49 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
               </Show>
             )
 
+            const marketButton = (vertical = false) => (
+              <Show
+                when={vertical}
+                fallback={
+                  <Tooltip placement="bottom" value={language.t("market.title")} class="shrink-0">
+                    <IconButton
+                      type="button"
+                      variant="ghost-muted"
+                      size="large"
+                      class="!w-9 shrink-0"
+                      icon={<Icon name="window-analytics" />}
+                      state={layout.route().type === "market" ? "pressed" : undefined}
+                      onClick={() => navigate("/market")}
+                      aria-label={language.t("market.title")}
+                      aria-pressed={layout.route().type === "market"}
+                    />
+                  </Tooltip>
+                }
+              >
+                <button
+                  type="button"
+                  data-titlebar-tab-action
+                  data-action="vertical-tabs-market"
+                  data-state={layout.route().type === "market" ? "pressed" : undefined}
+                  class="group flex h-7 w-full shrink-0 items-center gap-1.5 rounded-[6px] ps-1.5 pe-2 text-[13px] leading-4 text-v2-text-text-faint hover:text-v2-text-text-base data-[state=pressed]:text-v2-text-text-base"
+                  onClick={() => navigate("/market")}
+                  aria-pressed={layout.route().type === "market"}
+                >
+                  <Icon name="window-analytics" class="shrink-0" />
+                  <span class="min-w-0 truncate">{language.t("market.title")}</span>
+                </button>
+              </Show>
+            )
+
+            command.register("titlebar-market", () => [
+              {
+                id: "market.open",
+                title: language.t("command.market.open"),
+                category: language.t("command.category.view"),
+                onSelect: () => navigate("/market"),
+              },
+            ])
+
             command.register("titlebar-home", () => [
               {
                 id: "home.toggle",
@@ -634,6 +677,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                   <div class="flex shrink-0 items-center gap-0.5">
                     {homeButton()}
                     {searchButton()}
+                    {marketButton()}
                   </div>
                 </Show>
 
@@ -850,6 +894,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                             <div class="flex w-full shrink-0 flex-col gap-1">
                               <Show when={!homeInSidebarHeader()}>{homeButton(true)}</Show>
                               {searchButton(true)}
+                              {marketButton(true)}
                               <RecentlyClosedTabsMenu
                                 vertical
                                 onNewTab={openNewTab}

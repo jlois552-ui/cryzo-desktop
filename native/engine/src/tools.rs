@@ -10,16 +10,47 @@ use tokio::process::Command;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "tool", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
-    Read { path: String },
-    List { path: String },
-    Write { path: String, content: String },
-    Shell { program: String, args: Vec<String> },
+    Read {
+        path: String,
+    },
+    List {
+        path: String,
+    },
+    Write {
+        path: String,
+        content: String,
+    },
+    Shell {
+        program: String,
+        args: Vec<String>,
+    },
     Diff,
+    /// Marketing tools run against Cryzo cloud in the session runner, not in the workspace.
+    MarketChannels {},
+    MarketPosts {
+        days: u32,
+    },
+    MarketPost {
+        content: String,
+        channels: Vec<String>,
+        when: String,
+        schedule: bool,
+    },
 }
 
 impl Operation {
     pub fn needs_approval(&self) -> bool {
-        matches!(self, Self::Write { .. } | Self::Shell { .. })
+        matches!(
+            self,
+            Self::Write { .. } | Self::Shell { .. } | Self::MarketPost { schedule: true, .. }
+        )
+    }
+
+    pub fn is_market(&self) -> bool {
+        matches!(
+            self,
+            Self::MarketChannels {} | Self::MarketPosts { .. } | Self::MarketPost { .. }
+        )
     }
 }
 
@@ -106,6 +137,11 @@ impl Workspace {
                 Ok(json!({"written":true}))
             }
             Operation::Shell { program, args } => self.process(program, args).await,
+            Operation::MarketChannels {}
+            | Operation::MarketPosts { .. }
+            | Operation::MarketPost { .. } => {
+                anyhow::bail!("marketing tools run in the session runner")
+            }
             Operation::Diff => {
                 self.process(
                     "git",

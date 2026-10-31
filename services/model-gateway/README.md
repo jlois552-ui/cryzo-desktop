@@ -31,6 +31,20 @@ The development deployment is `moonlit-mosquito-262` in the `cryzo-desktop-model
 - Prompts, tool arguments, credentials and provider bodies are not logged. Model messages and tool schemas are sent to NVIDIA; tools execute locally under native approvals.
 - NVIDIA API trial terms restrict production use; production entitlement/capacity remains a rollout dependency. This code makes no purchases and does not enable a public desktop release.
 
+## Marketing
+
+`convex/market/` serves the desktop's Marketing tab under `/market/*`, behind the same Better Auth session as Cryzo Free. The desktop engine forwards these requests with the token from the OS credential store.
+
+- `store.ts`: accounts, groups, posts, deliveries, media and the analytics cache. Every function takes the user resolved by the HTTP layer.
+- `worker.ts` (Node): Composio connections, publishing and analytics, ported from cryzo.me (`Imma2013/cryzo-v11`). A post is scheduled with `ctx.scheduler.runAt`. Each network gets one delivery with a 5-minute lease; a dispatch that never reports back becomes `unknown` and is never retried automatically, to avoid duplicate posts. TikTok publishing is confirmed by polling its status.
+- `http.ts`: the routes, plus `/market/connected`, the page Composio returns to after a connection.
+
+Networks: X, Facebook, Instagram, YouTube, TikTok and Reddit. Facebook and Instagram need a Page or professional account chosen in the channel's settings.
+
+Configuration (Convex env): `COMPOSIO_API_KEY` and `COMPOSIO_{TWITTER,FACEBOOK,INSTAGRAM,YOUTUBE,TIKTOK,REDDIT}_AUTH_CONFIG_ID`. To reuse cryzo.me's Composio project, link a cryzo-v11 checkout to its Vercel project (`vercel link`) and run `.\copy-composio-env.ps1 -CryzoMe <that folder>`; values are copied without being printed. X and TikTok require custom developer apps in Composio; the other networks use Composio-managed OAuth.
+
+`bun run test` runs the quota and marketing suites in separate processes: Convex scheduled-function timers from one suite must not run into the other.
+
 ## Verification
 
 Run `bun test`, `bunx tsc --noEmit`, and `bunx convex dev --once`. Before public access verify Google approval/denial, expired tokens, device-code polling, current model availability, cancellation, quotas and upstream errors. `/health` reports configuration presence, not verified Google or NVIDIA access.
