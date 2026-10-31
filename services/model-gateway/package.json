@@ -6,11 +6,12 @@
   "scripts": {
     "dev": "convex dev",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
+    "test": "bun test test/quota.test.ts && bun test test/market.test.ts",
     "build": "tsc --noEmit",
     "deploy": "convex deploy"
   },
   "dependencies": {
+    "@composio/core": "0.9.0",
     "@convex-dev/better-auth": "0.12.5",
     "better-auth": "1.6.15",
     "convex": "1.48.0",

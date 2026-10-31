@@ -24,7 +24,7 @@ function configured() {
 }
 
 // The desktop holds a Better Auth session token from device authorization; the bearer plugin resolves it here.
-async function account(ctx: ActionCtx, request: Request) {
+export async function account(ctx: ActionCtx, request: Request) {
   const authorization = request.headers.get("authorization")
   if (!authorization?.startsWith("Bearer ") || authorization.length > 8192) return null
   const session = await createAuth(ctx).api.getSession({ headers: new Headers({ authorization }) }).catch(() => null)

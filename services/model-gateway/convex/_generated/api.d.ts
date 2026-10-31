@@ -14,7 +14,11 @@ import type * as gateway from "../gateway.js";
 import type * as http from "../http.js";
 import type * as lib_device from "../lib/device.js";
 import type * as lib_limits from "../lib/limits.js";
+import type * as lib_market from "../lib/market.js";
 import type * as lib_models from "../lib/models.js";
+import type * as market_http from "../market/http.js";
+import type * as market_store from "../market/store.js";
+import type * as market_worker from "../market/worker.js";
 import type * as quota from "../quota.js";
 
 import type {
@@ -30,7 +34,11 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   "lib/device": typeof lib_device;
   "lib/limits": typeof lib_limits;
+  "lib/market": typeof lib_market;
   "lib/models": typeof lib_models;
+  "market/http": typeof market_http;
+  "market/store": typeof market_store;
+  "market/worker": typeof market_worker;
   quota: typeof quota;
 }>;
 
