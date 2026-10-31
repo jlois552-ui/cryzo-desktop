@@ -19,6 +19,8 @@ export function client(channel: Channel): Client | null {
   return id && secret ? { id, secret } : null
 }
 
+/** The return URL registered with each network. In production it is on cryzo.me, which proxies to this
+ * deployment, because Google and Meta only accept return URLs on a domain the owner has verified. */
 export function redirect(channel: Channel) {
-  return `${process.env.SITE_URL}/market/oauth/${channel}/callback`
+  return `${process.env.MARKET_CALLBACK_BASE?.trim() || `${process.env.SITE_URL}/market`}/oauth/${channel}/callback`
 }

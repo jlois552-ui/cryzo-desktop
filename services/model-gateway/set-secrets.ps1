@@ -1,6 +1,9 @@
 # Sets the gateway's provider secrets on the Convex deployment from hidden prompts.
 # Values are never echoed, logged or written to disk. Leave a prompt empty to skip that value.
+param([switch]$Prod)
 $ErrorActionPreference = 'Stop'
+# -Prod writes to the Convex production deployment.
+$target = if ($Prod) { @('--prod') } else { @() }
 Set-Location $PSScriptRoot
 
 function Read-Secret([string]$Prompt) {
@@ -20,13 +23,13 @@ if ($nvidia) {
     } catch { [int]$_.Exception.Response.StatusCode }
     if ($status -in 401, 403) { throw "NVIDIA rejected this key (HTTP $status). Create a new key at build.nvidia.com and run again." }
     Write-Host "NVIDIA accepted the key (HTTP $status)."
-    bunx convex env set NVIDIA_API_KEY $nvidia
+    bunx convex env set @target NVIDIA_API_KEY $nvidia
 }
 
 $clientId = (Read-Host 'Google OAuth client ID (ends in .apps.googleusercontent.com)').Trim()
-if ($clientId) { bunx convex env set GOOGLE_CLIENT_ID $clientId }
+if ($clientId) { bunx convex env set @target GOOGLE_CLIENT_ID $clientId }
 $clientSecret = Read-Secret 'Google OAuth client secret (GOCSPX-..., hidden)'
-if ($clientSecret) { bunx convex env set GOOGLE_CLIENT_SECRET $clientSecret }
+if ($clientSecret) { bunx convex env set @target GOOGLE_CLIENT_SECRET $clientSecret }
 
-$site = (bunx convex env get SITE_URL).Trim()
+$site = (bunx convex env get @target SITE_URL).Trim()
 Write-Host "Gateway health: $((Invoke-RestMethod "$site/health") | ConvertTo-Json -Compress)"
