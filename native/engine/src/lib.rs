@@ -6,6 +6,7 @@ pub mod desktop_files;
 pub mod desktop_models;
 pub mod desktop_storage;
 pub mod free_tier;
+pub mod market;
 pub mod native_sessions;
 pub mod provider;
 pub mod pty;

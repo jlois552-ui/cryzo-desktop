@@ -16,6 +16,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
     let files = crate::desktop_files::router(engine.clone());
     let free = crate::free_tier::router(engine.clone());
     let chatgpt = crate::chatgpt::router(engine.clone());
+    let market = crate::market::router(engine.clone());
     Router::new()
         .route("/api/info", get(info))
         .route("/api/location", get(location))
@@ -37,6 +38,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .merge(files)
         .merge(free)
         .merge(chatgpt)
+        .merge(market)
 }
 
 pub(crate) fn directory(query: Option<&str>) -> anyhow::Result<PathBuf> {
