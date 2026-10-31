@@ -1,41 +1,21 @@
 // Marketing rules shared by the HTTP API, the publishing worker and tests.
-// Ported from cryzo.me's social publishing (Imma2013/cryzo-v11), limited to the six supported networks.
+// Limited to the seven supported networks; each network's API calls live in `lib/providers`.
 
-export const channels = ["x", "facebook", "instagram", "youtube", "tiktok", "reddit"] as const
+export const channels = ["x", "linkedin", "facebook", "instagram", "youtube", "tiktok", "reddit"] as const
 export type Channel = (typeof channels)[number]
 
-export const toolkits: Record<Channel, string> = {
-  x: "twitter",
-  facebook: "facebook",
-  instagram: "instagram",
-  youtube: "youtube",
-  tiktok: "tiktok",
-  reddit: "reddit",
+export const labels: Record<Channel, string> = {
+  x: "X",
+  linkedin: "LinkedIn",
+  facebook: "Facebook",
+  instagram: "Instagram",
+  youtube: "YouTube",
+  tiktok: "TikTok",
+  reddit: "Reddit",
 }
-
-const authConfigEnv: Record<Channel, string> = {
-  x: "COMPOSIO_TWITTER_AUTH_CONFIG_ID",
-  facebook: "COMPOSIO_FACEBOOK_AUTH_CONFIG_ID",
-  instagram: "COMPOSIO_INSTAGRAM_AUTH_CONFIG_ID",
-  youtube: "COMPOSIO_YOUTUBE_AUTH_CONFIG_ID",
-  tiktok: "COMPOSIO_TIKTOK_AUTH_CONFIG_ID",
-  reddit: "COMPOSIO_REDDIT_AUTH_CONFIG_ID",
-}
-
-// Composio manages OAuth apps for these; X and TikTok need the owner's own developer app.
-const customAuth: Channel[] = ["x", "tiktok"]
 
 export function isChannel(value: unknown): value is Channel {
   return typeof value === "string" && channels.some((channel) => channel === value)
-}
-
-export function channelForToolkit(toolkit: string) {
-  return channels.find((channel) => toolkits[channel] === toolkit)
-}
-
-export function authConfig(channel: Channel) {
-  const name = authConfigEnv[channel]
-  return { name, id: process.env[name]?.trim() || null, custom: customAuth.includes(channel) }
 }
 
 export type Target = { channel: Channel; connectedAccountId: string; content?: string }
@@ -46,7 +26,7 @@ export type Options = {
   tiktokPrivacy?: string
   instagramPostType?: "post" | "reel" | "story" | "carousel"
 }
-export type Account = { channel: string; connectedAccountId: string; targetId?: string }
+export type Account = { channel: string; connectedAccountId: string; targetId?: string; needsReconnect?: boolean }
 export type PostDraft = { content: string; targets: Target[]; options?: Options; mediaTypes: string[] }
 
 /** The first reason a post cannot be published, or null. Drafts skip network checks. */
@@ -57,9 +37,12 @@ export function publishProblem(post: PostDraft, accounts: Account[]): string | n
     if (!text && post.mediaTypes.length === 0) return `Write the ${target.channel} post before scheduling.`
     const account = accounts.find((item) => item.channel === target.channel && item.connectedAccountId === target.connectedAccountId)
     if (!account) return `Connect and select ${target.channel} before publishing.`
+    if (account.needsReconnect) return `Reconnect ${labels[target.channel]} before publishing.`
+    if (target.channel === "linkedin" && !account.targetId) return "Choose the LinkedIn profile or page to post to."
     if (target.channel === "facebook" && !/^\d+$/.test(account.targetId ?? "")) return "Choose the Facebook Page to post to."
     if (target.channel === "instagram" && !/^\d+$/.test(account.targetId ?? "")) return "Choose an Instagram Business or Creator account."
     if (target.channel === "x" && text.length > 280) return "X posts must be 280 characters or fewer."
+    if (target.channel === "linkedin" && text.length > 3000) return "LinkedIn posts must be 3,000 characters or fewer."
   }
   const used = new Set(post.targets.map((target) => target.channel))
   const videos = post.mediaTypes.filter((type) => type.startsWith("video/")).length
@@ -67,7 +50,8 @@ export function publishProblem(post: PostDraft, accounts: Account[]): string | n
   if (post.mediaTypes.length > 10) return "Use at most ten media files."
   if (used.has("reddit") && !post.options?.redditCommunity?.trim()) return "Choose a Reddit community."
   if (used.has("reddit") && post.mediaTypes.length) return "Reddit currently supports text posts only."
-  if (used.has("x") && (videos || images > 4)) return "X supports up to four images and no video."
+  if (used.has("x") && (videos > 1 || images > 4 || (videos && images))) return "X supports up to four images or one video."
+  if (used.has("linkedin") && (videos > 1 || images > 9 || (videos && images))) return "LinkedIn supports up to nine images or one video."
   if (used.has("tiktok") && (videos !== 1 || post.mediaTypes.length !== 1)) return "TikTok needs exactly one video."
   if (used.has("youtube") && (videos !== 1 || images > 1 || videos + images !== post.mediaTypes.length))
     return "YouTube needs one video and at most one thumbnail image."
@@ -88,7 +72,7 @@ export function postStatus(deliveries: { status: string }[]) {
   return "failed" as const
 }
 
-// Unwrap the Composio envelope without discarding Graph paging or report rows.
+// Unwrap nested `data` envelopes without discarding Graph paging or report rows.
 export function payload(value: any): any {
   let data = value
   for (let i = 0; i < 4 && data?.data && typeof data.data === "object" && !Array.isArray(data.data) && !data.rows && !data.elements; i++) data = data.data

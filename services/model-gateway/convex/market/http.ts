@@ -6,7 +6,9 @@ import { internal } from "../_generated/api"
 import type { Id } from "../_generated/dataModel"
 import { httpAction, type ActionCtx } from "../_generated/server"
 import { account } from "../gateway"
-import { isChannel } from "../lib/market"
+import { challenge, random } from "../lib/crypto"
+import { channels, isChannel, labels, type Channel } from "../lib/market"
+import { client, pending, providers, redirect } from "../lib/providers"
 
 const headers = { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" }
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers })
@@ -43,42 +45,78 @@ const time = (value: unknown, name: string) => {
   return parsed
 }
 
-const connected = httpAction(
-  async () =>
-    new Response(
-      "<!doctype html><meta charset=utf-8><title>Channel connected</title><style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0}</style><main><h1>Channel connected</h1><p>Return to Cryzo. Your channel appears in Marketing within a few seconds.</p></main>",
-      { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
-    ),
-)
+// The browser lands here after each network's sign-in. There is no Cryzo bearer token on this
+// request: the single-use state row identifies the user who started the sign-in.
+function callback(channel: Channel) {
+  return httpAction(async (ctx, request) => {
+    const params = new URL(request.url).searchParams
+    const started = params.get("state") ? await ctx.runMutation(internal.market.store.takeOauth, { state: params.get("state")!, channel }) : null
+    if (!started) return page(false, "This sign-in link expired or was already used. Start again from Marketing in Cryzo.")
+    const code = params.get("code")
+    if (params.get("error") || !code) return page(false, `${labels[channel]} sign-in was cancelled.`)
+    try {
+      await ctx.runAction(internal.market.worker.finishConnect, { user: started.user, channel, code, ...(started.verifier ? { verifier: started.verifier } : {}) })
+      return page(true, `Your ${labels[channel]} account is connected. Return to Cryzo.`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message.replace(/^\[.*?\]\s*/, "").replace(/^Uncaught Error:\s*/, "").split("\n")[0] : ""
+      return page(false, `${labels[channel]} could not be connected. ${message}`.trim())
+    }
+  })
+}
+
+function page(ok: boolean, message: string) {
+  const escaped = message.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)
+  const title = ok ? "Channel connected" : "Channel not connected"
+  return new Response(
+    `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width"><title>${title}</title><style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;padding:24px;box-sizing:border-box}main{max-width:420px}</style><main><h1>${title}</h1><p>${escaped}</p></main>`,
+    {
+      status: ok ? 200 : 400,
+      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" },
+    },
+  )
+}
 
 export function marketRoutes(http: HttpRouter) {
   const get = (path: string, handler: Handler) => http.route({ path: `/market/${path}`, method: "GET", handler: route(handler) })
   const post = (path: string, handler: Handler) => http.route({ path: `/market/${path}`, method: "POST", handler: route(handler) })
-  http.route({ path: "/market/connected", method: "GET", handler: connected })
+  for (const channel of channels) http.route({ path: `/market/oauth/${channel}/callback`, method: "GET", handler: callback(channel) })
 
+  // Which networks are set up on this deployment, and which still wait on platform approval.
+  get("providers", async () =>
+    channels.map((channel) => ({ channel, configured: Boolean(client(channel)), pending: pending(channel), pages: channel === "linkedin" && !pending("linkedin-page") })),
+  )
   get("accounts", (ctx, user) => ctx.runQuery(internal.market.store.listAccounts, { user }))
-  post("accounts/sync", async (ctx, user) => {
-    await ctx.runAction(internal.market.worker.sync, { user })
-    return await ctx.runQuery(internal.market.store.listAccounts, { user })
-  })
-  post("accounts/connect", (ctx, user, input) => {
+  // Returns the network's sign-in URL; the desktop opens it in the browser and polls `accounts`.
+  post("accounts/connect", async (ctx, user, input) => {
     if (!isChannel(input.channel)) throw new Error("Choose a supported channel.")
-    return ctx.runAction(internal.market.worker.connect, { user, channel: input.channel, callbackUrl: `${process.env.SITE_URL}/market/connected` })
+    const app = client(input.channel)
+    if (!app) throw new Error(`${labels[input.channel]} is not set up on the Cryzo cloud yet.`)
+    const provider = providers[input.channel]
+    const state = random()
+    const verifier = provider.pkce ? random(48) : undefined
+    await ctx.runMutation(internal.market.store.startOauth, { user, channel: input.channel, state, ...(verifier ? { verifier } : {}) })
+    return provider.authorize({ client: app, redirect: redirect(input.channel), state, ...(verifier ? { challenge: await challenge(verifier) } : {}) })
   })
   post("accounts/update", (ctx, user, input) =>
     ctx.runMutation(internal.market.store.updateAccount, {
       user,
       connectedAccountId: text(input.connectedAccountId, "channel"),
       ...(input.name !== undefined ? { name: String(input.name) } : {}),
-      ...(input.targetId !== undefined ? { targetId: String(input.targetId) } : {}),
       ...(input.groupId !== undefined ? { groupId: input.groupId === null ? null : (text(input.groupId, "group") as Id<"marketGroups">) } : {}),
     }),
   )
   post("accounts/disconnect", (ctx, user, input) =>
-    ctx.runAction(internal.market.worker.disconnect, { user, connectedAccountId: text(input.connectedAccountId, "channel") }),
+    ctx.runMutation(internal.market.store.removeAccount, { user, connectedAccountId: text(input.connectedAccountId, "channel") }),
   )
   get("accounts/targets", (ctx, user, input) =>
     ctx.runAction(internal.market.worker.targets, { user, connectedAccountId: text(input.connectedAccountId, "channel") }),
+  )
+  post("accounts/target", (ctx, user, input) =>
+    ctx.runAction(internal.market.worker.chooseTarget, {
+      user,
+      connectedAccountId: text(input.connectedAccountId, "channel"),
+      targetId: text(input.targetId, "page"),
+    }),
   )
 
   post("groups/save", (ctx, user, input) =>

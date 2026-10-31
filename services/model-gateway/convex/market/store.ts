@@ -4,7 +4,7 @@ import { v } from "convex/values"
 import { internal } from "../_generated/api"
 import type { Doc, Id } from "../_generated/dataModel"
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server"
-import { postStatus, publishProblem } from "../lib/market"
+import { postStatus, publishProblem, type Channel } from "../lib/market"
 import { channel, options } from "../schema"
 
 const target = v.object({ channel, connectedAccountId: v.string(), content: v.optional(v.string()) })
@@ -12,6 +12,23 @@ type Ctx = QueryCtx | MutationCtx
 
 async function accounts(ctx: Ctx, user: string) {
   return await ctx.db.query("marketAccounts").withIndex("by_user", (q) => q.eq("user", user)).take(200)
+}
+
+async function owned(ctx: Ctx, user: string, connectedAccountId: string) {
+  return await ctx.db
+    .query("marketAccounts")
+    .withIndex("by_user_and_connected", (q) => q.eq("user", user).eq("connectedAccountId", connectedAccountId))
+    .unique()
+}
+
+// Networks that post as a chosen Page, business account or member/organization.
+const targeted: Channel[] = ["facebook", "instagram", "linkedin"]
+
+/** An account as clients see it: tokens removed, connection state derived. */
+function view(row: Doc<"marketAccounts">) {
+  const { token, targetToken, ...rest } = row
+  const expired = row.expiresAt !== undefined && !row.refreshable && row.expiresAt <= Date.now()
+  return { ...rest, needsReconnect: Boolean(row.needsReconnect || expired), needsTarget: targeted.includes(row.channel) && !row.targetId }
 }
 
 async function deliveries(ctx: Ctx, postId: Id<"marketPosts">) {
@@ -37,7 +54,7 @@ async function mediaTypes(ctx: Ctx, user: string, ids: Id<"_storage">[]) {
 async function problem(ctx: Ctx, post: Pick<Doc<"marketPosts">, "user" | "content" | "targets" | "options" | "mediaIds">) {
   return publishProblem(
     { content: post.content, targets: post.targets, options: post.options, mediaTypes: await mediaTypes(ctx, post.user, post.mediaIds) },
-    await accounts(ctx, post.user),
+    (await accounts(ctx, post.user)).map(view),
   )
 }
 
@@ -66,32 +83,119 @@ async function refresh(ctx: MutationCtx, postId: Id<"marketPosts">) {
 export const listAccounts = internalQuery({
   args: { user: v.string() },
   handler: async (ctx, args) => ({
-    accounts: await accounts(ctx, args.user),
+    accounts: (await accounts(ctx, args.user)).map(view),
     groups: await ctx.db.query("marketGroups").withIndex("by_user", (q) => q.eq("user", args.user)).take(100),
   }),
 })
 
+/** The full account row, tokens included, for the worker. */
 export const account = internalQuery({
   args: { user: v.string(), connectedAccountId: v.string() },
-  handler: async (ctx, args) =>
-    await ctx.db
-      .query("marketAccounts")
-      .withIndex("by_user_and_connected", (q) => q.eq("user", args.user).eq("connectedAccountId", args.connectedAccountId))
-      .unique(),
+  handler: async (ctx, args) => await owned(ctx, args.user, args.connectedAccountId),
 })
 
-/** Mirror Composio's active connections: add new ones, keep names, groups and targets, and drop revoked ones. */
-export const syncAccounts = internalMutation({
-  args: { user: v.string(), active: v.array(v.object({ channel, connectedAccountId: v.string(), name: v.string() })) },
+export const accountById = internalQuery({
+  args: { accountId: v.id("marketAccounts") },
+  handler: async (ctx, args) => await ctx.db.get(args.accountId),
+})
+
+/** Adds a connected account, or replaces the tokens of one connected before (reconnect). */
+export const upsertAccount = internalMutation({
+  args: {
+    user: v.string(),
+    channel,
+    providerUserId: v.string(),
+    name: v.string(),
+    avatar: v.optional(v.string()),
+    token: v.string(),
+    expiresAt: v.optional(v.number()),
+    refreshable: v.boolean(),
+    targetId: v.optional(v.string()),
+    targetName: v.optional(v.string()),
+    targetToken: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
-    const existing = await accounts(ctx, args.user)
-    for (const item of existing) {
-      if (!args.active.some((active) => active.connectedAccountId === item.connectedAccountId)) await ctx.db.delete(item._id)
-    }
-    for (const item of args.active) {
-      if (existing.some((row) => row.connectedAccountId === item.connectedAccountId)) continue
-      await ctx.db.insert("marketAccounts", { user: args.user, ...item, createdAt: Date.now() })
-    }
+    const connectedAccountId = `${args.channel}:${args.providerUserId}`
+    const row = await owned(ctx, args.user, connectedAccountId)
+    const tokens = { avatar: args.avatar, token: args.token, expiresAt: args.expiresAt, refreshable: args.refreshable }
+    // A reconnect keeps the user's name, group and chosen target unless a new target was resolved.
+    const target = args.targetId ? { targetId: args.targetId, targetName: args.targetName, targetToken: args.targetToken } : {}
+    const accountId = row?._id ?? (await ctx.db.insert("marketAccounts", {
+      user: args.user,
+      channel: args.channel,
+      connectedAccountId,
+      providerUserId: args.providerUserId,
+      name: args.name.slice(0, 100),
+      ...tokens,
+      ...target,
+      createdAt: Date.now(),
+    }))
+    if (row) await ctx.db.patch(row._id, { ...tokens, ...target, needsReconnect: false })
+    await schedule(ctx, accountId, args.expiresAt, args.refreshable)
+    return connectedAccountId
+  },
+})
+
+export const saveTokens = internalMutation({
+  args: { accountId: v.id("marketAccounts"), token: v.string(), expiresAt: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.accountId)
+    if (!row) return null
+    await ctx.db.patch(row._id, { token: args.token, expiresAt: args.expiresAt, needsReconnect: false })
+    await schedule(ctx, row._id, args.expiresAt, row.refreshable)
+    return null
+  },
+})
+
+export const flagReconnect = internalMutation({
+  args: { accountId: v.id("marketAccounts") },
+  handler: async (ctx, args) => {
+    if (await ctx.db.get(args.accountId)) await ctx.db.patch(args.accountId, { needsReconnect: true })
+    return null
+  },
+})
+
+export const setTarget = internalMutation({
+  args: { user: v.string(), connectedAccountId: v.string(), targetId: v.string(), targetName: v.string(), targetToken: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const row = await owned(ctx, args.user, args.connectedAccountId)
+    if (!row) throw new Error("Channel not found.")
+    await ctx.db.patch(row._id, { targetId: args.targetId, targetName: args.targetName.slice(0, 100), targetToken: args.targetToken })
+    return null
+  },
+})
+
+// Refresh ten minutes before expiry; stale runs see a later expiry and exit.
+async function schedule(ctx: MutationCtx, accountId: Id<"marketAccounts">, expiresAt: number | undefined, refreshable: boolean) {
+  if (expiresAt && refreshable)
+    await ctx.scheduler.runAt(Math.max(expiresAt - 10 * 60_000, Date.now() + 60_000), internal.market.worker.refreshAccount, { accountId })
+}
+
+export const startOauth = internalMutation({
+  args: { user: v.string(), channel, state: v.string(), verifier: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const id = await ctx.db.insert("marketOauth", { ...args, expiresAt: Date.now() + 10 * 60_000 })
+    await ctx.scheduler.runAfter(10 * 60_000, internal.market.store.dropOauth, { id })
+    return null
+  },
+})
+
+/** Consumes a sign-in state once. A wrong network, an expired state or a replay returns null. */
+export const takeOauth = internalMutation({
+  args: { state: v.string(), channel },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.query("marketOauth").withIndex("by_state", (q) => q.eq("state", args.state)).unique()
+    if (!row) return null
+    await ctx.db.delete(row._id)
+    if (row.channel !== args.channel || row.expiresAt < Date.now()) return null
+    return { user: row.user, verifier: row.verifier }
+  },
+})
+
+export const dropOauth = internalMutation({
+  args: { id: v.id("marketOauth") },
+  handler: async (ctx, args) => {
+    if (await ctx.db.get(args.id)) await ctx.db.delete(args.id)
     return null
   },
 })
@@ -101,15 +205,10 @@ export const updateAccount = internalMutation({
     user: v.string(),
     connectedAccountId: v.string(),
     name: v.optional(v.string()),
-    avatar: v.optional(v.string()),
-    targetId: v.optional(v.string()),
     groupId: v.optional(v.union(v.id("marketGroups"), v.null())),
   },
   handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("marketAccounts")
-      .withIndex("by_user_and_connected", (q) => q.eq("user", args.user).eq("connectedAccountId", args.connectedAccountId))
-      .unique()
+    const row = await owned(ctx, args.user, args.connectedAccountId)
     if (!row) throw new Error("Channel not found.")
     if (args.groupId) {
       const group = await ctx.db.get(args.groupId)
@@ -119,8 +218,6 @@ export const updateAccount = internalMutation({
     if (name !== undefined && (!name || name.length > 100)) throw new Error("Use a name between 1 and 100 characters.")
     await ctx.db.patch(row._id, {
       ...(name ? { name } : {}),
-      ...(args.avatar !== undefined ? { avatar: args.avatar } : {}),
-      ...(args.targetId !== undefined ? { targetId: args.targetId } : {}),
       ...(args.groupId !== undefined ? { groupId: args.groupId ?? undefined } : {}),
     })
     return null
@@ -130,10 +227,7 @@ export const updateAccount = internalMutation({
 export const removeAccount = internalMutation({
   args: { user: v.string(), connectedAccountId: v.string() },
   handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("marketAccounts")
-      .withIndex("by_user_and_connected", (q) => q.eq("user", args.user).eq("connectedAccountId", args.connectedAccountId))
-      .unique()
+    const row = await owned(ctx, args.user, args.connectedAccountId)
     if (row) await ctx.db.delete(row._id)
     return null
   },
@@ -347,18 +441,15 @@ export const deliveryForPublish = internalQuery({
     if (!delivery || delivery.status !== "pending") return null
     const post = await ctx.db.get(delivery.postId)
     if (!post || post.status !== "publishing") return null
-    const account = await ctx.db
-      .query("marketAccounts")
-      .withIndex("by_user_and_connected", (q) => q.eq("user", post.user).eq("connectedAccountId", delivery.connectedAccountId))
-      .unique()
+    const account = await owned(ctx, post.user, delivery.connectedAccountId)
     const media = await Promise.all(
-      post.mediaIds.map(async (storageId) => ({
-        url: await ctx.storage.getUrl(storageId),
-        type: (await ctx.db.query("marketMedia").withIndex("by_storage", (q) => q.eq("storageId", storageId)).unique())?.contentType ?? "",
-      })),
+      post.mediaIds.map(async (storageId) => {
+        const row = await ctx.db.query("marketMedia").withIndex("by_storage", (q) => q.eq("storageId", storageId)).unique()
+        return { url: (await ctx.storage.getUrl(storageId)) ?? "", type: row?.contentType ?? "", size: row?.size ?? 0 }
+      }),
     )
     const content = post.targets.find((item) => item.channel === delivery.channel && item.connectedAccountId === delivery.connectedAccountId)?.content
-    return { delivery, post, targetId: account?.targetId, content: (content ?? post.content).trim(), media }
+    return { delivery, post, account, content: (content ?? post.content).trim(), media }
   },
 })
 
@@ -380,7 +471,7 @@ export const claimDelivery = internalMutation({
 })
 
 export const markPublished = internalMutation({
-  args: { deliveryId: v.id("marketDeliveries"), toolSlug: v.string(), providerLogId: v.optional(v.string()), remotePostId: v.optional(v.string()) },
+  args: { deliveryId: v.id("marketDeliveries"), operation: v.string(), remotePostId: v.optional(v.string()), remoteUrl: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const { deliveryId, ...fields } = args
     const delivery = await ctx.db.get(deliveryId)
@@ -396,8 +487,7 @@ export const markFailed = internalMutation({
     deliveryId: v.id("marketDeliveries"),
     error: v.string(),
     outcomeUnknown: v.boolean(),
-    toolSlug: v.optional(v.string()),
-    providerLogId: v.optional(v.string()),
+    operation: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const delivery = await ctx.db.get(args.deliveryId)
@@ -405,8 +495,7 @@ export const markFailed = internalMutation({
     await ctx.db.patch(delivery._id, {
       status: args.outcomeUnknown ? "unknown" : "failed",
       error: args.error.slice(0, 1000),
-      toolSlug: args.toolSlug,
-      providerLogId: args.providerLogId,
+      operation: args.operation,
       leaseExpiresAt: undefined,
       updatedAt: Date.now(),
     })
@@ -416,7 +505,7 @@ export const markFailed = internalMutation({
 })
 
 export const markProcessing = internalMutation({
-  args: { deliveryId: v.id("marketDeliveries"), remotePostId: v.string(), providerLogId: v.optional(v.string()), toolSlug: v.string() },
+  args: { deliveryId: v.id("marketDeliveries"), remotePostId: v.string(), operation: v.string() },
   handler: async (ctx, args) => {
     const { deliveryId, ...fields } = args
     await ctx.db.patch(deliveryId, { ...fields, status: "publishing", pollingAttempts: 0, updatedAt: Date.now() })

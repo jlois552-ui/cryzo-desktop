@@ -36,12 +36,24 @@ The development deployment is `moonlit-mosquito-262` in the `cryzo-desktop-model
 `convex/market/` serves the desktop's Marketing tab under `/market/*`, behind the same Better Auth session as Cryzo Free. The desktop engine forwards these requests with the token from the OS credential store.
 
 - `store.ts`: accounts, groups, posts, deliveries, media and the analytics cache. Every function takes the user resolved by the HTTP layer.
-- `worker.ts` (Node): Composio connections, publishing and analytics, ported from cryzo.me (`Imma2013/cryzo-v11`). A post is scheduled with `ctx.scheduler.runAt`. Each network gets one delivery with a 5-minute lease; a dispatch that never reports back becomes `unknown` and is never retried automatically, to avoid duplicate posts. TikTok publishing is confirmed by polling its status.
-- `http.ts`: the routes, plus `/market/connected`, the page Composio returns to after a connection.
+- `lib/providers/`: one module per network (X, LinkedIn, Facebook, Instagram, YouTube, TikTok, Reddit) with its OAuth sign-in, token refresh, profile, Page or account choice, publishing and analytics, called directly over each network's REST API. The flow follows Postiz's integrations; no Postiz code is used.
+- `worker.ts` (Node): finishes sign-ins, refreshes tokens ten minutes before expiry, publishes and reads analytics. A post is scheduled with `ctx.scheduler.runAt`. Each network gets one delivery with a 5-minute lease; a dispatch that never reports back becomes `unknown` and is never retried automatically, to avoid duplicate posts. TikTok publishing is confirmed by polling its status.
+- `http.ts`: the routes. `POST /market/accounts/connect` returns the network's sign-in URL; the browser comes back to `/market/oauth/<network>/callback`, where a single-use, 10-minute state row identifies the user. `GET /market/providers` lists which networks are set up and which wait on platform approval.
 
-Networks: X, Facebook, Instagram, YouTube, TikTok and Reddit. Facebook and Instagram need a Page or professional account chosen in the channel's settings.
+Tokens are sealed with AES-256-GCM (`lib/crypto.ts`, key `MARKET_TOKEN_KEY`) and never returned to clients. Changing the key disconnects every channel. Facebook, Instagram and LinkedIn post as a chosen Page, business account, member or organization; when a sign-in finds exactly one, it is chosen automatically. Facebook, Instagram and LinkedIn (without partner refresh tokens) cannot refresh, so those channels show Reconnect after about 60 days.
 
-Configuration (Convex env): `COMPOSIO_API_KEY` and `COMPOSIO_{TWITTER,FACEBOOK,INSTAGRAM,YOUTUBE,TIKTOK,REDDIT}_AUTH_CONFIG_ID`. To reuse cryzo.me's Composio project, link a cryzo-v11 checkout to its Vercel project (`vercel link`) and run `.\copy-composio-env.ps1 -CryzoMe <that folder>`; values are copied without being printed. X and TikTok require custom developer apps in Composio; the other networks use Composio-managed OAuth.
+Configuration (Convex env), set with `.\set-market-secrets.ps1` (hidden prompts; pass `-Network x` for one network). It generates `MARKET_TOKEN_KEY` on first run and prints the callback URLs to register:
+
+| Network | Env | Callback path |
+|---|---|---|
+| X | `X_CLIENT_ID`, `X_CLIENT_SECRET` | `/market/oauth/x/callback` |
+| LinkedIn | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | `/market/oauth/linkedin/callback` |
+| YouTube | `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET` | `/market/oauth/youtube/callback` |
+| TikTok | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | `/market/oauth/tiktok/callback` |
+| Facebook, Instagram | `META_APP_ID`, `META_APP_SECRET` | `/market/oauth/facebook/callback`, `/market/oauth/instagram/callback` |
+| Reddit | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | `/market/oauth/reddit/callback` |
+
+`MARKET_PENDING` lists networks or features still waiting on platform approval (currently `reddit,linkedin-page`); the desktop shows them as pending, and LinkedIn requests organization scopes only once `linkedin-page` is removed. Platform review status and demo-recording scripts are in `native/MARKET-REVIEW.md`.
 
 `bun run test` runs the quota and marketing suites in separate processes: Convex scheduled-function timers from one suite must not run into the other.
 
