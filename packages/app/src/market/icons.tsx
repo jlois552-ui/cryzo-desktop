@@ -2,7 +2,15 @@ import type { JSX } from "solid-js"
 import type { Account, Channel } from "./api"
 
 // Rail glyphs drawn in currentColor so they follow the theme; the shared catalog has no calendar or chart.
-const paths: Record<"calendar" | "analytics" | "media" | "sparkle", JSX.Element> = {
+const paths: Record<"overview" | "posts" | "calendar" | "analytics" | "media" | "channels" | "sparkle", JSX.Element> = {
+  overview: <path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z" />,
+  posts: (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="2.5" />
+      <path d="M8 9h8M8 12.5h8M8 16h5" />
+    </>
+  ),
+  channels: <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" />,
   calendar: (
     <>
       <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
@@ -39,6 +47,7 @@ export function MarketIcon(props: { name: keyof typeof paths; class?: string }) 
 
 const brand: Record<Channel, { color: string; mark: string }> = {
   x: { color: "#000000", mark: "X" },
+  linkedin: { color: "#0A66C2", mark: "in" },
   facebook: { color: "#1877F2", mark: "f" },
   instagram: { color: "#E1306C", mark: "IG" },
   youtube: { color: "#FF0000", mark: "▶" },

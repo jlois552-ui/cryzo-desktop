@@ -8,12 +8,12 @@ import { createStore } from "solid-js/store"
 import { useLanguage } from "@/runtime/i18n/language"
 import { usePlatform } from "@/runtime/platform/platform"
 import { showToast } from "@/shell/notifications/toast"
-import type { Account, Channel, Options, Post, Target } from "./api"
-import { networkName } from "./channels"
+import { channels, type Account, type Channel, type Options, type Post, type Target } from "./api"
+import { ConnectDialog, networkName } from "./channels"
 import { ChannelAvatar, NetworkBadge } from "./icons"
 import type { MarketModel } from "./model"
 
-const limits: Partial<Record<Channel, number>> = { x: 280, instagram: 2200, tiktok: 2200, youtube: 5000, facebook: 63206, reddit: 40000 }
+const limits: Partial<Record<Channel, number>> = { x: 280, linkedin: 3000, instagram: 2200, tiktok: 2200, youtube: 5000, facebook: 63206, reddit: 40000 }
 
 function localInput(time: number) {
   const date = new Date(time)
@@ -41,8 +41,9 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
   })
 
   const selected = (account: Account) => state.targets.some((target) => target.connectedAccountId === account.connectedAccountId)
+  const usable = (account: Account) => !account.needsReconnect && !account.needsTarget
   const toggle = (account: Account) => {
-    if (locked) return
+    if (locked || (!usable(account) && !selected(account))) return
     if (selected(account)) {
       setState("targets", (targets) => targets.filter((target) => target.connectedAccountId !== account.connectedAccountId))
       if (state.editing === account.connectedAccountId) setState("editing", "")
@@ -145,24 +146,58 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
         </div>
         <div class="flex min-h-0 flex-1">
           <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-6 py-5" data-scrollable>
-            <div class="flex flex-wrap gap-2">
-              <For each={props.model.state.accounts}>
-                {(account) => (
-                  <button
-                    type="button"
-                    class="rounded-full p-0.5 ring-2 ring-transparent aria-pressed:ring-v2-icon-icon-accent disabled:cursor-default"
-                    classList={{ "opacity-40": !selected(account) }}
-                    aria-pressed={selected(account)}
-                    aria-label={account.name}
-                    title={account.name}
-                    disabled={locked}
-                    onClick={() => toggle(account)}
-                  >
-                    <ChannelAvatar account={account} />
-                  </button>
-                )}
-              </For>
-            </div>
+            <section class="flex flex-col gap-2 rounded-[12px] border border-v2-border-border-muted p-3">
+              <div class="flex items-center gap-2">
+                <span class="text-[13px] font-medium leading-5 text-v2-text-text-base">{language.t("market.editor.postTo")}</span>
+                <div class="flex-1" />
+                <Show when={!locked}>
+                  <span class="text-[12px] leading-4 text-v2-text-text-muted">{language.t("market.editor.connectMore")}</span>
+                  <For each={channels.filter((channel) => props.model.provider(channel)?.configured)}>
+                    {(channel) => (
+                      <button
+                        type="button"
+                        class="rounded-full"
+                        aria-label={language.t("market.connect.title", { network: networkName(language, channel) })}
+                        title={language.t("market.connect.title", { network: networkName(language, channel) })}
+                        onClick={() => dialog.show(() => <ConnectDialog model={props.model} channel={channel} />)}
+                      >
+                        <NetworkBadge channel={channel} class="size-5 text-[9px] leading-none" />
+                      </button>
+                    )}
+                  </For>
+                </Show>
+              </div>
+              <div class="grid gap-1 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
+                <For each={props.model.state.accounts}>
+                  {(account) => (
+                    <button
+                      type="button"
+                      role="switch"
+                      class="flex h-11 items-center gap-2.5 rounded-[8px] px-2 text-start hover:bg-v2-overlay-simple-overlay-hover disabled:cursor-default disabled:hover:bg-transparent"
+                      aria-checked={selected(account)}
+                      disabled={locked || (!usable(account) && !selected(account))}
+                      onClick={() => toggle(account)}
+                    >
+                      <ChannelAvatar account={account} size="small" />
+                      <span class="min-w-0 flex-1">
+                        <span class="block truncate text-[13px] leading-5 text-v2-text-text-base">{account.name}</span>
+                        <Show when={!usable(account)}>
+                          <span class="block truncate text-[11px] leading-4 text-v2-state-fg-warning">
+                            {language.t(account.needsReconnect ? "market.channels.reconnectNeeded" : "market.channels.targetMissing")}
+                          </span>
+                        </Show>
+                      </span>
+                      <span
+                        class="flex h-4 w-7 shrink-0 items-center rounded-full bg-v2-background-bg-layer-03 p-0.5 transition-colors"
+                        classList={{ "!bg-v2-background-bg-accent": selected(account) }}
+                      >
+                        <span class="size-3 rounded-full bg-v2-background-bg-base transition-transform" classList={{ "translate-x-3": selected(account) }} />
+                      </span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </section>
 
             <div class="flex flex-col gap-2">
               <div class="flex flex-wrap gap-1" role="tablist">

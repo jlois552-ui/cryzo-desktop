@@ -127,12 +127,45 @@ fn error(error: impl ToString) -> (StatusCode, Json<Value>) {
 }
 pub fn router(engine: Arc<Engine>) -> Router {
     Router::new()
+        .route("/api/cryzo/account", get(account))
         .route("/api/integration/cryzo/connect/oauth", post(begin))
         .route(
             "/api/integration/cryzo/connect/oauth/{attempt}",
             get(status).delete(cancel),
         )
         .with_state(engine)
+}
+/// The signed-in Cryzo account for the sidebar. When the gateway cannot be reached the user
+/// stays signed in without a name; only a rejected session signs them out.
+async fn account(State(engine): State<Arc<Engine>>) -> ApiResult {
+    if !signed_in(&engine).unwrap_or(false) {
+        return Ok(Json(json!({"signedIn":false})));
+    }
+    let token = tokio::task::spawn_blocking(|| Credentials::get("cryzo"))
+        .await
+        .map_err(error)?
+        .map_err(error)?;
+    let Ok(response) = client()
+        .map_err(error)?
+        .get(format!(
+            "{}/api/auth/get-session",
+            gateway().map_err(error)?
+        ))
+        .bearer_auth(token)
+        .send()
+        .await
+    else {
+        return Ok(Json(json!({"signedIn":true})));
+    };
+    let status = response.status();
+    let data: Value = response.json().await.unwrap_or(Value::Null);
+    if status == StatusCode::UNAUTHORIZED || (status.is_success() && data["user"].is_null()) {
+        return Ok(Json(json!({"signedIn":false})));
+    }
+    let user = &data["user"];
+    Ok(Json(
+        json!({"signedIn":true,"name":user["name"],"email":user["email"],"image":user["image"]}),
+    ))
 }
 fn located(query: &Option<String>, data: Value) -> ApiResult {
     let path = crate::desktop_api::directory(query.as_deref()).map_err(error)?;

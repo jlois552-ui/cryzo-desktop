@@ -27,9 +27,8 @@ export function Analytics(props: { model: MarketModel }) {
   const number = (value: number) => new Intl.NumberFormat(language.intl(), { maximumFractionDigits: 1, notation: value >= 100_000 ? "compact" : "standard" }).format(value)
 
   return (
-    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-4 px-5 py-5">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
       <div class="flex items-center gap-3">
-        <h2 class="text-[18px] font-medium leading-7 text-v2-text-text-base">{language.t("market.nav.analytics")}</h2>
         <Show when={state.loading}>
           <Loader class="size-4" />
         </Show>

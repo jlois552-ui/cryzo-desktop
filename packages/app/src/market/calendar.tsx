@@ -54,7 +54,7 @@ export function Calendar(props: { model: MarketModel; onOpen: (post: Post) => vo
   }
 
   return (
-    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-4 px-5 py-5">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
       <div class="flex flex-wrap items-center gap-3">
         <div class="flex h-9 items-center rounded-[8px] border border-v2-border-border-muted">
           <IconButton
@@ -240,7 +240,7 @@ function TimeGrid(props: {
   )
 }
 
-function PostCard(props: { post: Post; model: MarketModel; onOpen: (post: Post) => void; compact?: boolean }) {
+export function PostCard(props: { post: Post; model: MarketModel; onOpen: (post: Post) => void; compact?: boolean }) {
   const language = useLanguage()
   const group = () => props.model.group(props.post.groupId)
   const accounts = () =>

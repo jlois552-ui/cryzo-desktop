@@ -2,7 +2,7 @@ import { authTokenFromCredentials } from "@/runtime/server/api"
 import { useServerSDK } from "@/runtime/server/client"
 import { usePlatform } from "@/runtime/platform/platform"
 
-export const channels = ["x", "facebook", "instagram", "youtube", "tiktok", "reddit"] as const
+export const channels = ["x", "linkedin", "facebook", "instagram", "youtube", "tiktok", "reddit"] as const
 export type Channel = (typeof channels)[number]
 
 export type Group = { _id: string; name: string; color: string }
@@ -12,9 +12,16 @@ export type Account = {
   connectedAccountId: string
   name: string
   avatar?: string
+  /** The Page, Instagram account or LinkedIn member/organization posts go to. */
   targetId?: string
+  targetName?: string
   groupId?: string
+  expiresAt?: number
+  needsReconnect: boolean
+  needsTarget: boolean
 }
+/** Whether a network is set up on Cryzo cloud, and whether it still waits on the platform's approval. */
+export type Provider = { channel: Channel; configured: boolean; pending: boolean; pages: boolean }
 export type Target = { channel: Channel; connectedAccountId: string; content?: string }
 export type Options = {
   redditCommunity?: string
@@ -29,6 +36,7 @@ export type Delivery = {
   connectedAccountId: string
   status: "pending" | "publishing" | "published" | "failed" | "unknown"
   remotePostId?: string
+  remoteUrl?: string
   error?: string
 }
 export type Post = {
@@ -88,11 +96,13 @@ export function useMarketApi() {
   }
 
   return {
+    providers: () => request<Provider[]>("GET", "providers"),
     accounts: () => request<{ accounts: Account[]; groups: Group[] }>("GET", "accounts"),
-    sync: () => request<{ accounts: Account[]; groups: Group[] }>("POST", "accounts/sync"),
+    /** The network's sign-in URL. The sign-in finishes in the browser; the account then appears in `accounts`. */
     connect: (channel: Channel) => request<string>("POST", "accounts/connect", { channel }),
-    updateAccount: (input: { connectedAccountId: string; name?: string; targetId?: string; groupId?: string | null }) =>
+    updateAccount: (input: { connectedAccountId: string; name?: string; groupId?: string | null }) =>
       request<null>("POST", "accounts/update", input),
+    chooseTarget: (connectedAccountId: string, targetId: string) => request<null>("POST", "accounts/target", { connectedAccountId, targetId }),
     disconnect: (connectedAccountId: string) => request<null>("POST", "accounts/disconnect", { connectedAccountId }),
     targets: (connectedAccountId: string) =>
       request<{ id: string; name: string }[]>("GET", `accounts/targets?connectedAccountId=${encodeURIComponent(connectedAccountId)}`),

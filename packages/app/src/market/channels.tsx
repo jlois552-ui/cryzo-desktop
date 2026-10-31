@@ -4,193 +4,155 @@ import { Dialog, DialogTitle } from "@opencode/ui/dialog"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
 import { Loader } from "@opencode/ui/loader"
-import { For, Show, createMemo, onCleanup, onMount } from "solid-js"
+import { For, Show, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/runtime/i18n/language"
 import { usePlatform } from "@/runtime/platform/platform"
 import { channels, type Account, type Channel } from "./api"
-import { ChannelAvatar, MarketIcon, NetworkBadge } from "./icons"
+import { ChannelAvatar, NetworkBadge } from "./icons"
 import type { MarketModel } from "./model"
 
-export function ChannelsColumn(props: { model: MarketModel; onCreate: () => void; onGenerate: () => void }) {
+/** Wix's "Manage accounts": every network with its connected accounts and what each needs next. */
+export function ChannelsPage(props: { model: MarketModel }) {
   const language = useLanguage()
   const dialog = useDialog()
-  const sections = createMemo(() => [
-    { id: undefined as string | undefined, name: language.t("market.channels.ungrouped"), color: undefined as string | undefined },
-    ...props.model.state.groups.map((group) => ({ id: group._id as string | undefined, name: group.name, color: group.color as string | undefined })),
-  ])
-  const members = (groupId: string | undefined) => props.model.state.accounts.filter((account) => account.groupId === groupId)
+  const accounts = (channel: Channel) => props.model.state.accounts.filter((account) => account.channel === channel)
 
   return (
-    <Show
-      when={!props.model.state.collapsed}
-      fallback={
-        <div class="flex w-12 shrink-0 flex-col items-center gap-2 border-e border-v2-border-border-muted py-4">
-          <IconButton
-            variant="ghost-muted"
-            icon={<Icon name="outline-chevron-right" />}
-            aria-label={language.t("market.channels.expand")}
-            onClick={() => props.model.setState("collapsed", false)}
-          />
-          <For each={props.model.state.accounts}>{(account) => <ChannelAvatar account={account} size="small" />}</For>
-        </div>
-      }
-    >
-      <aside class="flex w-[280px] shrink-0 flex-col gap-4 border-e border-v2-border-border-muted px-4 py-5">
-        <div class="flex h-8 items-center justify-between">
-          <h2 class="text-[18px] font-medium leading-7 text-v2-text-text-base">{language.t("market.channels.title")}</h2>
-          <IconButton
-            variant="ghost-muted"
-            icon={<Icon name="outline-arrow-left" />}
-            aria-label={language.t("market.channels.collapse")}
-            onClick={() => props.model.setState("collapsed", true)}
-          />
-        </div>
-        <Button
-          variant="neutral"
-          size="large"
-          class="w-full"
-          icon="plus"
-          onClick={() => dialog.show(() => <AddChannelDialog model={props.model} />)}
-        >
-          {language.t("market.channels.add")}
-        </Button>
-        <div class="flex gap-2">
-          <Button
-            variant="contrast"
-            size="large"
-            class="min-w-0 flex-1"
-            icon="plus"
-            disabled={!props.model.state.accounts.length}
-            onClick={props.onCreate}
-          >
-            {language.t("market.channels.create")}
-          </Button>
-          <button
-            type="button"
-            class="grid size-10 shrink-0 place-items-center rounded-[8px] bg-v2-background-bg-accent hover:opacity-90"
-            style={{ color: "#ffffff" }}
-            aria-label={language.t("market.channels.generate")}
-            title={language.t("market.channels.generate")}
-            onClick={props.onGenerate}
-          >
-            <MarketIcon name="sparkle" />
-          </button>
-        </div>
-        <div class="-mx-1 min-h-0 flex-1 overflow-y-auto px-1" data-scrollable>
-          <Show
-            when={props.model.state.accounts.length}
-            fallback={<p class="px-1 text-[13px] leading-5 text-v2-text-text-muted">{language.t("market.channels.empty")}</p>}
-          >
-            <For each={sections()}>
-              {(section) => (
-                <Show when={members(section.id).length}>
-                  <div class="mb-3">
-                    <Show when={section.id}>
-                      <div class="mb-1 flex items-center gap-2 px-1 text-[12px] font-medium leading-4 text-v2-text-text-faint">
-                        <span class="size-2 rounded-full" style={{ "background-color": section.color }} />
-                        {section.name}
-                      </div>
-                    </Show>
-                    <For each={members(section.id)}>
-                      {(account) => (
-                        <div class="group flex h-12 items-center gap-3 rounded-[8px] px-1 hover:bg-v2-overlay-simple-overlay-hover">
-                          <ChannelAvatar account={account} />
-                          <div class="min-w-0 flex-1">
-                            <div class="truncate text-[14px] leading-5 text-v2-text-text-base">{account.name}</div>
-                            <Show when={(account.channel === "facebook" || account.channel === "instagram") && !account.targetId}>
-                              <div class="truncate text-[12px] leading-4 text-v2-state-fg-warning">
-                                {language.t("market.channels.targetMissing")}
-                              </div>
-                            </Show>
-                          </div>
-                          <IconButton
-                            variant="ghost-muted"
-                            icon={<Icon name="outline-dots" />}
-                            aria-label={language.t("market.channels.settings", { name: account.name })}
-                            onClick={() => dialog.show(() => <ChannelSettingsDialog model={props.model} account={account} />)}
-                          />
-                        </div>
-                      )}
-                    </For>
+    <div class="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
+      <For each={channels}>
+        {(channel) => {
+          const provider = () => props.model.provider(channel)
+          return (
+            <section class="flex flex-col gap-3 rounded-[12px] border border-v2-border-border-muted p-4">
+              <div class="flex items-center gap-3">
+                <NetworkBadge channel={channel} class="size-9 text-[14px] leading-none" />
+                <div class="min-w-0 flex-1">
+                  <div class="text-[14px] font-medium leading-5 text-v2-text-text-base">{networkName(language, channel)}</div>
+                  <div class="text-[12px] leading-4 text-v2-text-text-muted">
+                    {language.t(
+                      !provider()?.configured
+                        ? "market.channels.notSetUp"
+                        : provider()?.pending
+                          ? "market.channels.pending"
+                          : "market.channels.ready",
+                    )}
                   </div>
-                </Show>
-              )}
-            </For>
-          </Show>
-        </div>
-      </aside>
-    </Show>
+                </div>
+                <Button
+                  variant="neutral"
+                  size="small"
+                  icon="plus"
+                  disabled={!provider()?.configured}
+                  onClick={() => dialog.show(() => <ConnectDialog model={props.model} channel={channel} />)}
+                >
+                  {language.t("market.channels.connect")}
+                </Button>
+              </div>
+              <For each={accounts(channel)}>
+                {(account) => (
+                  <div class="flex items-center gap-3 rounded-[8px] bg-v2-background-bg-layer-01 px-2 py-2">
+                    <ChannelAvatar account={account} size="small" />
+                    <div class="min-w-0 flex-1">
+                      <div class="truncate text-[13px] leading-5 text-v2-text-text-base">{account.name}</div>
+                      <Show
+                        when={account.needsReconnect || account.needsTarget}
+                        fallback={
+                          <Show when={account.targetName && account.targetName !== account.name}>
+                            <div class="truncate text-[12px] leading-4 text-v2-text-text-muted">{account.targetName}</div>
+                          </Show>
+                        }
+                      >
+                        <div class="truncate text-[12px] leading-4 text-v2-state-fg-warning">
+                          {language.t(account.needsReconnect ? "market.channels.reconnectNeeded" : "market.channels.targetMissing")}
+                        </div>
+                      </Show>
+                    </div>
+                    <Show when={account.needsReconnect}>
+                      <Button
+                        variant="ghost"
+                        size="small"
+                        onClick={() => dialog.show(() => <ConnectDialog model={props.model} channel={channel} reconnect={account.connectedAccountId} />)}
+                      >
+                        {language.t("market.channels.reconnect")}
+                      </Button>
+                    </Show>
+                    <IconButton
+                      variant="ghost-muted"
+                      icon={<Icon name="outline-dots" />}
+                      aria-label={language.t("market.channels.settings", { name: account.name })}
+                      onClick={() => dialog.show(() => <ChannelSettingsDialog model={props.model} account={account} />)}
+                    />
+                  </div>
+                )}
+              </For>
+            </section>
+          )
+        }}
+      </For>
+    </div>
   )
 }
 
 export const networkName = (language: ReturnType<typeof useLanguage>, channel: Channel) => language.t(`market.network.${channel}`)
 
-function AddChannelDialog(props: { model: MarketModel }) {
+/** Opens the network's sign-in in the browser and waits for the account to appear (or, on reconnect, to recover). */
+export function ConnectDialog(props: { model: MarketModel; channel: Channel; reconnect?: string }) {
   const language = useLanguage()
   const platform = usePlatform()
   const dialog = useDialog()
-  const [state, setState] = createStore({ waiting: undefined as Channel | undefined, before: 0 })
+  const [state, setState] = createStore({ waiting: false })
+  const known = new Set(props.model.state.accounts.map((account) => account.connectedAccountId))
+  const done = () =>
+    props.model.state.accounts.some((account) =>
+      props.reconnect ? account.connectedAccountId === props.reconnect && !account.needsReconnect : !known.has(account.connectedAccountId),
+    )
   let timer: ReturnType<typeof setInterval> | undefined
   onCleanup(() => clearInterval(timer))
 
-  const connect = async (channel: Channel) => {
-    const url = await props.model.run(() => props.model.api.connect(channel))
+  const start = async () => {
+    const url = await props.model.run(() => props.model.api.connect(props.channel))
     if (!url) return
     platform.openExternal(url)
-    setState({ waiting: channel, before: props.model.state.accounts.length })
+    setState("waiting", true)
     clearInterval(timer)
-    // The connection finishes in the browser; poll until Composio reports the new account.
     let attempts = 0
     timer = setInterval(async () => {
       attempts++
-      await props.model.loadAccounts(true)
-      if (props.model.state.accounts.length > state.before || attempts >= 36) {
-        clearInterval(timer)
-        if (props.model.state.accounts.length > state.before) dialog.close()
-        else setState("waiting", undefined)
-      }
+      await props.model.loadAccounts()
+      if (!done() && attempts < 60) return
+      clearInterval(timer)
+      if (done()) dialog.close()
+      else setState("waiting", false)
     }, 5000)
   }
+  onMount(() => void start())
 
   return (
-    <Dialog fit containerClass="!w-[min(calc(100vw_-_32px),460px)] !rounded-xl">
-      <div class="flex flex-col gap-4 p-6">
+    <Dialog fit containerClass="!w-[min(calc(100vw_-_32px),420px)] !rounded-xl">
+      <div class="flex flex-col items-center gap-3 p-6 text-center">
+        <NetworkBadge channel={props.channel} class="size-10 text-[15px] leading-none" />
         <DialogTitle>
-          <span class="text-[18px] font-medium leading-7 text-v2-text-text-base">{language.t("market.connect.title")}</span>
+          <span class="text-[16px] font-medium leading-6 text-v2-text-text-base">
+            {language.t("market.connect.title", { network: networkName(language, props.channel) })}
+          </span>
         </DialogTitle>
+        <p class="text-[13px] leading-5 text-v2-text-text-muted">{language.t("market.connect.description")}</p>
         <Show
           when={state.waiting}
           fallback={
-            <div class="grid grid-cols-3 gap-3">
-              <For each={channels}>
-                {(channel) => (
-                  <button
-                    type="button"
-                    class="flex flex-col items-center gap-2 rounded-[10px] border border-v2-border-border-muted px-3 py-4 text-[13px] leading-4 text-v2-text-text-base hover:bg-v2-overlay-simple-overlay-hover"
-                    onClick={() => void connect(channel)}
-                  >
-                    <NetworkBadge channel={channel} class="size-9 text-[14px] leading-none" />
-                    {networkName(language, channel)}
-                  </button>
-                )}
-              </For>
-            </div>
+            <Button variant="contrast" onClick={() => void start()}>
+              {language.t("market.connect.again")}
+            </Button>
           }
         >
-          {(channel) => (
-            <div class="flex flex-col items-center gap-3 py-6 text-center">
-              <NetworkBadge channel={channel()} class="size-10 text-[15px] leading-none" />
-              <p class="text-[13px] leading-5 text-v2-text-text-muted">{language.t("market.connect.description")}</p>
-              <div class="flex items-center gap-2 text-[13px] leading-5 text-v2-text-text-base">
-                <Loader class="size-4" />
-                {language.t("market.connect.waiting")}
-              </div>
-              <Button variant="ghost" onClick={() => void props.model.loadAccounts(true)}>
-                {language.t("market.channels.refresh")}
-              </Button>
-            </div>
-          )}
+          <div class="flex items-center gap-2 text-[13px] leading-5 text-v2-text-text-base">
+            <Loader class="size-4" />
+            {language.t("market.connect.waiting")}
+          </div>
+          <Button variant="ghost" onClick={() => void props.model.loadAccounts()}>
+            {language.t("market.channels.refresh")}
+          </Button>
         </Show>
       </div>
     </Dialog>
@@ -200,7 +162,7 @@ function AddChannelDialog(props: { model: MarketModel }) {
 function ChannelSettingsDialog(props: { model: MarketModel; account: Account }) {
   const language = useLanguage()
   const dialog = useDialog()
-  const needsTarget = props.account.channel === "facebook" || props.account.channel === "instagram"
+  const targeted = ["facebook", "instagram", "linkedin"].includes(props.account.channel)
   const [state, setState] = createStore({
     name: props.account.name,
     groupId: props.account.groupId ?? "",
@@ -212,10 +174,9 @@ function ChannelSettingsDialog(props: { model: MarketModel; account: Account }) 
   })
 
   onMount(async () => {
-    if (!needsTarget) return
+    if (!targeted || props.account.needsReconnect) return
     const targets = await props.model.run(() => props.model.api.targets(props.account.connectedAccountId))
     setState("targets", targets ?? [])
-    if (!state.targetId && targets?.length === 1) setState("targetId", targets[0].id)
   })
 
   const save = async () => {
@@ -223,14 +184,12 @@ function ChannelSettingsDialog(props: { model: MarketModel; account: Account }) 
     const groupId = state.newGroup.trim()
       ? await props.model.run(() => props.model.api.saveGroup({ name: state.newGroup, color: palette[props.model.state.groups.length % palette.length] }))
       : state.groupId || null
-    const saved = await props.model.run(() =>
-      props.model.api.updateAccount({
-        connectedAccountId: props.account.connectedAccountId,
-        name: state.name,
-        groupId: groupId ?? null,
-        ...(needsTarget && state.targetId ? { targetId: state.targetId } : {}),
-      }),
-    )
+    const saved = await props.model.run(async () => {
+      await props.model.api.updateAccount({ connectedAccountId: props.account.connectedAccountId, name: state.name, groupId: groupId ?? null })
+      if (state.targetId && state.targetId !== props.account.targetId)
+        await props.model.api.chooseTarget(props.account.connectedAccountId, state.targetId)
+      return null
+    })
     setState("saving", false)
     if (saved === undefined) return
     await props.model.loadAccounts()
@@ -261,9 +220,9 @@ function ChannelSettingsDialog(props: { model: MarketModel; account: Account }) 
           {language.t("market.channels.name")}
           <input class={field} value={state.name} maxLength={100} onInput={(event) => setState("name", event.currentTarget.value)} />
         </label>
-        <Show when={needsTarget}>
+        <Show when={targeted && !props.account.needsReconnect}>
           <label class="flex flex-col gap-1.5 text-[12px] leading-4 text-v2-text-text-muted">
-            {language.t(props.account.channel === "facebook" ? "market.channels.page" : "market.channels.instagramAccount")}
+            {language.t(`market.channels.target.${props.account.channel as "facebook" | "instagram" | "linkedin"}`)}
             <Show when={state.targets} fallback={<Loader class="size-4" />}>
               {(targets) => (
                 <Show

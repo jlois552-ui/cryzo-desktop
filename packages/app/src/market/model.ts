@@ -1,9 +1,11 @@
 import { createStore, reconcile } from "solid-js/store"
 import { showToast } from "@/shell/notifications/toast"
 import { useLanguage } from "@/runtime/i18n/language"
-import { MarketError, useMarketApi, type Account, type Group, type Media, type Post } from "./api"
+import { MarketError, useMarketApi, type Account, type Group, type Media, type Post, type Provider } from "./api"
+import type { Section } from "./sections"
 
-export type Section = "calendar" | "analytics" | "media"
+export { sections, type Section } from "./sections"
+
 export type View = "day" | "week" | "month" | "list"
 
 const day = 86_400_000
@@ -47,7 +49,7 @@ export function createMarketModel() {
   const api = useMarketApi()
   const language = useLanguage()
   const [state, setState] = createStore({
-    section: "calendar" as Section,
+    section: "overview" as Section,
     view: "week" as View,
     anchor: Date.now(),
     group: undefined as string | undefined,
@@ -55,9 +57,12 @@ export function createMarketModel() {
     ready: false,
     signIn: false,
     loadingPosts: false,
+    providers: [] as Provider[],
     accounts: [] as Account[],
     groups: [] as Group[],
     posts: [] as Post[],
+    /** Posts from 60 days back to 60 days ahead, for the overview, planner and post list. */
+    feed: [] as Post[],
     media: [] as Media[],
   })
 
@@ -80,19 +85,22 @@ export function createMarketModel() {
     }
   }
 
-  const loadAccounts = async (sync = false) => {
-    const result = await run(() => (sync ? api.sync() : api.accounts()))
+  const loadAccounts = async () => {
+    const result = await run(() => api.accounts())
     if (!result) return
     setState("accounts", reconcile(result.accounts, { key: "_id" }))
     setState("groups", reconcile(result.groups, { key: "_id" }))
   }
 
+  /** Reloads the calendar range and the feed, so every page reflects a change. */
   const loadPosts = async () => {
     const [from, to] = range(state.view, state.anchor)
     setState("loadingPosts", true)
-    const result = await run(() => api.posts(from, to))
+    const today = startOfDay(Date.now())
+    const [result, feed] = await Promise.all([run(() => api.posts(from, to)), run(() => api.posts(today - 60 * day, today + 60 * day))])
     setState("loadingPosts", false)
     if (result) setState("posts", reconcile(result, { key: "_id" }))
+    if (feed) setState("feed", reconcile(feed, { key: "_id" }))
   }
 
   const loadMedia = async () => {
@@ -101,9 +109,11 @@ export function createMarketModel() {
   }
 
   const load = async () => {
-    // Composio is the source of truth for connections; sync on open picks up channels added elsewhere.
-    await loadAccounts(true)
-    if (!state.signIn) await Promise.all([loadPosts(), loadMedia()])
+    await loadAccounts()
+    if (!state.signIn) {
+      const [providers] = await Promise.all([run(() => api.providers()), loadPosts(), loadMedia()])
+      if (providers) setState("providers", providers)
+    }
     setState("ready", true)
   }
 
@@ -127,6 +137,9 @@ export function createMarketModel() {
     setView(view: View) {
       setState("view", view)
       void loadPosts()
+    },
+    provider(channel: Account["channel"]) {
+      return state.providers.find((item) => item.channel === channel)
     },
     account(connectedAccountId: string) {
       return state.accounts.find((item) => item.connectedAccountId === connectedAccountId)

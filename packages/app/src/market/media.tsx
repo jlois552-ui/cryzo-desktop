@@ -28,9 +28,8 @@ export function MediaLibrary(props: { model: MarketModel }) {
   }
 
   return (
-    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-4 px-5 py-5">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
       <div class="flex items-center gap-3">
-        <h2 class="text-[18px] font-medium leading-7 text-v2-text-text-base">{language.t("market.nav.media")}</h2>
         <Show when={state.uploading}>
           <Loader class="size-4" />
         </Show>
