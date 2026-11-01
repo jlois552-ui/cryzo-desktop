@@ -47,7 +47,7 @@ References: [TikTok app review](https://developers.tiktok.com/docs/en/app-review
 ## What else remains
 
 - **LinkedIn:** the logo is uploaded and Cryzo Desktop app **264204164** is created. Share on LinkedIn and OpenID Connect are provisioned, the production callback is saved, and both credentials are saved/read-back verified on Convex production. Company Page association was approved and verified on Nov 1, 2026. No actual member OAuth connection is claimed yet. Organization posting still requires Community Management approval.
-- **Meta / Facebook / Instagram:** Facebook login has progressed to developer registration. Meta's terms were accepted with approval; the current step requires a mobile number and SMS verification. Developer-app setup, permissions and any requested business verification/reviewer demonstration remain; this may require another recording and genuine business documents.
+- **Meta / Facebook / Instagram:** Facebook login and phone/SMS verification succeeded. Meta's terms were accepted with approval. The portal rejected the supplied contact email, so a different user-approved email is needed to finish developer registration. Developer-app setup, permissions and any requested business verification/reviewer demonstration remain; this may require another recording and genuine business documents.
 - **Reddit:** commercial inquiry **RR5KRM-0NGP3** is submitted; access approval remains pending.
 
 You do not need to write the permission justifications or configure developer secrets yourself. The immediate contributions needed from you are Meta's account verification, genuine recordings once their flows are ready, and any platform-requested identity/business evidence. No social post is authorized by this guide.
