@@ -8,7 +8,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
-$target = if ($Prod) { @('--prod') } else { @() }
+$target = @(if ($Prod) { '--prod' })
 
 function Read-Secret([string]$Prompt) {
     $secure = Read-Host -Prompt $Prompt -AsSecureString

@@ -3,7 +3,7 @@
 param([switch]$Prod)
 $ErrorActionPreference = 'Stop'
 # -Prod writes to the Convex production deployment.
-$target = if ($Prod) { @('--prod') } else { @() }
+$target = @(if ($Prod) { '--prod' })
 Set-Location $PSScriptRoot
 
 function Read-Secret([string]$Prompt) {
