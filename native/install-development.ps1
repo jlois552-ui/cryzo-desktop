@@ -38,11 +38,14 @@ Open a local project, connect a supported API-key provider, and choose a model.
 Keys stay in the operating system credential store. File writes and agent
 commands require approval for the exact operation. The terminal is interactive.
 
-This is an internal test build. Cryzo Free needs its hosted gateway and Google
-sign-in configuration. Personal NVIDIA, OpenRouter and other supported provider
-keys can be connected through Manage models > Connect provider. Special provider
-authentication, MCP,
-SSH/WSL, compaction/reverts, Market, Team and Store distribution remain pending.
+This is an internal test build. Cryzo Free and Marketing use the configured
+Convex gateway and Google sign-in. Marketing channel availability depends on
+provider credentials and platform approval; configuration does not prove a
+working account connection. Personal NVIDIA, OpenRouter and other supported
+provider keys can be connected through Manage models > Connect provider.
+Special provider authentication, MCP, SSH/WSL, compaction/reverts, Team and
+Store distribution remain pending. See native/MARKET-REVIEW.md in the source
+checkout for Marketing setup status. No social post is published by installation.
 No signed public release is implied. Your previous executable is preserved
 beside Cryzo.exe. Existing application data is retained.
 '@ | Set-Content -LiteralPath (Join-Path $taskInstall 'READ-ME.txt') -Encoding utf8

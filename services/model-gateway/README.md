@@ -19,7 +19,7 @@ Set these on the Convex deployment with `bunx convex env set NAME value`:
 
 Build the desktop with `CRYZO_GATEWAY_URL` set to the same `SITE_URL`. No Google client secret or NVIDIA key belongs in the desktop bundle.
 
-The development deployment is `moonlit-mosquito-262` in the `cryzo-desktop-models` project.
+The development deployment is `moonlit-mosquito-262` in the `cryzo-desktop-models` project. Production is `benevolent-rhinoceros-399`; use `--prod` with Convex CLI and build production desktop updates with `CRYZO_GATEWAY_URL=https://benevolent-rhinoceros-399.convex.site`. Keep Google sign-in (`cryzo-sign-in`) separate from the YouTube Marketing OAuth project (`cryzo-desktop`).
 
 ## Behavior
 
@@ -53,7 +53,11 @@ Configuration (Convex env), set with `.\set-market-secrets.ps1` (hidden prompts;
 | Facebook, Instagram | `META_APP_ID`, `META_APP_SECRET` | `/market/oauth/facebook/callback`, `/market/oauth/instagram/callback` |
 | Reddit | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | `/market/oauth/reddit/callback` |
 
-`MARKET_PENDING` lists networks or features still waiting on platform approval (currently `reddit,linkedin-page`); the desktop shows them as pending, and LinkedIn requests organization scopes only once `linkedin-page` is removed. Platform review status and demo-recording scripts are in `native/MARKET-REVIEW.md`.
+`MARKET_PENDING` lists networks or features still waiting on platform approval (currently `reddit,linkedin-page,youtube,tiktok`); the desktop shows them as pending, and LinkedIn requests organization scopes only once `linkedin-page` is removed. Platform review status and demo-recording scripts are in `native/MARKET-REVIEW.md`.
+
+Production sets `MARKET_CALLBACK_BASE=https://www.cryzo.me/api/market`. Register that website base plus `/oauth/<network>/callback`, not the deployment-local fallback paths in the table, in production provider portals. The website callback proxy forwards to the production gateway. Its policies are `/privacy`, `/terms` and `/data-deletion` on `https://www.cryzo.me`.
+
+Credentials being present does not establish platform approval or a connected account. `/health` checks gateway configuration only; use authenticated `/market/providers`, the Channels screen, real OAuth returns and permitted read operations for separate verification. See `../../native/MARKET-REVIEW.md` for the current production setup and exact remaining blockers. Never publish a real post during verification without explicit approval for that post.
 
 `bun run test` runs the quota and marketing suites in separate processes: Convex scheduled-function timers from one suite must not run into the other.
 
