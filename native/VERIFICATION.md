@@ -1,5 +1,17 @@
 # Native desktop verification
 
+## Logo update, 2026-11-02
+
+The approved folded-C logo is stored in `native/review-assets/cryzo-icon-v2.png`, with its generation prompt beside it. Tauri's icon generator produced the replacement PNG, Windows ICO and macOS ICNS assets. The native host's Mark and Splash components use the same PNG; shared upstream screens and the Cryzo wordmark remain unchanged.
+
+The initial rebuild exposed a packaging regression: cached Windows resources still contained the previous icon. The Tauri build script now watches `icons` with Cargo's rerun-if-changed directive. A second successful Windows GNU build regenerated the resource archive; extracting its 256px icon directly from the executable confirmed the new folded-C mark. The ICO includes 16, 24, 32, 48, 64 and 256px images, and the renderer's bundled PNG matches the source asset byte-for-byte.
+
+Validation passed: desktop TypeScript check, renderer production build, `cargo fmt --all --check`, Windows GNU desktop build and packaged-icon inspection. Existing upstream CSS/chunk warnings and the previously documented GNU multiple-manifest linker warning remain. No engine code changed or paid model request was made.
+
+The production-targeted build was installed with `native/install-development.ps1 -NoLaunch`; the active desktop session is retained and sees the update after reopening. Installed executable/icon hashes are checked against the build assets. This is still an internal unsigned development build.
+
+Uploading this new logo to Meta app 1120975114168572 was attempted through Edge's file chooser, but the browser upload gate explicitly reported permission declined. No alternate upload route was used, no logo was saved to Meta, and no App Review or public publication was submitted. The Basic settings icon field is left open for manual completion.
+
 Recorded 2026-10-28. These are local development checks, not a public release certificate.
 
 ## Current code checks

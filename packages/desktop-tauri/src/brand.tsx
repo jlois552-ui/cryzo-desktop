@@ -1,4 +1,5 @@
 import { createUniqueId, type ComponentProps } from "solid-js"
+import icon from "../src-tauri/icons/icon.png"
 
 // Same geometry, fading and outline contract as the upstream wordmark; only the lettering changes.
 export function Wordmark(
@@ -56,11 +57,11 @@ export function Mark(props: { class?: string }) {
     <svg
       data-component="logo-mark"
       class={props.class}
-      viewBox="0 0 16 20"
+      viewBox="0 0 20 20"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path d="M14 5H4V15H14M9 5V2H1V18H9V15" stroke="var(--icon-strong-base)" stroke-width="2" />
+      <image href={icon} width="20" height="20" />
     </svg>
   )
 }
@@ -71,11 +72,11 @@ export function Splash(props: Pick<ComponentProps<"svg">, "ref" | "class">) {
       ref={props.ref}
       data-component="logo-splash"
       class={props.class}
-      viewBox="0 0 80 100"
+      viewBox="0 0 100 100"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path d="M70 25H20V75H70M45 25V10H5V90H45V75" stroke="var(--icon-strong-base)" stroke-width="10" />
+      <image href={icon} width="100" height="100" />
     </svg>
   )
 }
