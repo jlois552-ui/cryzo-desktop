@@ -18,7 +18,12 @@ export const finishConnect = internalAction({
     const provider = providers[args.channel]
     const app = client(args.channel)
     if (!app) throw new Error(`${labels[args.channel]} is not set up on the Cryzo cloud yet.`)
-    const tokens = await provider.exchange({ client: app, redirect: redirect(args.channel), code: args.code, verifier: args.verifier })
+    const tokens = await provider.exchange({
+      client: app,
+      redirect: redirect(args.channel),
+      code: args.code,
+      verifier: args.verifier,
+    })
     const profile = await provider.profile(tokens)
     // One Page or business account is chosen automatically; several need the picker in Cryzo.
     const choices = profile.target ? [profile.target] : provider.targets ? await provider.targets(tokens) : []
@@ -32,7 +37,13 @@ export const finishConnect = internalAction({
       token: await seal(tokens),
       ...(tokens.expiresAt ? { expiresAt: tokens.expiresAt } : {}),
       refreshable: Boolean(tokens.refresh && provider.refresh),
-      ...(target ? { targetId: target.id, targetName: target.name, ...(target.token ? { targetToken: await seal(target.token) } : {}) } : {}),
+      ...(target
+        ? {
+            targetId: target.id,
+            targetName: target.name,
+            ...(target.token ? { targetToken: await seal(target.token) } : {}),
+          }
+        : {}),
     })
   },
 })
@@ -109,9 +120,16 @@ export const publishDelivery = internalAction({
     }
     try {
       if (!account) throw new Error("This channel was disconnected. Connect it again, then retry.")
-      const sent = await providers[delivery.channel].publish(await job(ctx, account, { content: found.content, options: post.options ?? {}, media: found.media }), send)
+      const sent = await providers[delivery.channel].publish(
+        await job(ctx, account, { content: found.content, options: post.options ?? {}, media: found.media }),
+        send,
+      )
       if (sent.pending) {
-        await ctx.runMutation(internal.market.store.markProcessing, { deliveryId: delivery._id, remotePostId: sent.id, operation: operation ?? "publish" })
+        await ctx.runMutation(internal.market.store.markProcessing, {
+          deliveryId: delivery._id,
+          remotePostId: sent.id,
+          operation: operation ?? "publish",
+        })
         await ctx.scheduler.runAfter(5000, internal.market.worker.checkStatus, { deliveryId: delivery._id })
         return null
       }
@@ -141,9 +159,16 @@ export const checkStatus = internalAction({
     if (!delivery) return null
     const status = providers[delivery.channel].status
     try {
-      const account: Account | null = await ctx.runQuery(internal.market.store.account, { user: delivery.user, connectedAccountId: delivery.connectedAccountId })
+      const account: Account | null = await ctx.runQuery(internal.market.store.account, {
+        user: delivery.user,
+        connectedAccountId: delivery.connectedAccountId,
+      })
       if (account && status) {
-        const result = await status(await job(ctx, account, { content: "", options: {}, media: [] }), delivery.remotePostId!, (url, init) => request(url, init))
+        const result = await status(
+          await job(ctx, account, { content: "", options: {}, media: [] }),
+          delivery.remotePostId!,
+          (url, init) => request(url, init),
+        )
         if (result.state === "published") {
           await ctx.runMutation(internal.market.store.markPublished, {
             deliveryId: delivery._id,
@@ -171,7 +196,12 @@ export const checkStatus = internalAction({
         outcomeUnknown: true,
         error: `${labels[delivery.channel]} is still processing or its status is unavailable. Check it before retrying.`,
       })
-    else await ctx.scheduler.runAfter(Math.min(60_000, 5000 * 2 ** (delivery.pollingAttempts ?? 0)), internal.market.worker.checkStatus, args)
+    else
+      await ctx.scheduler.runAfter(
+        Math.min(60_000, 5000 * 2 ** (delivery.pollingAttempts ?? 0)),
+        internal.market.worker.checkStatus,
+        args,
+      )
     return null
   },
 })
@@ -183,38 +213,100 @@ type Report = {
   metrics: Metric[]
   series: Series[]
   note?: string
+  permissionReason?: "approval_pending" | "reconnect_required"
   updatedAt: number
 }
 
 /** Per-account analytics for the last `days`, cached for 15 minutes unless `refresh` is set. */
 export const analytics = internalAction({
   args: { user: v.string(), days: v.number(), refresh: v.boolean() },
+  returns: v.array(
+    v.object({
+      channel,
+      connectedAccountId: v.string(),
+      status: v.union(
+        v.literal("ready"),
+        v.literal("partial"),
+        v.literal("target_required"),
+        v.literal("permission_required"),
+        v.literal("rate_limited"),
+        v.literal("unsupported"),
+        v.literal("error"),
+      ),
+      metrics: v.array(
+        v.object({
+          key: v.string(),
+          value: v.number(),
+          window: v.union(v.literal("period"), v.literal("snapshot"), v.literal("lifetime")),
+        }),
+      ),
+      series: v.array(
+        v.object({ key: v.string(), points: v.array(v.object({ date: v.string(), value: v.number() })) }),
+      ),
+      note: v.optional(v.string()),
+      permissionReason: v.optional(v.union(v.literal("approval_pending"), v.literal("reconnect_required"))),
+      updatedAt: v.number(),
+    }),
+  ),
   handler: async (ctx, args): Promise<Report[]> => {
     const days = [7, 30, 90].includes(args.days) ? args.days : 30
     const { accounts } = await ctx.runQuery(internal.market.store.listAccounts, { user: args.user })
     const reports: Report[] = []
     for (const item of accounts) {
-      const cached = await ctx.runQuery(internal.market.store.analytics, { user: args.user, connectedAccountId: item.connectedAccountId, days })
+      const cached = await ctx.runQuery(internal.market.store.analytics, {
+        user: args.user,
+        connectedAccountId: item.connectedAccountId,
+        days,
+      })
       if (cached && !args.refresh && Date.now() - cached.updatedAt < 15 * 60_000) {
         reports.push(cached.data as Report)
         continue
       }
-      const base: Report = { channel: item.channel, connectedAccountId: item.connectedAccountId, status: "ready", metrics: [], series: [], updatedAt: Date.now() }
-      const report = await measure(ctx, args.user, item.connectedAccountId, days, base).catch((error: unknown): Report => {
-        const message = error instanceof Error ? error.message : String(error)
-        if (/429|rate.?limit|throttl/i.test(message)) return { ...base, status: "rate_limited", note: "The network's rate limit was reached. Try again in a minute." }
-        if (/reconnect|401|403|scope|permission|forbidden|expired/i.test(message))
-          return { ...base, status: "permission_required", note: "Reconnect this channel with analytics permissions." }
-        return { ...base, status: "error", note: "The network could not return analytics. Retry later." }
+      const base: Report = {
+        channel: item.channel,
+        connectedAccountId: item.connectedAccountId,
+        status: "ready",
+        metrics: [],
+        series: [],
+        updatedAt: Date.now(),
+      }
+      const report = await measure(ctx, args.user, item.connectedAccountId, days, base).catch(
+        (error: unknown): Report => {
+          const message = error instanceof Error ? error.message : String(error)
+          if (/429|rate.?limit|throttl/i.test(message))
+            return {
+              ...base,
+              status: "rate_limited",
+              note: "The network's rate limit was reached. Try again in a minute.",
+            }
+          if (/reconnect|401|403|scope|permission|forbidden|expired/i.test(message))
+            return {
+              ...base,
+              status: "permission_required",
+              note: "Reconnect this channel with analytics permissions.",
+            }
+          return { ...base, status: "error", note: "The network could not return analytics. Retry later." }
+        },
+      )
+      await ctx.runMutation(internal.market.store.saveAnalytics, {
+        user: args.user,
+        connectedAccountId: item.connectedAccountId,
+        days,
+        data: report,
       })
-      await ctx.runMutation(internal.market.store.saveAnalytics, { user: args.user, connectedAccountId: item.connectedAccountId, days, data: report })
       reports.push(report)
     }
     return reports
   },
 })
 
-async function measure(ctx: ActionCtx, user: string, connectedAccountId: string, days: number, base: Report): Promise<Report> {
+async function measure(
+  ctx: ActionCtx,
+  user: string,
+  connectedAccountId: string,
+  days: number,
+  base: Report,
+): Promise<Report> {
   const account: Account | null = await ctx.runQuery(internal.market.store.account, { user, connectedAccountId })
   if (!account) throw new Error("Channel not found.")
   const to = new Date()
@@ -222,7 +314,9 @@ async function measure(ctx: ActionCtx, user: string, connectedAccountId: string,
   from.setUTCHours(0, 0, 0, 0)
   from.setUTCDate(from.getUTCDate() - days + 1)
   const published =
-    account.channel === "x" ? await ctx.runQuery(internal.market.store.publishedIds, { user, connectedAccountId, from: from.getTime() }) : []
+    account.channel === "x"
+      ? await ctx.runQuery(internal.market.store.publishedIds, { user, connectedAccountId, from: from.getTime() })
+      : []
   const current = await job(ctx, account, { content: "", options: {}, media: [] })
   return { ...base, ...(await providers[account.channel].metrics({ ...current, days, from, to, published })) }
 }
@@ -254,11 +348,16 @@ async function renew(ctx: ActionCtx, account: Account, current?: Tokens) {
   if (!app || !provider.refresh) throw new Error(`${labels[account.channel]} is not set up on the Cryzo cloud.`)
   try {
     const next = await provider.refresh(current ?? (await open<Tokens>(account.token)), app)
-    await ctx.runMutation(internal.market.store.saveTokens, { accountId: account._id, token: await seal(next), ...(next.expiresAt ? { expiresAt: next.expiresAt } : {}) })
+    await ctx.runMutation(internal.market.store.saveTokens, {
+      accountId: account._id,
+      token: await seal(next),
+      ...(next.expiresAt ? { expiresAt: next.expiresAt } : {}),
+    })
     return next
   } catch (error) {
     // A refused refresh needs the user; network or server errors are retried by the next attempt.
-    if (error instanceof ProviderError && error.status < 500) await ctx.runMutation(internal.market.store.flagReconnect, { accountId: account._id })
+    if (error instanceof ProviderError && error.status < 500)
+      await ctx.runMutation(internal.market.store.flagReconnect, { accountId: account._id })
     throw new Error(`The ${labels[account.channel]} connection needs to be renewed. Reconnect it in Cryzo Marketing.`)
   }
 }
@@ -266,6 +365,8 @@ async function renew(ctx: ActionCtx, account: Account, current?: Tokens) {
 function readable(error: unknown, channel: Channel) {
   const message = error instanceof Error ? error.message : "Publishing failed."
   if (/credits depleted|CreditsDepleted|status["']?\s*:\s*402|payment required/i.test(message))
-    return channel === "x" ? "X publishing needs API credits on the Cryzo X developer app." : "The network has no publishing credits available."
+    return channel === "x"
+      ? "X publishing needs API credits on the Cryzo X developer app."
+      : "The network has no publishing credits available."
   return message.slice(0, 1000)
 }

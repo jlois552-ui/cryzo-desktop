@@ -443,7 +443,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
             )
 
             // Marketing's pages open from the sidebar, as Wix lists them under Marketing.
-            const marketSection = () => new URLSearchParams(location.search).get("section") ?? "overview"
+            const marketSection = () => new URLSearchParams(location.search).get("section") ?? "calendar"
             const marketButton = () => (
               <>
                 <button

@@ -13,7 +13,15 @@ import { ConnectDialog, networkName } from "./channels"
 import { ChannelAvatar, NetworkBadge } from "./icons"
 import type { MarketModel } from "./model"
 
-const limits: Partial<Record<Channel, number>> = { x: 280, linkedin: 3000, instagram: 2200, tiktok: 2200, youtube: 5000, facebook: 63206, reddit: 40000 }
+const limits: Partial<Record<Channel, number>> = {
+  x: 280,
+  linkedin: 3000,
+  instagram: 2200,
+  tiktok: 2200,
+  youtube: 5000,
+  facebook: 63206,
+  reddit: 40000,
+}
 
 function localInput(time: number) {
   const date = new Date(time)
@@ -21,14 +29,20 @@ function localInput(time: number) {
   return date.toISOString().slice(0, 16)
 }
 
-export function PostEditor(props: { model: MarketModel; post?: Post; at?: number; content?: string }) {
+export function PostEditor(props: {
+  model: MarketModel
+  post?: Post
+  at?: number
+  content?: string
+  targets?: Target[]
+}) {
   const language = useLanguage()
   const dialog = useDialog()
   const platform = usePlatform()
   const locked = props.post?.status === "publishing" || props.post?.status === "published"
   const [state, setState] = createStore({
     content: props.post?.content ?? props.content ?? "",
-    targets: (props.post?.targets ?? []) as Target[],
+    targets: (props.post?.targets ?? props.targets ?? []) as Target[],
     editing: "" as string,
     mediaIds: (props.post?.mediaIds ?? []) as string[],
     options: { ...(props.post?.options ?? {}) } as Options,
@@ -40,16 +54,22 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
     confirmDelete: false,
   })
 
-  const selected = (account: Account) => state.targets.some((target) => target.connectedAccountId === account.connectedAccountId)
+  const selected = (account: Account) =>
+    state.targets.some((target) => target.connectedAccountId === account.connectedAccountId)
   const usable = (account: Account) => !account.needsReconnect && !account.needsTarget
   const toggle = (account: Account) => {
     if (locked || (!usable(account) && !selected(account))) return
     if (selected(account)) {
-      setState("targets", (targets) => targets.filter((target) => target.connectedAccountId !== account.connectedAccountId))
+      setState("targets", (targets) =>
+        targets.filter((target) => target.connectedAccountId !== account.connectedAccountId),
+      )
       if (state.editing === account.connectedAccountId) setState("editing", "")
       return
     }
-    setState("targets", (targets) => [...targets, { channel: account.channel, connectedAccountId: account.connectedAccountId }])
+    setState("targets", (targets) => [
+      ...targets,
+      { channel: account.channel, connectedAccountId: account.connectedAccountId },
+    ])
   }
   const used = createMemo(() => new Set(state.targets.map((target) => target.channel)))
   const current = () => state.targets.find((target) => target.connectedAccountId === state.editing)
@@ -94,7 +114,10 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
     setState("saving", true)
     const fields = {
       content: state.content,
-      targets: state.targets.map((target) => ({ ...target, ...(target.content?.trim() ? {} : { content: undefined }) })),
+      targets: state.targets.map((target) => ({
+        ...target,
+        ...(target.content?.trim() ? {} : { content: undefined }),
+      })),
       scheduledFor,
       status: mode === "draft" ? ("draft" as const) : ("scheduled" as const),
       mediaIds: state.mediaIds,
@@ -116,7 +139,13 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
     setState("saving", false)
     if (!postId || published === undefined) return
     showToast({
-      title: language.t(mode === "now" ? "market.toast.published" : mode === "draft" ? "market.toast.draftSaved" : "market.toast.scheduled"),
+      title: language.t(
+        mode === "now"
+          ? "market.toast.published"
+          : mode === "draft"
+            ? "market.toast.draftSaved"
+            : "market.toast.scheduled",
+      ),
     })
     await props.model.loadPosts()
     dialog.close()
@@ -131,7 +160,8 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
     dialog.close()
   }
 
-  const field = "h-9 w-full rounded-[8px] border border-v2-border-border-base bg-v2-background-bg-base px-3 text-[13px] text-v2-text-text-base"
+  const field =
+    "h-9 w-full rounded-[8px] border border-v2-border-border-base bg-v2-background-bg-base px-3 text-[13px] text-v2-text-text-base"
   const label = "flex flex-col gap-1.5 text-[12px] leading-4 text-v2-text-text-muted"
 
   return (
@@ -148,10 +178,14 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
           <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto px-6 py-5" data-scrollable>
             <section class="flex flex-col gap-2 rounded-[12px] border border-v2-border-border-muted p-3">
               <div class="flex items-center gap-2">
-                <span class="text-[13px] font-medium leading-5 text-v2-text-text-base">{language.t("market.editor.postTo")}</span>
+                <span class="text-[13px] font-medium leading-5 text-v2-text-text-base">
+                  {language.t("market.editor.postTo")}
+                </span>
                 <div class="flex-1" />
                 <Show when={!locked}>
-                  <span class="text-[12px] leading-4 text-v2-text-text-muted">{language.t("market.editor.connectMore")}</span>
+                  <span class="text-[12px] leading-4 text-v2-text-text-muted">
+                    {language.t("market.editor.connectMore")}
+                  </span>
                   <For each={channels.filter((channel) => props.model.provider(channel)?.configured)}>
                     {(channel) => (
                       <button
@@ -183,7 +217,11 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
                         <span class="block truncate text-[13px] leading-5 text-v2-text-text-base">{account.name}</span>
                         <Show when={!usable(account)}>
                           <span class="block truncate text-[11px] leading-4 text-v2-state-fg-warning">
-                            {language.t(account.needsReconnect ? "market.channels.reconnectNeeded" : "market.channels.targetMissing")}
+                            {language.t(
+                              account.needsReconnect
+                                ? "market.channels.reconnectNeeded"
+                                : "market.channels.targetMissing",
+                            )}
                           </span>
                         </Show>
                       </span>
@@ -191,7 +229,10 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
                         class="flex h-4 w-7 shrink-0 items-center rounded-full bg-v2-background-bg-layer-03 p-0.5 transition-colors"
                         classList={{ "!bg-v2-background-bg-accent": selected(account) }}
                       >
-                        <span class="size-3 rounded-full bg-v2-background-bg-base transition-transform" classList={{ "translate-x-3": selected(account) }} />
+                        <span
+                          class="size-3 rounded-full bg-v2-background-bg-base transition-transform"
+                          classList={{ "translate-x-3": selected(account) }}
+                        />
                       </span>
                     </button>
                   )}
@@ -246,12 +287,25 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
 
             <div class="flex flex-col gap-2">
               <div class="flex items-center gap-2">
-                <span class="text-[13px] font-medium leading-5 text-v2-text-text-base">{language.t("market.editor.media")}</span>
+                <span class="text-[13px] font-medium leading-5 text-v2-text-text-base">
+                  {language.t("market.editor.media")}
+                </span>
                 <div class="flex-1" />
-                <Button variant="ghost" size="small" disabled={locked} onClick={() => setState("library", !state.library)}>
+                <Button
+                  variant="ghost"
+                  size="small"
+                  disabled={locked}
+                  onClick={() => setState("library", !state.library)}
+                >
                   {language.t("market.editor.library")}
                 </Button>
-                <Button variant="neutral" size="small" icon="plus" disabled={locked || state.uploading} onClick={() => void upload()}>
+                <Button
+                  variant="neutral"
+                  size="small"
+                  icon="plus"
+                  disabled={locked || state.uploading}
+                  onClick={() => void upload()}
+                >
                   {language.t("market.editor.upload")}
                 </Button>
                 <Show when={state.uploading}>
@@ -274,8 +328,18 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
                 </For>
               </div>
               <Show when={state.library}>
-                <div class="grid max-h-56 grid-cols-6 gap-2 overflow-y-auto rounded-[8px] bg-v2-background-bg-layer-01 p-2" data-scrollable>
-                  <For each={props.model.state.media} fallback={<span class="col-span-6 text-[12px] text-v2-text-text-muted">{language.t("market.media.empty")}</span>}>
+                <div
+                  class="grid max-h-56 grid-cols-6 gap-2 overflow-y-auto rounded-[8px] bg-v2-background-bg-layer-01 p-2"
+                  data-scrollable
+                >
+                  <For
+                    each={props.model.state.media}
+                    fallback={
+                      <span class="col-span-6 text-[12px] text-v2-text-text-muted">
+                        {language.t("market.media.empty")}
+                      </span>
+                    }
+                  >
                     {(item) => (
                       <button
                         type="button"
@@ -283,7 +347,9 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
                         aria-pressed={state.mediaIds.includes(item.storageId)}
                         onClick={() =>
                           setState("mediaIds", (ids) =>
-                            ids.includes(item.storageId) ? ids.filter((id) => id !== item.storageId) : [...ids, item.storageId],
+                            ids.includes(item.storageId)
+                              ? ids.filter((id) => id !== item.storageId)
+                              : [...ids, item.storageId],
                           )
                         }
                       >
@@ -298,13 +364,26 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
             <div class="grid grid-cols-2 gap-4">
               <label class={label}>
                 {language.t("market.editor.when")}
-                <input type="datetime-local" class={field} value={state.when} disabled={locked} onInput={(event) => setState("when", event.currentTarget.value)} />
+                <input
+                  type="datetime-local"
+                  class={field}
+                  value={state.when}
+                  disabled={locked}
+                  onInput={(event) => setState("when", event.currentTarget.value)}
+                />
               </label>
               <label class={label}>
                 {language.t("market.channels.group")}
-                <select class={field} value={state.groupId} disabled={locked} onChange={(event) => setState("groupId", event.currentTarget.value)}>
+                <select
+                  class={field}
+                  value={state.groupId}
+                  disabled={locked}
+                  onChange={(event) => setState("groupId", event.currentTarget.value)}
+                >
                   <option value="">{language.t("market.channels.ungrouped")}</option>
-                  <For each={props.model.state.groups}>{(group) => <option value={group._id}>{group.name}</option>}</For>
+                  <For each={props.model.state.groups}>
+                    {(group) => <option value={group._id}>{group.name}</option>}
+                  </For>
                 </select>
               </label>
               <Show when={used().has("reddit")}>
@@ -332,7 +411,12 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
                 </label>
                 <label class={label}>
                   {language.t("market.editor.youtubePrivacy")}
-                  <select class={field} value={state.options.youtubePrivacy ?? "public"} disabled={locked} onChange={(event) => setState("options", "youtubePrivacy", event.currentTarget.value)}>
+                  <select
+                    class={field}
+                    value={state.options.youtubePrivacy ?? "public"}
+                    disabled={locked}
+                    onChange={(event) => setState("options", "youtubePrivacy", event.currentTarget.value)}
+                  >
                     <option value="public">{language.t("market.editor.privacy.public")}</option>
                     <option value="unlisted">{language.t("market.editor.privacy.unlisted")}</option>
                     <option value="private">{language.t("market.editor.privacy.private")}</option>
@@ -342,7 +426,12 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
               <Show when={used().has("tiktok")}>
                 <label class={label}>
                   {language.t("market.editor.tiktokPrivacy")}
-                  <select class={field} value={state.options.tiktokPrivacy ?? "SELF_ONLY"} disabled={locked} onChange={(event) => setState("options", "tiktokPrivacy", event.currentTarget.value)}>
+                  <select
+                    class={field}
+                    value={state.options.tiktokPrivacy ?? "SELF_ONLY"}
+                    disabled={locked}
+                    onChange={(event) => setState("options", "tiktokPrivacy", event.currentTarget.value)}
+                  >
                     <option value="SELF_ONLY">{language.t("market.editor.tiktok.self")}</option>
                     <option value="MUTUAL_FOLLOW_FRIENDS">{language.t("market.editor.tiktok.friends")}</option>
                     <option value="PUBLIC_TO_EVERYONE">{language.t("market.editor.tiktok.public")}</option>
@@ -356,7 +445,13 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
                     class={field}
                     value={state.options.instagramPostType ?? "post"}
                     disabled={locked}
-                    onChange={(event) => setState("options", "instagramPostType", event.currentTarget.value as Options["instagramPostType"])}
+                    onChange={(event) =>
+                      setState(
+                        "options",
+                        "instagramPostType",
+                        event.currentTarget.value as Options["instagramPostType"],
+                      )
+                    }
                   >
                     <For each={["post", "reel", "story", "carousel"] as const}>
                       {(kind) => <option value={kind}>{language.t(`market.editor.instagram.${kind}`)}</option>}
@@ -368,13 +463,17 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
 
             <Show when={props.post?.deliveries.length}>
               <div class="flex flex-col gap-2">
-                <span class="text-[13px] font-medium leading-5 text-v2-text-text-base">{language.t("market.editor.deliveries")}</span>
+                <span class="text-[13px] font-medium leading-5 text-v2-text-text-base">
+                  {language.t("market.editor.deliveries")}
+                </span>
                 <For each={props.post!.deliveries}>
                   {(delivery) => (
                     <div class="flex items-start gap-2 rounded-[8px] bg-v2-background-bg-layer-01 px-3 py-2">
                       <NetworkBadge channel={delivery.channel} class="mt-0.5 size-4 text-[8px] leading-none" />
                       <div class="min-w-0 flex-1">
-                        <div class="text-[13px] leading-5 text-v2-text-text-base">{language.t(`market.delivery.${delivery.status}`)}</div>
+                        <div class="text-[13px] leading-5 text-v2-text-text-base">
+                          {language.t(`market.delivery.${delivery.status}`)}
+                        </div>
                         <Show when={delivery.error}>
                           <div class="text-[12px] leading-4 text-v2-text-text-muted">{delivery.error}</div>
                         </Show>
@@ -399,18 +498,30 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
             </Show>
           </div>
 
-          <aside class="hidden w-[340px] shrink-0 flex-col gap-3 overflow-y-auto border-s border-v2-border-border-muted bg-v2-background-bg-layer-01 px-5 py-5 lg:flex" data-scrollable>
-            <span class="text-[13px] font-medium leading-5 text-v2-text-text-muted">{language.t("market.editor.preview")}</span>
-            <For each={state.targets.length ? state.targets : []} fallback={<p class="text-[12px] text-v2-text-text-faint">{language.t("market.editor.noChannels")}</p>}>
+          <aside
+            class="hidden w-[340px] shrink-0 flex-col gap-3 overflow-y-auto border-s border-v2-border-border-muted bg-v2-background-bg-layer-01 px-5 py-5 lg:flex"
+            data-scrollable
+          >
+            <span class="text-[13px] font-medium leading-5 text-v2-text-text-muted">
+              {language.t("market.editor.preview")}
+            </span>
+            <For
+              each={state.targets.length ? state.targets : []}
+              fallback={<p class="text-[12px] text-v2-text-text-faint">{language.t("market.editor.noChannels")}</p>}
+            >
               {(target) => {
                 const account = () => props.model.account(target.connectedAccountId)
                 return (
                   <div class="rounded-[10px] bg-v2-background-bg-base p-3">
                     <div class="mb-2 flex items-center gap-2">
                       <Show when={account()}>{(item) => <ChannelAvatar account={item()} size="small" />}</Show>
-                      <span class="truncate text-[13px] font-medium leading-5 text-v2-text-text-base">{account()?.name}</span>
+                      <span class="truncate text-[13px] font-medium leading-5 text-v2-text-text-base">
+                        {account()?.name}
+                      </span>
                     </div>
-                    <p class="whitespace-pre-wrap break-words text-[13px] leading-5 text-v2-text-text-base">{target.content?.trim() || state.content}</p>
+                    <p class="whitespace-pre-wrap break-words text-[13px] leading-5 text-v2-text-text-base">
+                      {target.content?.trim() || state.content}
+                    </p>
                     <Show when={media()[0]}>
                       {(item) => (
                         <div class="mt-2 aspect-video overflow-hidden rounded-[8px] bg-v2-background-bg-layer-02">
@@ -435,7 +546,12 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
                 </Button>
               }
             >
-              <Button variant="ghost" class="text-v2-state-fg-danger" disabled={state.saving} onClick={() => void remove()}>
+              <Button
+                variant="ghost"
+                class="text-v2-state-fg-danger"
+                disabled={state.saving}
+                onClick={() => void remove()}
+              >
                 {language.t("market.editor.deleteConfirm")}
               </Button>
             </Show>
@@ -451,7 +567,11 @@ export function PostEditor(props: { model: MarketModel; post?: Post; at?: number
             <Button variant="neutral" disabled={state.saving || !state.targets.length} onClick={() => void save("now")}>
               {language.t("market.editor.publishNow")}
             </Button>
-            <Button variant="contrast" disabled={state.saving || !state.targets.length} onClick={() => void save("scheduled")}>
+            <Button
+              variant="contrast"
+              disabled={state.saving || !state.targets.length}
+              onClick={() => void save("scheduled")}
+            >
               {language.t(props.post ? "market.editor.update" : "market.editor.schedule")}
             </Button>
           </Show>

@@ -6,7 +6,14 @@ export type Client = { id: string; secret: string }
 export type Profile = { id: string; name: string; avatar?: string; target?: Choice }
 export type Choice = { id: string; name: string; token?: string }
 export type Media = { url: string; type: string; size: number }
-export type Job = { tokens: Tokens; targetId?: string; targetToken?: string; content: string; options: Options; media: Media[] }
+export type Job = {
+  tokens: Tokens
+  targetId?: string
+  targetToken?: string
+  content: string
+  options: Options
+  media: Media[]
+}
 export type Sent = { id: string; url?: string; pending?: boolean }
 export type Status = { state: "published" | "failed" | "processing"; id?: string; url?: string; reason?: string }
 export type Measured = {
@@ -14,9 +21,24 @@ export type Measured = {
   metrics: Metric[]
   series: Series[]
   note?: string
+  permissionReason?: "approval_pending" | "reconnect_required"
 }
-export type Measure = { tokens: Tokens; targetId?: string; targetToken?: string; days: number; from: Date; to: Date; published: string[] }
-export type Init = RequestInit & { json?: unknown; form?: Record<string, string>; token?: string; basic?: [string, string]; duplex?: "half" }
+export type Measure = {
+  tokens: Tokens
+  targetId?: string
+  targetToken?: string
+  days: number
+  from: Date
+  to: Date
+  published: string[]
+}
+export type Init = RequestInit & {
+  json?: unknown
+  form?: Record<string, string>
+  token?: string
+  basic?: [string, string]
+  duplex?: "half"
+}
 /** Sends a request for a publishing job. `publishes` marks the call that makes the post public. */
 export type Send = (url: string, init?: Init, publishes?: boolean) => Promise<Response>
 
@@ -66,7 +88,11 @@ export async function request(url: string, init: Init = {}) {
     body: json !== undefined ? JSON.stringify(json) : form ? new URLSearchParams(form) : body,
     signal: signal ?? AbortSignal.timeout(60_000),
   } as RequestInit)
-  if (!response.ok) throw new ProviderError(response.status, `${new URL(url).hostname} returned ${response.status}: ${await problem(response)}`)
+  if (!response.ok)
+    throw new ProviderError(
+      response.status,
+      `${new URL(url).hostname} returned ${response.status}: ${await problem(response)}`,
+    )
   return response
 }
 
@@ -82,7 +108,11 @@ export function link(base: string, params: Record<string, string | undefined>) {
 
 /** Standard OAuth token response. Networks that do not rotate refresh tokens keep the previous one. */
 export function tokens(data: any, previous?: Tokens): Tokens {
-  if (typeof data?.access_token !== "string") throw new ProviderError(400, String(data?.error_description ?? data?.error ?? "The network did not return an access token."))
+  if (typeof data?.access_token !== "string")
+    throw new ProviderError(
+      400,
+      String(data?.error_description ?? data?.error ?? "The network did not return an access token."),
+    )
   return {
     access: data.access_token,
     refresh: data.refresh_token ?? previous?.refresh,
@@ -93,7 +123,10 @@ export function tokens(data: any, previous?: Tokens): Tokens {
 
 /** A byte range of a stored media file, so large videos are never held in memory whole. */
 export async function bytes(url: string, start: number, end: number) {
-  const response = await fetch(url, { headers: { Range: `bytes=${start}-${end}` }, signal: AbortSignal.timeout(120_000) })
+  const response = await fetch(url, {
+    headers: { Range: `bytes=${start}-${end}` },
+    signal: AbortSignal.timeout(120_000),
+  })
   if (response.status === 206) return new Uint8Array(await response.arrayBuffer())
   if (response.ok && start === 0) return new Uint8Array(await response.arrayBuffer()).slice(0, end + 1)
   throw new Error("The media file could not be read. Upload it again.")

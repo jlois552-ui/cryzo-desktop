@@ -264,7 +264,12 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
 
         return tab
       },
-      async newDraft(draft: Omit<DraftTab, "type" | "draftID">, prompt?: string, model?: PromptModel) {
+      async newDraft(
+        draft: Omit<DraftTab, "type" | "draftID">,
+        prompt?: string,
+        model?: PromptModel,
+        options?: { activate?: boolean },
+      ) {
         const draftID = uuid()
         const tab = { type: "draft" as const, draftID, ...draft }
         memory.ensure(tabKey(tab), "prompt", () => createDraftComposerState(draftID, { prompt, model }))
@@ -274,7 +279,7 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
               tabs.push(tab)
             }),
           )
-          navigate(draftHref(draftID))
+          if (options?.activate !== false) navigate(draftHref(draftID))
         })
 
         return tab

@@ -82,6 +82,17 @@ export function Calendar(props: { model: MarketModel; onOpen: (post: Post) => vo
           <Loader class="size-4" />
         </Show>
         <div class="flex-1" />
+        <select
+          class="h-9 rounded-[8px] border border-v2-border-border-muted bg-v2-background-bg-base px-2 text-[13px]"
+          aria-label={language.t("market.posts.filterStatus")}
+          value={props.model.state.status}
+          onChange={(event) => props.model.setState("status", event.currentTarget.value as "" | Post["status"])}
+        >
+          <option value="">{language.t("market.posts.allStatuses")}</option>
+          <For each={["draft", "scheduled", "publishing", "published", "failed"] as const}>
+            {(status) => <option value={status}>{language.t(`market.status.${status}`)}</option>}
+          </For>
+        </select>
         <Show when={props.model.state.groups.length}>
           <select
             class="h-9 rounded-[8px] border border-v2-border-border-muted bg-v2-background-bg-base px-3 text-[13px] text-v2-text-text-base"
@@ -111,7 +122,14 @@ export function Calendar(props: { model: MarketModel; onOpen: (post: Post) => vo
       </div>
 
       <Show when={props.model.state.view === "week" || props.model.state.view === "day"}>
-        <TimeGrid days={days()} postsOn={postsOn} drop={drop} onOpen={props.onOpen} onCreate={props.onCreate} model={props.model} />
+        <TimeGrid
+          days={days()}
+          postsOn={postsOn}
+          drop={drop}
+          onOpen={props.onOpen}
+          onCreate={props.onCreate}
+          model={props.model}
+        />
       </Show>
       <Show when={props.model.state.view === "month"}>
         <div class="grid min-h-0 flex-1 grid-cols-7 gap-1 overflow-y-auto" data-scrollable>
@@ -126,15 +144,22 @@ export function Calendar(props: { model: MarketModel; onOpen: (post: Post) => vo
             {(start) => (
               <div
                 class="flex min-h-[112px] flex-col gap-1 rounded-[8px] bg-v2-background-bg-layer-01 p-1.5 data-[faded]:opacity-50"
-                data-faded={new Date(start).getMonth() !== new Date(props.model.state.anchor).getMonth() ? "" : undefined}
+                data-faded={
+                  new Date(start).getMonth() !== new Date(props.model.state.anchor).getMonth() ? "" : undefined
+                }
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={drop(start)}
                 onDblClick={() => props.onCreate(start + 9 * hour)}
               >
-                <span class="text-[12px] leading-4 text-v2-text-text-muted data-[today]:font-semibold data-[today]:text-v2-text-text-accent" data-today={isToday(start) ? "" : undefined}>
+                <span
+                  class="text-[12px] leading-4 text-v2-text-text-muted data-[today]:font-semibold data-[today]:text-v2-text-text-accent"
+                  data-today={isToday(start) ? "" : undefined}
+                >
                   {new Date(start).getDate()}
                 </span>
-                <For each={postsOn(start, day).slice(0, 3)}>{(post) => <PostCard post={post} model={props.model} onOpen={props.onOpen} compact />}</For>
+                <For each={postsOn(start, day).slice(0, 3)}>
+                  {(post) => <PostCard post={post} model={props.model} onOpen={props.onOpen} compact />}
+                </For>
                 <Show when={postsOn(start, day).length > 3}>
                   <span class="px-1 text-[11px] leading-4 text-v2-text-text-faint">
                     {language.t("market.calendar.overflow", { count: postsOn(start, day).length - 3 })}
@@ -149,13 +174,17 @@ export function Calendar(props: { model: MarketModel; onOpen: (post: Post) => vo
         <div class="min-h-0 flex-1 overflow-y-auto" data-scrollable>
           <Show
             when={props.model.visiblePosts().length}
-            fallback={<p class="py-10 text-center text-[13px] text-v2-text-text-muted">{language.t("market.calendar.empty")}</p>}
+            fallback={
+              <p class="py-10 text-center text-[13px] text-v2-text-text-muted">{language.t("market.calendar.empty")}</p>
+            }
           >
             <For each={days().filter((start) => postsOn(start, day).length)}>
               {(start) => (
                 <section class="mb-5">
                   <h3 class="mb-2 text-[13px] font-medium leading-5 text-v2-text-text-muted">
-                    {new Intl.DateTimeFormat(locale(), { weekday: "long", month: "long", day: "numeric" }).format(start)}
+                    {new Intl.DateTimeFormat(locale(), { weekday: "long", month: "long", day: "numeric" }).format(
+                      start,
+                    )}
                   </h3>
                   <div class="flex flex-col gap-2">
                     <For each={postsOn(start, day).sort((a, b) => a.scheduledFor - b.scheduledFor)}>
@@ -187,7 +216,11 @@ function TimeGrid(props: {
   const columns = () => `72px repeat(${props.days.length}, minmax(140px, 1fr))`
 
   return (
-    <div class="min-h-0 flex-1 overflow-auto rounded-[10px] border border-v2-border-border-muted" data-scrollable ref={scroller}>
+    <div
+      class="min-h-0 flex-1 overflow-auto rounded-[10px] border border-v2-border-border-muted"
+      data-scrollable
+      ref={scroller}
+    >
       <div class="sticky top-0 z-10 grid bg-v2-background-bg-base" style={{ "grid-template-columns": columns() }}>
         <div />
         <For each={props.days}>
@@ -224,10 +257,13 @@ function TimeGrid(props: {
                       onDragOver={(event) => event.preventDefault()}
                       onDrop={props.drop(at())}
                       onClick={(event) => {
-                        if (event.target === event.currentTarget && at() + hour > Date.now()) props.onCreate(Math.max(at(), Date.now() + 15 * 60_000))
+                        if (event.target === event.currentTarget && at() + hour > Date.now())
+                          props.onCreate(Math.max(at(), Date.now() + 15 * 60_000))
                       }}
                     >
-                      <For each={props.postsOn(at(), hour)}>{(post) => <PostCard post={post} model={props.model} onOpen={props.onOpen} compact />}</For>
+                      <For each={props.postsOn(at(), hour)}>
+                        {(post) => <PostCard post={post} model={props.model} onOpen={props.onOpen} compact />}
+                      </For>
                     </div>
                   )
                 }}
@@ -261,7 +297,10 @@ export function PostCard(props: { post: Post; model: MarketModel; onOpen: (post:
     >
       <Show when={group()}>
         {(group) => (
-          <span class="truncate px-2 text-center text-[11px] font-medium leading-4 text-white" style={{ "background-color": group().color }}>
+          <span
+            class="truncate px-2 text-center text-[11px] font-medium leading-4 text-white"
+            style={{ "background-color": group().color }}
+          >
             {group().name}
           </span>
         )}
@@ -286,8 +325,10 @@ export function PostCard(props: { post: Post; model: MarketModel; onOpen: (post:
       </span>
       <Show when={!props.compact}>
         <span class="px-2 pb-1.5 text-[11px] leading-4 text-v2-text-text-faint">
-          {new Intl.DateTimeFormat(language.intl(), { hour: "numeric", minute: "2-digit" }).format(props.post.scheduledFor)} ·{" "}
-          {language.t(`market.status.${props.post.status}`)}
+          {new Intl.DateTimeFormat(language.intl(), { hour: "numeric", minute: "2-digit" }).format(
+            props.post.scheduledFor,
+          )}{" "}
+          · {language.t(`market.status.${props.post.status}`)}
         </span>
       </Show>
     </button>

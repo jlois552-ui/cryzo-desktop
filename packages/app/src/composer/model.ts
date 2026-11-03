@@ -1,3 +1,4 @@
+import { useSessionSurface } from "@/session/surface"
 import { ImagePreview } from "@opencode/ui/image-preview"
 import { useDialog } from "@opencode/ui/context/dialog"
 import type { ReferenceInfo } from "@opencode/client/promise"
@@ -304,7 +305,9 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
 
   const variants = createMemo(() => ["default", ...adapter.controls().model.selection.variant.list()])
 
+  const surface = useSessionSurface()
   const submission = createComposerSubmit({
+    extraContext: surface?.context,
     adapter,
     mode,
     commands: () => data.location.command.list({ directory: sdk().directory }),
@@ -336,7 +339,11 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
           const connect = useProviderConnectController()
           connect.select("cryzo")
           void dialog.show(() =>
-            createComponent(DialogConnectProvider, { directory: sdk().directory, controller: connect, standalone: true }),
+            createComponent(DialogConnectProvider, {
+              directory: sdk().directory,
+              controller: connect,
+              standalone: true,
+            }),
           )
           return
         }

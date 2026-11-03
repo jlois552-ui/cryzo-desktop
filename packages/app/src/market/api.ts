@@ -51,7 +51,14 @@ export type Post = {
   error?: string
   deliveries: Delivery[]
 }
-export type Media = { _id: string; storageId: string; contentType: string; name: string; size: number; url: string | null }
+export type Media = {
+  _id: string
+  storageId: string
+  contentType: string
+  name: string
+  size: number
+  url: string | null
+}
 export type Metric = { key: string; value: number; window: "period" | "snapshot" | "lifetime" }
 export type Report = {
   channel: Channel
@@ -60,6 +67,7 @@ export type Report = {
   metrics: Metric[]
   series: { key: string; points: { date: string; value: number }[] }[]
   note?: string
+  permissionReason?: "approval_pending" | "reconnect_required"
   updatedAt: number
 }
 
@@ -102,11 +110,16 @@ export function useMarketApi() {
     connect: (channel: Channel) => request<string>("POST", "accounts/connect", { channel }),
     updateAccount: (input: { connectedAccountId: string; name?: string; groupId?: string | null }) =>
       request<null>("POST", "accounts/update", input),
-    chooseTarget: (connectedAccountId: string, targetId: string) => request<null>("POST", "accounts/target", { connectedAccountId, targetId }),
+    chooseTarget: (connectedAccountId: string, targetId: string) =>
+      request<null>("POST", "accounts/target", { connectedAccountId, targetId }),
     disconnect: (connectedAccountId: string) => request<null>("POST", "accounts/disconnect", { connectedAccountId }),
     targets: (connectedAccountId: string) =>
-      request<{ id: string; name: string }[]>("GET", `accounts/targets?connectedAccountId=${encodeURIComponent(connectedAccountId)}`),
-    saveGroup: (input: { groupId?: string; name: string; color: string }) => request<string>("POST", "groups/save", input),
+      request<{ id: string; name: string }[]>(
+        "GET",
+        `accounts/targets?connectedAccountId=${encodeURIComponent(connectedAccountId)}`,
+      ),
+    saveGroup: (input: { groupId?: string; name: string; color: string }) =>
+      request<string>("POST", "groups/save", input),
     deleteGroup: (groupId: string) => request<null>("POST", "groups/delete", { groupId }),
     posts: (from: number, to: number) => request<Post[]>("GET", `posts?from=${from}&to=${to}`),
     createPost: (input: {
@@ -119,21 +132,29 @@ export function useMarketApi() {
       options?: Options
       groupId?: string
     }) => request<string>("POST", "posts/create", input),
-    updatePost: (input: Partial<Omit<Post, "_id" | "deliveries" | "error" | "groupId">> & { postId: string; groupId?: string | null }) =>
-      request<null>("POST", "posts/update", input),
+    updatePost: (
+      input: Partial<Omit<Post, "_id" | "deliveries" | "error" | "groupId">> & {
+        postId: string
+        groupId?: string | null
+      },
+    ) => request<null>("POST", "posts/update", input),
     deletePost: (postId: string) => request<null>("POST", "posts/delete", { postId }),
     publish: (postId: string) => request<null>("POST", "posts/publish", { postId }),
     retry: (deliveryId: string) => request<null>("POST", "posts/retry", { deliveryId }),
     media: () => request<Media[]>("GET", "media"),
     upload: (path: string) => request<{ storageId: string }>("POST", "media/upload", { path }),
     deleteMedia: (storageId: string) => request<null>("POST", "media/delete", { storageId }),
-    analytics: (days: number, refresh: boolean) => request<Report[]>("GET", `analytics?days=${days}${refresh ? "&refresh=1" : ""}`),
+    analytics: (days: number, refresh: boolean) =>
+      request<Report[]>("GET", `analytics?days=${days}${refresh ? "&refresh=1" : ""}`),
     /** A `blob:` URL for stored media: the desktop's content policy blocks remote images. Revoke it when done. */
     file: async (url: string) => {
       const password = sdk.http.password
-      const response = await (platform.fetch ?? fetch)(`${sdk.url}/api/market/media/file?url=${encodeURIComponent(url)}`, {
-        headers: password ? { Authorization: `Basic ${authTokenFromCredentials({ password })}` } : {},
-      })
+      const response = await (platform.fetch ?? fetch)(
+        `${sdk.url}/api/market/media/file?url=${encodeURIComponent(url)}`,
+        {
+          headers: password ? { Authorization: `Basic ${authTokenFromCredentials({ password })}` } : {},
+        },
+      )
       if (!response.ok) throw new MarketError("", false)
       return URL.createObjectURL(await response.blob())
     },

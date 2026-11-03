@@ -1,3 +1,4 @@
+import { useSessionSurface } from "@/session/surface"
 import { Predicate } from "effect"
 import { base64Encode } from "@opencode/util/encode"
 import { Session } from "@opencode/schema/session"
@@ -25,6 +26,7 @@ export function createNewSessionComposerAdapter(props: {
   submitted: () => void
   mcp: DraftMcpControls
 }) {
+  const surface = useSessionSurface()
   const prompt = useComposerState()
   const state = prompt.capture()
   const local = useLocal()
@@ -145,6 +147,7 @@ export function createNewSessionComposerAdapter(props: {
         })
 
         if (!pending) tabs.promoteDraft(draftID, { server: server.key, sessionId: created.id })
+        surface?.started(created.id)
         submission.retarget(
           prompt.capture(
             { dir: base64Encode(sessionDirectory), id: created.id },

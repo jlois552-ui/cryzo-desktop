@@ -1,3 +1,4 @@
+import { useSessionNavigate } from "@/session/surface"
 import type { SessionInfo } from "@opencode/client/promise"
 import type { MountedSession, SessionScreen } from "@opencode/plugin/gui"
 import { Icon } from "@opencode/ui/icon"
@@ -10,7 +11,6 @@ import {
   getProjectAvatarVariant,
   ProjectAvatar,
 } from "@opencode/ui/project-avatar"
-import { useNavigate } from "@solidjs/router"
 import {
   createContext,
   createMemo,
@@ -108,7 +108,7 @@ export function SessionLocation(props: {
   const platform = usePlatform()
   const layout = useLayout()
   const settingsSurface = useSettingsSurface()
-  const navigate = useNavigate()
+  const navigate = useSessionNavigate()
   const collapse = useContext(SessionHeaderCollapse)
   const [store, setStore] = createStore({ open: false })
 
@@ -511,7 +511,7 @@ export function SessionAncestorTrail(props: {
 export function useOpenSessionRoute() {
   const server = useServer()
   const tabs = useTabs()
-  const navigate = useNavigate()
+  const navigate = useSessionNavigate()
 
   return (from: string, id: string, reveal?: string) => {
     const tab = tabs.store.find(

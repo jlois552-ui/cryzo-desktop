@@ -1,6 +1,22 @@
 import { DESKTOP_NATIVE_ENGLISH } from "./desktop-native"
 
 export const dict = {
+  "market.agent.title": "Agent",
+  "market.agent.history": "Chat history",
+  "market.agent.search": "Search chats",
+  "market.agent.width": "Agent panel width",
+  "market.agent.projectRequired": "Open a project to start a chat. Existing chats are available in history.",
+  "market.sidebar.add": "Add channel",
+  "market.sidebar.all": "Select all",
+  "market.sidebar.clear": "Clear selection",
+  "market.sidebar.collapse": "Collapse or expand channels",
+  "market.analytics.approval": "LinkedIn analytics access is awaiting approval.",
+  "market.analytics.reconnect": "Reconnect with analytics access",
+  "market.analytics.updated": "Updated {{time}}",
+  "market.analytics.window.period": "Selected period",
+  "market.analytics.window.snapshot": "Current snapshot",
+  "market.analytics.window.lifetime": "Lifetime",
+
   "experiment.voiceCalls": "Voice calls",
   "voice.call": "Call",
   "voice.mute": "Mute",
@@ -72,7 +88,8 @@ export const dict = {
   "market.page.media": "Images and videos for your posts.",
   "market.page.channels": "Connect and manage your social accounts.",
   "market.overview.ideas.title": "Marketing ideas drafted for you",
-  "market.overview.ideas.description": "Cryzo writes a week of posts for your channels. They wait here as drafts, and nothing goes live until you approve it.",
+  "market.overview.ideas.description":
+    "Cryzo writes a week of posts for your channels. They wait here as drafts, and nothing goes live until you approve it.",
   "market.overview.ideas.action": "Generate a week of posts",
   "market.overview.channels.title": "Your channels",
   "market.overview.channels.attention": "Some channels need attention.",
@@ -214,10 +231,13 @@ export const dict = {
   "market.toast.scheduled": "Post added to the calendar",
   "market.chat.placeholder": "Ask Cryzo to plan, write or schedule posts…",
   "market.chat.send": "Send",
-  "market.chat.plan": "Draft a week of posts for my connected channels, one or two a day at good times for each network. Save them as drafts only and do not schedule them; I will approve them in Marketing. If you do not know my business yet, ask me about it first.",
-  "market.chat.instructions": "You are helping with social media marketing. Use the marketing tools to list my channels and to draft or schedule posts in Cryzo Marketing. Ask before scheduling. My local time is {{now}}; give post times with this UTC offset.",
+  "market.chat.plan":
+    "Draft a week of posts for my connected channels, one or two a day at good times for each network. Save them as drafts only and do not schedule them; I will approve them in Marketing. If you do not know my business yet, ask me about it first.",
+  "market.chat.instructions":
+    "You are helping with social media marketing. Use the marketing tools to list my channels and to draft or schedule posts in Cryzo Marketing. Ask before scheduling. My local time is {{now}}; give post times with this UTC offset.",
   "market.signIn.title": "Sign in to use Marketing",
-  "market.signIn.description": "Marketing schedules and publishes your posts from Cryzo cloud, even while this app is closed.",
+  "market.signIn.description":
+    "Marketing schedules and publishes your posts from Cryzo cloud, even while this app is closed.",
   "market.signIn.action": "Sign in with Google",
   "command.usage.view": "View usage",
   "command.usage.view.description": "See your OpenCode Go allowance and Console budgets",

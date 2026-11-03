@@ -49,12 +49,15 @@ export function createMarketModel() {
   const api = useMarketApi()
   const language = useLanguage()
   const [state, setState] = createStore({
-    section: "overview" as Section,
-    view: "week" as View,
+    section: "calendar" as Section,
+    view: "month" as View,
     anchor: Date.now(),
     group: undefined as string | undefined,
     collapsed: false,
+    selectedAccounts: null as string[] | null,
+    status: "" as "" | Post["status"],
     ready: false,
+    analyticsRevision: 0,
     signIn: false,
     loadingPosts: false,
     providers: [] as Provider[],
@@ -97,7 +100,10 @@ export function createMarketModel() {
     const [from, to] = range(state.view, state.anchor)
     setState("loadingPosts", true)
     const today = startOfDay(Date.now())
-    const [result, feed] = await Promise.all([run(() => api.posts(from, to)), run(() => api.posts(today - 60 * day, today + 60 * day))])
+    const [result, feed] = await Promise.all([
+      run(() => api.posts(from, to)),
+      run(() => api.posts(today - 60 * day, today + 60 * day)),
+    ])
     setState("loadingPosts", false)
     if (result) setState("posts", reconcile(result, { key: "_id" }))
     if (feed) setState("feed", reconcile(feed, { key: "_id" }))
@@ -148,7 +154,13 @@ export function createMarketModel() {
       return groupId ? state.groups.find((item) => item._id === groupId) : undefined
     },
     visiblePosts() {
-      return state.group ? state.posts.filter((post) => post.groupId === state.group) : state.posts
+      return state.posts.filter(
+        (post) =>
+          (!state.group || post.groupId === state.group) &&
+          (!state.status || post.status === state.status) &&
+          (state.selectedAccounts === null ||
+            post.targets.some((target) => state.selectedAccounts!.includes(target.connectedAccountId))),
+      )
     },
   }
 }

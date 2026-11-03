@@ -1,14 +1,28 @@
+import { Dialog, DialogTitle } from "@opencode/ui/dialog"
+import { ChannelSidebar } from "./channel-sidebar"
+import "./market.css"
 import { Button } from "@opencode/ui/button"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { Loader } from "@opencode/ui/loader"
 import { useSearchParams } from "@solidjs/router"
-import { For, Match, Show, Switch, createEffect, createMemo, onMount, type JSX } from "solid-js"
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  Suspense,
+  lazy,
+  createEffect,
+  createMemo,
+  onMount,
+  onCleanup,
+  type JSX,
+} from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/runtime/i18n/language"
 import { ServerProvider } from "@/runtime/server/current"
 import { ServerConnection } from "@/runtime/server/registry"
 import { useGlobal } from "@/runtime/server/runtime"
-import { useTabs } from "@/shell/tabs/tabs"
 import type { Post } from "./api"
 import { Analytics } from "./analytics"
 import { Calendar } from "./calendar"
@@ -17,8 +31,8 @@ import { PostEditor } from "./editor"
 import { MarketIcon } from "./icons"
 import { MediaLibrary } from "./media"
 import { createMarketModel, sections, type Section } from "./model"
-import { Overview } from "./overview"
-import { Posts } from "./posts"
+
+const MarketingAgent = lazy(() => import("./agent").then((module) => ({ default: module.MarketingAgent })))
 
 /** Marketing runs against the local Cryzo engine, which forwards to Cryzo cloud with the user's sign-in. */
 export function MarketRoute() {
@@ -42,65 +56,87 @@ function MarketScreen(props: { server: ServerConnection.Any }) {
   const language = useLanguage()
   const dialog = useDialog()
   const global = useGlobal()
-  const tabs = useTabs()
   const model = createMarketModel()
-
-  /** Opens a new Cryzo session in the most recent project with a marketing brief, so the agent's
-   * marketing tools draft and schedule posts that then appear on this calendar. */
-  const ask = (text: string) => {
-    const directory = global.ensureServerCtx(props.server).projects.used()[0]?.worktree
-    if (!directory) return
-    const brief = language.t("market.chat.instructions", { now: localTime() })
-    void tabs.newDraft({ server: ServerConnection.key(props.server), directory }, `${brief}
-
-${text}`.trim())
-  }
-  // Wix's "Marketing ideas drafted for you": the agent writes drafts that wait in Overview for approval.
-  const plan = () => ask(language.t("market.chat.plan"))
-
-  // `?section=` selects the page, so the app sidebar can link straight to one.
+  const [state, setState] = createStore({ agent: false, width: 1200 })
+  let root!: HTMLDivElement
+  const directory = () => global.ensureServerCtx(props.server).projects.used()[0]?.worktree
   const [params, setParams] = useSearchParams<{ section?: string }>()
+  const manage = () =>
+    dialog.show(() => (
+      <Dialog fit containerClass="!w-[min(calc(100vw_-_40px),900px)] !max-h-[85vh]">
+        <div class="flex min-h-0 flex-col gap-4 p-5">
+          <DialogTitle>{language.t("market.nav.channels")}</DialogTitle>
+          <div class="min-h-0 overflow-y-auto" data-scrollable>
+            <ChannelsPage model={model} />
+          </div>
+        </div>
+      </Dialog>
+    ))
   createEffect(() => {
-    const section = sections.find((item) => item === params.section)
-    if (section && section !== model.state.section) model.setState("section", section)
+    const section = params.section
+    if (section === "channels") {
+      setParams({ section: "calendar" }, { replace: true })
+      manage()
+      return
+    }
+    if (section === "posts") {
+      model.setView("list")
+      setParams({ section: "calendar" }, { replace: true })
+      return
+    }
+    const valid = sections.find((item) => item === section)
+    if (valid) model.setState("section", valid)
+    else {
+      model.setState("section", "calendar")
+      if (section) setParams({ section: "calendar" }, { replace: true })
+    }
   })
   const go = (section: Section) => {
     model.setState("section", section)
     setParams({ section })
   }
-  onMount(() => void model.load())
-
+  const refresh = () => void model.load()
+  onMount(() => {
+    refresh()
+    const observer = new ResizeObserver(([entry]) => setState("width", entry.contentRect.width))
+    observer.observe(root)
+    window.addEventListener("focus", refresh)
+    onCleanup(() => {
+      observer.disconnect()
+      window.removeEventListener("focus", refresh)
+    })
+  })
   const open = (post: Post) => dialog.show(() => <PostEditor model={model} post={post} />)
-  const create = (at?: number) => dialog.show(() => <PostEditor model={model} at={at} />)
-  const icons: Record<Section, "overview" | "posts" | "calendar" | "analytics" | "media" | "channels"> = {
-    overview: "overview",
-    posts: "posts",
-    calendar: "calendar",
-    analytics: "analytics",
-    media: "media",
-    channels: "channels",
-  }
-
+  const create = (at?: number) =>
+    dialog.show(() => (
+      <PostEditor
+        model={model}
+        at={at}
+        targets={
+          model.state.selectedAccounts === null
+            ? undefined
+            : model.state.accounts
+                .filter(
+                  (account) =>
+                    model.state.selectedAccounts!.includes(account.connectedAccountId) &&
+                    !account.needsReconnect &&
+                    !account.needsTarget,
+                )
+                .map((account) => ({ channel: account.channel, connectedAccountId: account.connectedAccountId }))
+        }
+      />
+    ))
+  const context = () => `${language.t("market.chat.instructions", { now: localTime() })}
+Marketing context: ${JSON.stringify({ section: model.state.section, view: model.state.view, anchor: new Date(model.state.anchor).toISOString(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, selectedAccounts: model.state.selectedAccounts, status: model.state.status, group: model.state.group })}`
   return (
     <div class="flex min-h-0 flex-1 px-[var(--shell-inline-inset,8px)] pb-[var(--shell-bottom-inset,8px)] pt-[var(--shell-top-inset,8px)]">
-      <div class="flex min-h-0 flex-1 overflow-hidden rounded-[12px] bg-v2-background-bg-base">
-        {/* On desktop the app sidebar lists these pages; phones have no sidebar. */}
-        <nav class="flex w-[200px] shrink-0 flex-col gap-0.5 border-e border-v2-border-border-muted px-2 py-4 md:hidden" aria-label={language.t("market.title")}>
-          <div class="mb-2 px-2 text-[12px] font-medium leading-4 text-v2-text-text-faint">{language.t("market.title")}</div>
-          <For each={sections}>
-            {(section) => (
-              <button
-                type="button"
-                class="flex h-8 items-center gap-2.5 rounded-[8px] px-2 text-[13px] leading-5 text-v2-text-text-muted hover:bg-v2-overlay-simple-overlay-hover aria-[current=page]:bg-v2-background-bg-layer-03 aria-[current=page]:text-v2-text-text-base"
-                aria-current={model.state.section === section ? "page" : undefined}
-                onClick={() => go(section)}
-              >
-                <MarketIcon name={icons[section]} class="size-4" />
-                {language.t(`market.nav.${section}`)}
-              </button>
-            )}
-          </For>
-        </nav>
+      <div
+        ref={root}
+        class="market-workspace relative flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl bg-v2-background-bg-base"
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && state.agent) setState("agent", false)
+        }}
+      >
         <Switch>
           <Match when={!model.state.ready}>
             <div class="grid flex-1 place-items-center">
@@ -108,91 +144,78 @@ ${text}`.trim())
             </div>
           </Match>
           <Match when={model.state.signIn}>
-            <SignIn onRetry={() => void model.load()} />
+            <SignIn onRetry={refresh} />
           </Match>
           <Match when={true}>
             <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-              <header class="flex flex-wrap items-center gap-3 px-6 pb-3 pt-5">
-                <div class="min-w-0 flex-1">
-                  <h1 class="text-[20px] font-medium leading-7 text-v2-text-text-base">{language.t(`market.nav.${model.state.section}`)}</h1>
-                  <p class="text-[13px] leading-5 text-v2-text-text-muted">{language.t(`market.page.${model.state.section}`)}</p>
-                </div>
-                <Button variant="neutral" size="large" disabled={!model.state.accounts.length} onClick={plan}>
+              <header class="flex shrink-0 flex-wrap items-center gap-2 border-b border-v2-border-border-muted px-4 py-3">
+                <nav class="flex min-w-0 flex-1 gap-1" aria-label={language.t("market.title")}>
+                  <For each={sections}>
+                    {(section) => (
+                      <button
+                        type="button"
+                        aria-current={model.state.section === section ? "page" : undefined}
+                        class="flex h-9 items-center gap-2 rounded-lg px-3 text-[13px] text-v2-text-text-muted hover:bg-v2-overlay-simple-overlay-hover aria-[current=page]:bg-v2-background-bg-layer-03 aria-[current=page]:text-v2-text-text-base"
+                        onClick={() => go(section)}
+                      >
+                        <MarketIcon name={section} class="size-4" />
+                        {language.t(`market.nav.${section}`)}
+                      </button>
+                    )}
+                  </For>
+                </nav>
+                <Button variant="neutral" onClick={() => setState("agent", !state.agent)} aria-expanded={state.agent}>
                   <MarketIcon name="sparkle" class="size-4" />
-                  {language.t("market.overview.ideas.action")}
-                </Button>
-                <Button variant="contrast" size="large" icon="plus" disabled={!model.state.accounts.length} onClick={() => create()}>
-                  {language.t("market.channels.create")}
+                  {language.t("market.agent.title")}
                 </Button>
               </header>
-              <div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-5" data-scrollable>
-                <Switch>
-                  <Match when={model.state.section === "overview"}>
-                    <Overview model={model} onPlan={plan} onOpen={open} onSection={go} />
-                  </Match>
-                  <Match when={model.state.section === "posts"}>
-                    <Posts model={model} onPlan={plan} onOpen={open} onCreate={(at) => create(at)} />
-                  </Match>
-                  <Match when={model.state.section === "calendar"}>
-                    <Calendar model={model} onOpen={open} onCreate={(at) => create(at)} />
-                  </Match>
-                  <Match when={model.state.section === "analytics"}>
-                    <Analytics model={model} />
-                  </Match>
-                  <Match when={model.state.section === "media"}>
-                    <MediaLibrary model={model} />
-                  </Match>
-                  <Match when={model.state.section === "channels"}>
-                    <ChannelsPage model={model} />
-                  </Match>
-                </Switch>
+              <div class="flex min-h-0 min-w-0 flex-1">
+                <Show when={model.state.section === "calendar"}>
+                  <ChannelSidebar
+                    model={model}
+                    compact={model.state.collapsed || state.width < (state.agent ? 1240 : 760)}
+                    onManage={manage}
+                    onCreate={() => create()}
+                  />
+                </Show>
+                <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-4" data-scrollable>
+                  <Switch>
+                    <Match when={model.state.section === "calendar"}>
+                      <Calendar model={model} onOpen={open} onCreate={create} />
+                    </Match>
+                    <Match when={model.state.section === "analytics"}>
+                      <Analytics model={model} />
+                    </Match>
+                    <Match when={model.state.section === "media"}>
+                      <MediaLibrary model={model} />
+                    </Match>
+                  </Switch>
+                </div>
               </div>
-              <ChatBar onSend={ask} />
             </div>
+            <Show when={state.agent}>
+              <Suspense
+                fallback={
+                  <div class="grid w-[400px] place-items-center">
+                    <Loader class="size-4" />
+                  </div>
+                }
+              >
+                <MarketingAgent
+                  directory={directory()}
+                  context={context}
+                  onClose={() => setState("agent", false)}
+                  onIdle={() => {
+                    refresh()
+                    model.setState("analyticsRevision", (value) => value + 1)
+                  }}
+                />
+              </Suspense>
+            </Show>
           </Match>
         </Switch>
       </div>
     </div>
-  )
-}
-
-/** Local time as ISO 8601 with its UTC offset, e.g. 2026-11-02T09:00:00-05:00, the format the marketing tools accept. */
-function localTime() {
-  const now = new Date()
-  const offset = -now.getTimezoneOffset()
-  const pad = (value: number) => String(Math.floor(Math.abs(value))).padStart(2, "0")
-  const local = new Date(now.getTime() + offset * 60_000).toISOString().slice(0, 19)
-  return `${local}${offset < 0 ? "-" : "+"}${pad(offset / 60)}:${pad(offset % 60)}`
-}
-
-function ChatBar(props: { onSend: (text: string) => void }) {
-  const language = useLanguage()
-  const [state, setState] = createStore({ text: "" })
-  const send = () => {
-    const text = state.text.trim()
-    if (!text) return
-    setState("text", "")
-    props.onSend(text)
-  }
-  return (
-    <form
-      class="flex items-center gap-2 border-t border-v2-border-border-muted px-5 py-3"
-      onSubmit={(event) => {
-        event.preventDefault()
-        send()
-      }}
-    >
-      <MarketIcon name="sparkle" class="size-5 shrink-0 text-v2-icon-icon-accent" />
-      <input
-        class="h-10 min-w-0 flex-1 rounded-[10px] border border-v2-border-border-base bg-v2-background-bg-base px-3 text-[14px] text-v2-text-text-base"
-        placeholder={language.t("market.chat.placeholder")}
-        value={state.text}
-        onInput={(event) => setState("text", event.currentTarget.value)}
-      />
-      <Button type="submit" variant="contrast" disabled={!state.text.trim()}>
-        {language.t("market.chat.send")}
-      </Button>
-    </form>
   )
 }
 
@@ -203,7 +226,9 @@ function SignIn(props: { onRetry: () => void }): JSX.Element {
     const { DialogConnectProvider, useProviderConnectController } = await import("@/providers/connect/dialog")
     const controller = useProviderConnectController()
     controller.select("cryzo")
-    void dialog.show(() => <DialogConnectProvider controller={controller} standalone onConnected={() => props.onRetry()} />)
+    void dialog.show(() => (
+      <DialogConnectProvider controller={controller} standalone onConnected={() => props.onRetry()} />
+    ))
   }
   return (
     <div class="grid flex-1 place-items-center p-8">
@@ -222,4 +247,11 @@ function SignIn(props: { onRetry: () => void }): JSX.Element {
       </div>
     </div>
   )
+}
+
+function localTime() {
+  const now = new Date()
+  const offset = -now.getTimezoneOffset()
+  const pad = (value: number) => String(Math.floor(Math.abs(value))).padStart(2, "0")
+  return `${new Date(now.getTime() + offset * 60_000).toISOString().slice(0, 19)}${offset < 0 ? "-" : "+"}${pad(offset / 60)}:${pad(offset % 60)}`
 }

@@ -1,0 +1,23 @@
+.market-workspace {
+  container-type: inline-size;
+}
+.market-agent {
+  width: min(var(--market-agent-width, 400px), calc(100cqw - 560px));
+}
+.market-agent [data-slot="session-chat-panel"] {
+  width: 100% !important;
+  flex: 1 !important;
+}
+.market-agent [data-component="session-header-drag"] {
+  display: none;
+}
+@container (max-width: 959px) {
+  .market-agent {
+    position: absolute;
+    inset-block: 0;
+    right: 0;
+    z-index: 80;
+    width: min(var(--market-agent-width, 400px), 92cqw);
+    box-shadow: -8px 0 32px #0003;
+  }
+}

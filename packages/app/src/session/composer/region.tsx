@@ -1,9 +1,9 @@
+import { useSessionNavigate } from "@/session/surface"
 import type { SessionUserActions } from "@opencode/session-ui/message"
 import { getFilename, sameDirectory } from "@opencode/util/path"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { isScrollKeyTarget, scrollKey, scrollKeyOwner } from "@opencode/ui/scroll-view"
 import { makeEventListener } from "@solid-primitives/event-listener"
-import { useNavigate } from "@solidjs/router"
 import { createEffect, createMemo, on, onCleanup, onMount, Show, type Accessor } from "solid-js"
 import { Composer } from "@/composer/composer"
 import { VoiceComposer } from "@/voice/composer"
@@ -64,7 +64,7 @@ export function createActiveSessionRegion(input: {
   const language = useLanguage()
   const local = useLocal()
   const location = useWorkspaceLocation()
-  const navigate = useNavigate()
+  const navigate = useSessionNavigate()
   const platform = usePlatform()
   const prompt = useComposerState()
   const state = createSessionRequestModel()

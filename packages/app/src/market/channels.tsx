@@ -28,7 +28,9 @@ export function ChannelsPage(props: { model: MarketModel }) {
               <div class="flex items-center gap-3">
                 <NetworkBadge channel={channel} class="size-9 text-[14px] leading-none" />
                 <div class="min-w-0 flex-1">
-                  <div class="text-[14px] font-medium leading-5 text-v2-text-text-base">{networkName(language, channel)}</div>
+                  <div class="text-[14px] font-medium leading-5 text-v2-text-text-base">
+                    {networkName(language, channel)}
+                  </div>
                   <div class="text-[12px] leading-4 text-v2-text-text-muted">
                     {language.t(
                       !provider()?.configured
@@ -59,12 +61,18 @@ export function ChannelsPage(props: { model: MarketModel }) {
                         when={account.needsReconnect || account.needsTarget}
                         fallback={
                           <Show when={account.targetName && account.targetName !== account.name}>
-                            <div class="truncate text-[12px] leading-4 text-v2-text-text-muted">{account.targetName}</div>
+                            <div class="truncate text-[12px] leading-4 text-v2-text-text-muted">
+                              {account.targetName}
+                            </div>
                           </Show>
                         }
                       >
                         <div class="truncate text-[12px] leading-4 text-v2-state-fg-warning">
-                          {language.t(account.needsReconnect ? "market.channels.reconnectNeeded" : "market.channels.targetMissing")}
+                          {language.t(
+                            account.needsReconnect
+                              ? "market.channels.reconnectNeeded"
+                              : "market.channels.targetMissing",
+                          )}
                         </div>
                       </Show>
                     </div>
@@ -72,7 +80,15 @@ export function ChannelsPage(props: { model: MarketModel }) {
                       <Button
                         variant="ghost"
                         size="small"
-                        onClick={() => dialog.show(() => <ConnectDialog model={props.model} channel={channel} reconnect={account.connectedAccountId} />)}
+                        onClick={() =>
+                          dialog.show(() => (
+                            <ConnectDialog
+                              model={props.model}
+                              channel={channel}
+                              reconnect={account.connectedAccountId}
+                            />
+                          ))
+                        }
                       >
                         {language.t("market.channels.reconnect")}
                       </Button>
@@ -94,7 +110,8 @@ export function ChannelsPage(props: { model: MarketModel }) {
   )
 }
 
-export const networkName = (language: ReturnType<typeof useLanguage>, channel: Channel) => language.t(`market.network.${channel}`)
+export const networkName = (language: ReturnType<typeof useLanguage>, channel: Channel) =>
+  language.t(`market.network.${channel}`)
 
 /** Opens the network's sign-in in the browser and waits for the account to appear (or, on reconnect, to recover). */
 export function ConnectDialog(props: { model: MarketModel; channel: Channel; reconnect?: string }) {
@@ -105,7 +122,9 @@ export function ConnectDialog(props: { model: MarketModel; channel: Channel; rec
   const known = new Set(props.model.state.accounts.map((account) => account.connectedAccountId))
   const done = () =>
     props.model.state.accounts.some((account) =>
-      props.reconnect ? account.connectedAccountId === props.reconnect && !account.needsReconnect : !known.has(account.connectedAccountId),
+      props.reconnect
+        ? account.connectedAccountId === props.reconnect && !account.needsReconnect
+        : !known.has(account.connectedAccountId),
     )
   let timer: ReturnType<typeof setInterval> | undefined
   onCleanup(() => clearInterval(timer))
@@ -159,7 +178,7 @@ export function ConnectDialog(props: { model: MarketModel; channel: Channel; rec
   )
 }
 
-function ChannelSettingsDialog(props: { model: MarketModel; account: Account }) {
+export function ChannelSettingsDialog(props: { model: MarketModel; account: Account }) {
   const language = useLanguage()
   const dialog = useDialog()
   const targeted = ["facebook", "instagram", "linkedin"].includes(props.account.channel)
@@ -182,10 +201,19 @@ function ChannelSettingsDialog(props: { model: MarketModel; account: Account }) 
   const save = async () => {
     setState("saving", true)
     const groupId = state.newGroup.trim()
-      ? await props.model.run(() => props.model.api.saveGroup({ name: state.newGroup, color: palette[props.model.state.groups.length % palette.length] }))
+      ? await props.model.run(() =>
+          props.model.api.saveGroup({
+            name: state.newGroup,
+            color: palette[props.model.state.groups.length % palette.length],
+          }),
+        )
       : state.groupId || null
     const saved = await props.model.run(async () => {
-      await props.model.api.updateAccount({ connectedAccountId: props.account.connectedAccountId, name: state.name, groupId: groupId ?? null })
+      await props.model.api.updateAccount({
+        connectedAccountId: props.account.connectedAccountId,
+        name: state.name,
+        groupId: groupId ?? null,
+      })
       if (state.targetId && state.targetId !== props.account.targetId)
         await props.model.api.chooseTarget(props.account.connectedAccountId, state.targetId)
       return null
@@ -205,7 +233,8 @@ function ChannelSettingsDialog(props: { model: MarketModel; account: Account }) 
     dialog.close()
   }
 
-  const field = "h-9 w-full rounded-[8px] border border-v2-border-border-base bg-v2-background-bg-base px-3 text-[13px] text-v2-text-text-base"
+  const field =
+    "h-9 w-full rounded-[8px] border border-v2-border-border-base bg-v2-background-bg-base px-3 text-[13px] text-v2-text-text-base"
 
   return (
     <Dialog fit containerClass="!w-[min(calc(100vw_-_32px),440px)] !rounded-xl">
@@ -218,7 +247,12 @@ function ChannelSettingsDialog(props: { model: MarketModel; account: Account }) 
         </div>
         <label class="flex flex-col gap-1.5 text-[12px] leading-4 text-v2-text-text-muted">
           {language.t("market.channels.name")}
-          <input class={field} value={state.name} maxLength={100} onInput={(event) => setState("name", event.currentTarget.value)} />
+          <input
+            class={field}
+            value={state.name}
+            maxLength={100}
+            onInput={(event) => setState("name", event.currentTarget.value)}
+          />
         </label>
         <Show when={targeted && !props.account.needsReconnect}>
           <label class="flex flex-col gap-1.5 text-[12px] leading-4 text-v2-text-text-muted">
@@ -227,9 +261,17 @@ function ChannelSettingsDialog(props: { model: MarketModel; account: Account }) 
               {(targets) => (
                 <Show
                   when={targets().length}
-                  fallback={<span class="text-[13px] leading-5 text-v2-state-fg-warning">{language.t("market.channels.noTargets")}</span>}
+                  fallback={
+                    <span class="text-[13px] leading-5 text-v2-state-fg-warning">
+                      {language.t("market.channels.noTargets")}
+                    </span>
+                  }
                 >
-                  <select class={field} value={state.targetId} onChange={(event) => setState("targetId", event.currentTarget.value)}>
+                  <select
+                    class={field}
+                    value={state.targetId}
+                    onChange={(event) => setState("targetId", event.currentTarget.value)}
+                  >
                     <option value="">{language.t("market.channels.choose")}</option>
                     <For each={targets()}>{(target) => <option value={target.id}>{target.name}</option>}</For>
                   </select>
@@ -240,7 +282,11 @@ function ChannelSettingsDialog(props: { model: MarketModel; account: Account }) 
         </Show>
         <label class="flex flex-col gap-1.5 text-[12px] leading-4 text-v2-text-text-muted">
           {language.t("market.channels.group")}
-          <select class={field} value={state.groupId} onChange={(event) => setState("groupId", event.currentTarget.value)}>
+          <select
+            class={field}
+            value={state.groupId}
+            onChange={(event) => setState("groupId", event.currentTarget.value)}
+          >
             <option value="">{language.t("market.channels.ungrouped")}</option>
             <For each={props.model.state.groups}>{(group) => <option value={group._id}>{group.name}</option>}</For>
           </select>
@@ -261,7 +307,12 @@ function ChannelSettingsDialog(props: { model: MarketModel; account: Account }) 
               </Button>
             }
           >
-            <Button variant="ghost" class="text-v2-state-fg-danger" disabled={state.saving} onClick={() => void disconnect()}>
+            <Button
+              variant="ghost"
+              class="text-v2-state-fg-danger"
+              disabled={state.saving}
+              onClick={() => void disconnect()}
+            >
               {language.t("market.channels.disconnectConfirm")}
             </Button>
           </Show>
