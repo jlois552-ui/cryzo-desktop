@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["engine", "../packages/desktop-tauri/src-tauri"]
+members = ["engine", "desktop-control", "../packages/desktop-tauri/src-tauri"]
 default-members = ["engine"]
 
 [workspace.package]

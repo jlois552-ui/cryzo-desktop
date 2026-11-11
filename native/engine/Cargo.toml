@@ -21,6 +21,7 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 portable-pty = "0.9"
 sha2 = "0.10"
 base64 = "0.22"
+cryzo-desktop-control = { path = "../desktop-control" }
 
 [dev-dependencies]
 tempfile = "3"

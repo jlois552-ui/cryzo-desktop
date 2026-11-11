@@ -161,6 +161,12 @@ impl Engine {
         {
             system.push(json!({"role":"system","content":format!("Project instructions (within the accepted task):\n{instructions}")}));
         }
+        // Read once per run: desktop control stays off unless the user enabled it in its settings.
+        let desktop = cfg!(windows)
+            && cryzo_desktop_control::Settings::load().is_ok_and(|settings| settings.enabled);
+        if desktop {
+            system.push(json!({"role":"system","content":cryzo_desktop_control::INSTRUCTIONS}));
+        }
         let history = |state: &Value| {
             let mut conversation = system.clone();
             for message in state["messages"].as_array().unwrap() {
@@ -270,7 +276,7 @@ impl Engine {
                 request.as_object_mut().unwrap().remove("cryzo_step_id");
             }
             if tools {
-                request["tools"] = tool_definitions(plan);
+                request["tools"] = tool_definitions(plan, desktop);
             }
             // ChatGPT access tokens last about an hour, so each step refreshes when needed. Like the
             // Codex client, it sends the session as prompt-cache affinity.
@@ -347,7 +353,11 @@ impl Engine {
                 )?;
                 let parsed =
                     serde_json::from_str::<Value>(&call.arguments).and_then(|mut input| {
-                        input["tool"] = json!(call.name);
+                        if let Some(command) = call.name.strip_prefix("desktop_") {
+                            input = json!({"tool":"desktop","command":command,"args":input});
+                        } else {
+                            input["tool"] = json!(call.name);
+                        }
                         serde_json::from_value::<Operation>(input)
                     });
                 let input = parsed
@@ -360,7 +370,10 @@ impl Engine {
                 let outcome=async {
                     let operation=parsed.context("invalid tool arguments")?;
                     ensure!(!plan || !operation.needs_approval(),"plan mode cannot change files or run commands");
-                    let approval=if operation.needs_approval(){Some(self.ask_permission(session,&message,&call.id,&operation,cancel.clone()).await?)}else{None};
+                    let approval=if operation.needs_approval() && !self.desktop_preapproved(session,&operation).await? {Some(self.ask_permission(session,&message,&call.id,&operation,cancel.clone()).await?)}else{None};
+                    if operation.is_desktop() {
+                        return tokio::select!{_=cancel.cancelled()=>anyhow::bail!("tool interrupted"),result=self.desktop_tool(session,&operation,approval.as_deref())=>result};
+                    }
                     if operation.is_market() {
                         return tokio::select!{_=cancel.cancelled()=>anyhow::bail!("tool interrupted"),result=self.market_tool(session,&call.id,&operation,approval.as_deref())=>result};
                     }
@@ -376,7 +389,11 @@ impl Engine {
                             event["location"] = state["info"]["location"].clone();
                             self.emit(event);
                         }
-                        let text = output.to_string();
+                        // Desktop tools return plain text; quoting it as JSON would escape every line.
+                        let text = match output {
+                            Value::String(text) => text,
+                            output => output.to_string(),
+                        };
                         self.record(session,"session.tool.success",json!({"assistantMessageID":message,"id":call.id,"executed":true,"content":[{"type":"text","text":text}]}))?;
                     }
                     Err(error) => {
@@ -475,10 +492,18 @@ impl Engine {
         let operation = serde_json::to_value(operation)?;
         let approval = self.store.request_approval(session, &operation)?;
         let request_id = id("per");
-        let resource = operation["path"]
-            .as_str()
-            .map(str::to_owned)
-            .unwrap_or_else(|| operation.to_string());
+        let resource = match operation["tool"].as_str() {
+            Some("desktop") => {
+                let thread = self.desktop_thread()?;
+                let command = operation["command"].as_str().unwrap_or_default().to_owned();
+                let args = operation["args"].clone();
+                tokio::task::spawn_blocking(move || thread.describe(&command, args)).await??
+            }
+            _ => operation["path"]
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| operation.to_string()),
+        };
         let request = json!({"id":request_id,"sessionID":session,"action":operation["tool"],"resources":[resource],"save":[],"metadata":{"operation":operation},"source":{"type":"tool","messageID":message,"id":call}});
         let (reply, answer) = oneshot::channel();
         self.permissions.lock().await.insert(
@@ -504,6 +529,80 @@ impl Engine {
             "operation was not approved"
         );
         Ok(approval)
+    }
+
+    fn desktop_thread(&self) -> Result<cryzo_desktop_control::DesktopThread> {
+        self.desktop
+            .get_or_init(|| {
+                cryzo_desktop_control::Settings::load()
+                    .and_then(cryzo_desktop_control::DesktopThread::start)
+                    .map_err(|error| format!("{error:#}"))
+            })
+            .clone()
+            .map_err(|error| anyhow::anyhow!(error))
+    }
+
+    /// The desktop-control approval setting: "never" skips asking, and "per_app" skips it for an
+    /// app the user already approved in this session. Everything else asks.
+    async fn desktop_preapproved(&self, session: &str, operation: &Operation) -> Result<bool> {
+        let Operation::Desktop { command, args } = operation else {
+            return Ok(false);
+        };
+        match cryzo_desktop_control::Settings::load()?.approval {
+            cryzo_desktop_control::Approval::Always => Ok(false),
+            cryzo_desktop_control::Approval::Never => Ok(true),
+            cryzo_desktop_control::Approval::PerApp => {
+                let thread = self.desktop_thread()?;
+                let (command, args) = (command.clone(), args.clone());
+                let app = tokio::task::spawn_blocking(move || thread.app(&command, args)).await??;
+                let apps = self.desktop_apps.lock().await;
+                Ok(app.is_some_and(|app| apps.contains(&(session.to_owned(), app))))
+            }
+        }
+    }
+
+    /// Runs a desktop-control tool. Acting commands consume the approval bound to the exact
+    /// operation, unless the user's approval setting skipped asking.
+    async fn desktop_tool(
+        &self,
+        session: &str,
+        operation: &Operation,
+        approval: Option<&str>,
+    ) -> Result<Value> {
+        let Operation::Desktop { command, args } = operation else {
+            anyhow::bail!("not a desktop tool");
+        };
+        ensure!(
+            command != "screenshot",
+            "screenshots are not available to Cryzo agents; use snapshot or ocr"
+        );
+        if let Some(approval) = approval {
+            self.store
+                .consume_approval(session, approval, &serde_json::to_value(operation)?)?;
+        }
+        let thread = self.desktop_thread()?;
+        // Under "ask once per app", an approved action trusts its app for the rest of the session.
+        if approval.is_some()
+            && cryzo_desktop_control::Settings::load()?.approval
+                == cryzo_desktop_control::Approval::PerApp
+        {
+            let (thread, command, args) = (thread.clone(), command.clone(), args.clone());
+            if let Some(app) =
+                tokio::task::spawn_blocking(move || thread.app(&command, args)).await??
+            {
+                self.desktop_apps
+                    .lock()
+                    .await
+                    .insert((session.to_owned(), app));
+            }
+        }
+        let (command, args) = (command.clone(), args.clone());
+        match tokio::task::spawn_blocking(move || thread.call(&command, args)).await?? {
+            cryzo_desktop_control::Output::Text(text) => Ok(Value::String(text)),
+            cryzo_desktop_control::Output::Image { .. } => {
+                anyhow::bail!("screenshots are not available to Cryzo agents")
+            }
+        }
     }
 
     /// Marketing tools. Scheduling consumes the approval bound to the exact post; the tool call ID
@@ -598,7 +697,7 @@ impl Engine {
     }
 }
 
-fn tool_definitions(plan: bool) -> Value {
+fn tool_definitions(plan: bool, desktop: bool) -> Value {
     let specs = [
         (
             "read",
@@ -644,7 +743,21 @@ fn tool_definitions(plan: bool) -> Value {
             vec!["content", "channels", "when", "schedule"],
         ),
     ];
-    json!(specs.into_iter().filter(|(name,_,_,_)|!plan||!["write","shell"].contains(name)).map(|(name,description,properties,required)|json!({"type":"function","function":{"name":name,"description":description,"parameters":{"type":"object","properties":properties,"required":required,"additionalProperties":false}}})).collect::<Vec<_>>())
+    let mut tools = specs.into_iter().filter(|(name,_,_,_)|!plan||!["write","shell"].contains(name)).map(|(name,description,properties,required)|json!({"type":"function","function":{"name":name,"description":description,"parameters":{"type":"object","properties":properties,"required":required,"additionalProperties":false}}})).collect::<Vec<_>>();
+    // Desktop tools keep their MCP schemas. Agents get text only, so screenshot is left out, and
+    // plan mode reads without acting.
+    if desktop {
+        tools.extend(
+            cryzo_desktop_control::tools()
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|tool| Some((tool["name"].as_str()?, tool)))
+                .filter(|(name, _)| *name != "screenshot" && !(plan && cryzo_desktop_control::acts(name)))
+                .map(|(name, tool)| json!({"type":"function","function":{"name":format!("desktop_{name}"),"description":tool["description"],"parameters":tool["inputSchema"]}})),
+        );
+    }
+    json!(tools)
 }
 
 pub fn router(engine: Arc<Engine>) -> Router {
@@ -906,7 +1019,14 @@ async fn prompt(
             ),
         ));
     }
-    let payload = json!({"text":text});
+    // Metadata carries the composer's display text, so context appended for the model stays out of the bubble.
+    let payload = match input
+        .get("metadata")
+        .filter(|metadata| metadata.is_object())
+    {
+        Some(metadata) => json!({"text":text,"metadata":metadata}),
+        None => json!({"text":text}),
+    };
     let item = json!({"type":"user","payload":payload,"delivery":input["delivery"].as_str().unwrap_or("steer")});
     let event = engine
         .record(

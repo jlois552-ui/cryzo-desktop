@@ -36,6 +36,12 @@ pub enum Operation {
         when: String,
         schedule: bool,
     },
+    /// Desktop control (text-first UI Automation) runs on the desktop-control thread in the
+    /// session runner, not in the workspace. `command` is a desktop-control tool name.
+    Desktop {
+        command: String,
+        args: Value,
+    },
 }
 
 impl Operation {
@@ -43,7 +49,11 @@ impl Operation {
         matches!(
             self,
             Self::Write { .. } | Self::Shell { .. } | Self::MarketPost { schedule: true, .. }
-        )
+        ) || matches!(self, Self::Desktop { command, .. } if cryzo_desktop_control::acts(command))
+    }
+
+    pub fn is_desktop(&self) -> bool {
+        matches!(self, Self::Desktop { .. })
     }
 
     pub fn is_market(&self) -> bool {
@@ -142,6 +152,7 @@ impl Workspace {
             | Operation::MarketPost { .. } => {
                 anyhow::bail!("marketing tools run in the session runner")
             }
+            Operation::Desktop { .. } => anyhow::bail!("desktop tools run in the session runner"),
             Operation::Diff => {
                 self.process(
                     "git",
@@ -189,4 +200,26 @@ async fn capture(reader: impl tokio::io::AsyncRead + Unpin) -> Result<Vec<u8>> {
     reader.take(2_000_001).read_to_end(&mut output).await?;
     ensure!(output.len() <= 2_000_000, "command output exceeded 2 MB");
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Operation;
+    use serde_json::json;
+
+    #[test]
+    fn desktop_actions_need_approval_and_reads_do_not() {
+        let operation = |command: &str| {
+            serde_json::from_value::<Operation>(
+                json!({"tool":"desktop","command":command,"args":{}}),
+            )
+            .unwrap()
+        };
+        for command in ["act", "key", "focus", "launch", "click_at"] {
+            assert!(operation(command).needs_approval(), "{command}");
+        }
+        for command in ["windows", "snapshot", "find", "ocr", "wait_for"] {
+            assert!(!operation(command).needs_approval(), "{command}");
+        }
+    }
 }

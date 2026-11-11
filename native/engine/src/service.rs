@@ -31,6 +31,10 @@ pub struct Engine {
     pub(crate) login_attempts: crate::free_tier::Attempts,
     pub(crate) chatgpt_attempts: crate::chatgpt::Attempts,
     pub(crate) chatgpt_token: crate::chatgpt::Token,
+    /// Started on first use, because it owns a UI Automation thread and a global hotkey.
+    pub(crate) desktop: std::sync::OnceLock<Result<cryzo_desktop_control::DesktopThread, String>>,
+    /// (session, app) pairs the user already approved under the "ask once per app" setting.
+    pub(crate) desktop_apps: Mutex<std::collections::HashSet<(String, String)>>,
 }
 
 impl Engine {
@@ -57,6 +61,8 @@ impl Engine {
             chatgpt_token: Mutex::new(None),
             running: Mutex::new(HashMap::new()),
             permissions: Mutex::new(HashMap::new()),
+            desktop: std::sync::OnceLock::new(),
+            desktop_apps: Mutex::new(std::collections::HashSet::new()),
             ptys: crate::pty::PtyManager::new(desktop_events.clone()),
             desktop_events,
         })
