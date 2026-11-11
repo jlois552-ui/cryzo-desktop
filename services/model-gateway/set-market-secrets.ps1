@@ -31,6 +31,7 @@ $apps = [ordered]@{
     linkedin = @('LinkedIn', 'LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET')
     youtube  = @('YouTube (Google OAuth client)', 'YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET')
     tiktok   = @('TikTok (client key)', 'TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET')
+    # Instagram also uses this app; its Unified Login configuration ID is the META_INSTAGRAM_CONFIG_ID variable.
     meta     = @('Meta (Facebook and Instagram app ID)', 'META_APP_ID', 'META_APP_SECRET')
     reddit   = @('Reddit', 'REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET')
 }

@@ -6,7 +6,7 @@ import type { Doc } from "../_generated/dataModel"
 import { internalAction, type ActionCtx } from "../_generated/server"
 import { open, seal } from "../lib/crypto"
 import { labels, type Channel, type Metric, type Series } from "../lib/market"
-import { client, providers, ProviderError, redirect, request, type Job, type Send, type Tokens } from "../lib/providers"
+import { client, providers, ProviderError, redirect, request, type Creator, type Job, type Send, type Tokens } from "../lib/providers"
 import { channel } from "../schema"
 
 type Account = Doc<"marketAccounts">
@@ -69,6 +69,16 @@ export const targets = internalAction({
     const list = providers[account.channel].targets
     if (!list) return []
     return (await list(await fresh(ctx, account))).map((item) => ({ id: item.id, name: item.name }))
+  },
+})
+
+export const creator = internalAction({
+  args: { user: v.string(), connectedAccountId: v.string() },
+  handler: async (ctx, args): Promise<Creator | null> => {
+    const account: Account | null = await ctx.runQuery(internal.market.store.account, args)
+    if (!account) throw new Error("Channel not found.")
+    const read = providers[account.channel].creator
+    return read ? read(await fresh(ctx, account)) : null
   },
 })
 

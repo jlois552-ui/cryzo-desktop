@@ -27,7 +27,14 @@ export type Options = {
   redditCommunity?: string
   youtubeTitle?: string
   youtubePrivacy?: string
+  tiktokMode?: "direct" | "draft"
   tiktokPrivacy?: string
+  tiktokComment?: boolean
+  tiktokDuet?: boolean
+  tiktokStitch?: boolean
+  tiktokDisclose?: boolean
+  tiktokYourBrand?: boolean
+  tiktokBranded?: boolean
   instagramPostType?: "post" | "reel" | "story" | "carousel"
 }
 export type Delivery = {
@@ -50,6 +57,15 @@ export type Post = {
   groupId?: string
   error?: string
   deliveries: Delivery[]
+}
+/** What a TikTok creator may post right now, from TikTok's creator info. */
+export type Creator = {
+  name: string
+  privacy: string[]
+  commentDisabled: boolean
+  duetDisabled: boolean
+  stitchDisabled: boolean
+  maxDuration: number
 }
 export type Media = {
   _id: string
@@ -113,6 +129,8 @@ export function useMarketApi() {
     chooseTarget: (connectedAccountId: string, targetId: string) =>
       request<null>("POST", "accounts/target", { connectedAccountId, targetId }),
     disconnect: (connectedAccountId: string) => request<null>("POST", "accounts/disconnect", { connectedAccountId }),
+    creator: (connectedAccountId: string) =>
+      request<Creator | null>("GET", `accounts/creator?connectedAccountId=${encodeURIComponent(connectedAccountId)}`),
     targets: (connectedAccountId: string) =>
       request<{ id: string; name: string }[]>(
         "GET",

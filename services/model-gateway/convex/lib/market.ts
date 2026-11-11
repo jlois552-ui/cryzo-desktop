@@ -23,7 +23,17 @@ export type Options = {
   redditCommunity?: string
   youtubeTitle?: string
   youtubePrivacy?: string
+  /** Direct Post, or send to the creator's TikTok inbox to finish in the app. Direct is the default. */
+  tiktokMode?: "direct" | "draft"
   tiktokPrivacy?: string
+  /** TikTok interactions the creator allows; each starts off, as TikTok's sharing guidelines require. */
+  tiktokComment?: boolean
+  tiktokDuet?: boolean
+  tiktokStitch?: boolean
+  /** Commercial content disclosure: promoting the creator's own brand, a third party, or both. */
+  tiktokDisclose?: boolean
+  tiktokYourBrand?: boolean
+  tiktokBranded?: boolean
   instagramPostType?: "post" | "reel" | "story" | "carousel"
 }
 export type Account = { channel: string; connectedAccountId: string; targetId?: string; needsReconnect?: boolean }
@@ -34,7 +44,8 @@ export function publishProblem(post: PostDraft, accounts: Account[]): string | n
   if (!post.targets.length) return "Choose at least one channel."
   for (const target of post.targets) {
     const text = (target.content ?? post.content).trim()
-    if (!text && post.mediaTypes.length === 0) return `Write the ${target.channel} post before scheduling.`
+    // TikTok's video requirement below applies to Direct Post and inbox drafts; captions are optional.
+    if (!text && post.mediaTypes.length === 0 && target.channel !== "tiktok") return `Write the ${target.channel} post before scheduling.`
     const account = accounts.find((item) => item.channel === target.channel && item.connectedAccountId === target.connectedAccountId)
     if (!account) return `Connect and select ${target.channel} before publishing.`
     if (account.needsReconnect) return `Reconnect ${labels[target.channel]} before publishing.`
@@ -53,6 +64,15 @@ export function publishProblem(post: PostDraft, accounts: Account[]): string | n
   if (used.has("x") && (videos > 1 || images > 4 || (videos && images))) return "X supports up to four images or one video."
   if (used.has("linkedin") && (videos > 1 || images > 9 || (videos && images))) return "LinkedIn supports up to nine images or one video."
   if (used.has("tiktok") && (videos !== 1 || post.mediaTypes.length !== 1)) return "TikTok needs exactly one video."
+  if (used.has("tiktok") && post.options?.tiktokMode !== "draft") {
+    const options = post.options ?? {}
+    // TikTok requires the creator to pick visibility themselves; nothing is preselected.
+    if (!options.tiktokPrivacy) return "Choose who can see the TikTok video."
+    if (options.tiktokDisclose && !options.tiktokYourBrand && !options.tiktokBranded)
+      return "Choose whether the TikTok video promotes your brand, a third party, or both."
+    if (options.tiktokDisclose && options.tiktokBranded && options.tiktokPrivacy === "SELF_ONLY")
+      return "Branded content on TikTok can't be private."
+  }
   if (used.has("youtube") && (videos !== 1 || images > 1 || videos + images !== post.mediaTypes.length))
     return "YouTube needs one video and at most one thumbnail image."
   if (used.has("facebook") && videos && post.mediaTypes.length !== 1) return "Facebook video posts need exactly one video."

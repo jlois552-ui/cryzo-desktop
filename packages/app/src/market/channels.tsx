@@ -8,11 +8,15 @@ import { For, Show, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/runtime/i18n/language"
 import { usePlatform } from "@/runtime/platform/platform"
+import { showToast } from "@/shell/notifications/toast"
 import { channels, type Account, type Channel } from "./api"
 import { ChannelAvatar, NetworkBadge } from "./icons"
 import type { MarketModel } from "./model"
 
-/** Wix's "Manage accounts": every network with its connected accounts and what each needs next. */
+/**
+ * Wix's "Manage accounts": each network with its connected accounts and what each needs next. A network the
+ * Cryzo cloud has no app keys for (Reddit while it awaits API approval) stays hidden until its keys are set.
+ */
 export function ChannelsPage(props: { model: MarketModel }) {
   const language = useLanguage()
   const dialog = useDialog()
@@ -20,7 +24,11 @@ export function ChannelsPage(props: { model: MarketModel }) {
 
   return (
     <div class="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
-      <For each={channels}>
+      <For
+        each={channels.filter(
+          (channel) => props.model.provider(channel)?.configured !== false || accounts(channel).length > 0,
+        )}
+      >
         {(channel) => {
           const provider = () => props.model.provider(channel)
           return (
@@ -33,11 +41,13 @@ export function ChannelsPage(props: { model: MarketModel }) {
                   </div>
                   <div class="text-[12px] leading-4 text-v2-text-text-muted">
                     {language.t(
-                      !provider()?.configured
-                        ? "market.channels.notSetUp"
-                        : provider()?.pending
-                          ? "market.channels.pending"
-                          : "market.channels.ready",
+                      accounts(channel).length
+                        ? "market.channels.connected"
+                        : !provider()?.configured
+                          ? "market.channels.notSetUp"
+                          : provider()?.pending
+                            ? "market.channels.pending"
+                            : "market.channels.ready",
                     )}
                   </div>
                 </div>
@@ -51,6 +61,9 @@ export function ChannelsPage(props: { model: MarketModel }) {
                   {language.t("market.channels.connect")}
                 </Button>
               </div>
+              <Show when={provider()?.pending && accounts(channel).length}>
+                <p class="text-[12px] leading-4 text-v2-text-text-muted">{language.t("market.channels.pending")}</p>
+              </Show>
               <For each={accounts(channel)}>
                 {(account) => (
                   <div class="flex items-center gap-3 rounded-[8px] bg-v2-background-bg-layer-01 px-2 py-2">
@@ -141,8 +154,13 @@ export function ConnectDialog(props: { model: MarketModel; channel: Channel; rec
       await props.model.loadAccounts()
       if (!done() && attempts < 60) return
       clearInterval(timer)
-      if (done()) dialog.close()
-      else setState("waiting", false)
+      if (!done()) return setState("waiting", false)
+      props.model.reveal(
+        props.model.state.accounts.flatMap((account) =>
+          known.has(account.connectedAccountId) ? [] : [account.connectedAccountId],
+        ),
+      )
+      dialog.close()
     }, 5000)
   }
   onMount(() => void start())
@@ -226,11 +244,12 @@ export function ChannelSettingsDialog(props: { model: MarketModel; account: Acco
 
   const disconnect = async () => {
     setState("saving", true)
-    const done = await props.model.run(() => props.model.api.disconnect(props.account.connectedAccountId))
+    const name = props.account.name
+    const done = await props.model.disconnect(props.account.connectedAccountId)
     setState("saving", false)
-    if (done === undefined) return
-    await props.model.loadAccounts()
+    if (!done) return
     dialog.close()
+    showToast({ title: language.t("market.channels.disconnected", { name }) })
   }
 
   const field =
@@ -298,6 +317,11 @@ export function ChannelSettingsDialog(props: { model: MarketModel; account: Acco
             onInput={(event) => setState("newGroup", event.currentTarget.value)}
           />
         </label>
+        <Show when={state.confirm}>
+          <p class="text-[13px] leading-5 text-v2-text-text-base">
+            {language.t("market.channels.disconnectDescription", { name: props.account.name })}
+          </p>
+        </Show>
         <div class="mt-2 flex items-center gap-2">
           <Show
             when={state.confirm}
@@ -307,22 +331,23 @@ export function ChannelSettingsDialog(props: { model: MarketModel; account: Acco
               </Button>
             }
           >
-            <Button
-              variant="ghost"
-              class="text-v2-state-fg-danger"
-              disabled={state.saving}
-              onClick={() => void disconnect()}
-            >
+            <Button variant="danger" disabled={state.saving} onClick={() => void disconnect()}>
               {language.t("market.channels.disconnectConfirm")}
             </Button>
           </Show>
           <div class="flex-1" />
-          <Button variant="ghost" onClick={() => dialog.close()}>
+          <Button
+            variant="ghost"
+            disabled={state.saving}
+            onClick={() => (state.confirm ? setState("confirm", false) : dialog.close())}
+          >
             {language.t("common.cancel")}
           </Button>
-          <Button variant="contrast" disabled={state.saving || !state.name.trim()} onClick={() => void save()}>
-            {language.t("common.save")}
-          </Button>
+          <Show when={!state.confirm}>
+            <Button variant="contrast" disabled={state.saving || !state.name.trim()} onClick={() => void save()}>
+              {language.t("common.save")}
+            </Button>
+          </Show>
         </div>
       </div>
     </Dialog>

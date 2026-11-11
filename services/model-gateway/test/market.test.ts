@@ -1,4 +1,6 @@
 import { linkedin } from "../convex/lib/providers/linkedin"
+import { instagram } from "../convex/lib/providers/meta"
+import { tiktok } from "../convex/lib/providers/tiktok"
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema"
@@ -19,7 +21,184 @@ const modules = {
 
 process.env.MARKET_TOKEN_KEY = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
 
+describe("TikTok OAuth form contract", () => {
+  let transport: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | undefined
+  afterEach(() => transport?.mockRestore())
+
+  test("authorize always shows TikTok's consent page, even for an account that already approved", () => {
+    const url = tiktok.authorize({
+      client: { id: "id", secret: "secret" },
+      redirect: "https://example.com/callback",
+      state: "state",
+    })
+    expect(new URL(url).searchParams.get("disable_auto_auth")).toBe("1")
+  })
+
+  for (const grant of ["authorization_code", "refresh_token"] as const) {
+    test(`${grant} uses TikTok's exact media type and preserves encoded form values`, async () => {
+      const client = { id: "test-client", secret: "test-secret+&=" }
+      const redirect = "https://www.cryzo.me/api/market/oauth/tiktok/callback"
+      const credential = "test-credential+&=%/"
+      transport = spyOn(globalThis, "fetch").mockImplementation(
+        Object.assign(
+          async (url: RequestInfo | URL, init?: RequestInit) => {
+            const request = new Request(url, init)
+            expect(request.url).toBe("https://open.tiktokapis.com/v2/oauth/token/")
+            expect(request.method).toBe("POST")
+            // TikTok rejects the automatic URLSearchParams charset suffix as invalid_request.
+            expect(request.headers.get("Content-Type")).toBe("application/x-www-form-urlencoded")
+            const body = new URLSearchParams(await request.text())
+            expect(body.get("client_key")).toBe(client.id)
+            expect(body.get("client_secret")).toBe(client.secret)
+            expect(body.get("grant_type")).toBe(grant)
+            expect(body.get(grant === "authorization_code" ? "code" : "refresh_token")).toBe(credential)
+            if (grant === "authorization_code") expect(body.get("redirect_uri")).toBe(redirect)
+            return Response.json({
+              access_token: "test-access-token",
+              refresh_token: "test-rotated-refresh",
+              expires_in: 7200,
+              scope: "user.info.basic,user.info.stats",
+            })
+          },
+          { preconnect: fetch.preconnect },
+        ),
+      )
+      const result =
+        grant === "authorization_code"
+          ? await tiktok.exchange({ client, redirect, code: credential })
+          : await tiktok.refresh!({ access: "test-old-access", refresh: credential }, client)
+      expect(result.access).toBe("test-access-token")
+      expect(result.refresh).toBe("test-rotated-refresh")
+      expect(result.scope).toBe("user.info.basic,user.info.stats")
+    })
+  }
+})
+
+describe("Instagram Unified Login", () => {
+  let transport: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | undefined
+  afterEach(() => {
+    transport?.mockRestore()
+    delete process.env.META_INSTAGRAM_CONFIG_ID
+  })
+  const client = { id: "meta-app", secret: "meta-secret" }
+  const redirect = "https://www.cryzo.me/api/market/oauth/instagram/callback"
+
+  test("authorize opens Facebook Login for Business with the Instagram configuration, not scopes", () => {
+    process.env.META_INSTAGRAM_CONFIG_ID = "123"
+    const url = new URL(instagram.authorize({ client, redirect, state: "state" }))
+    expect(url.origin + url.pathname).toBe("https://www.facebook.com/v25.0/dialog/oauth")
+    expect(url.searchParams.get("config_id")).toBe("123")
+    expect(url.searchParams.get("scope")).toBeNull()
+    expect(url.searchParams.get("prompt")).toBe("login")
+    expect(url.searchParams.get("redirect_uri")).toBe(redirect)
+  })
+
+  test("profile picks the only shared Instagram account as the posting destination", async () => {
+    transport = spyOn(globalThis, "fetch").mockImplementation(
+      Object.assign(
+        async (url: RequestInfo | URL) => {
+          const path = new URL(new Request(url).url).pathname
+          if (path.endsWith("/me/assigned_instagram_accounts")) return Response.json({ data: [{ id: "1784" }] })
+          return Response.json({ username: "cryzo.me", profile_picture_url: "https://example.com/a.png" })
+        },
+        { preconnect: fetch.preconnect },
+      ),
+    )
+    const profile = await instagram.profile({ access: "suat" })
+    expect(profile.id).toBe("1784")
+    expect(profile.target).toEqual({ id: "1784", name: "@cryzo.me" })
+    expect(profile.avatar).toBe("https://example.com/a.png")
+  })
+})
+
 const facebook = { channel: "facebook", connectedAccountId: "facebook:1", targetId: "123456" }
+
+test.each(["direct", "draft"] as const)("TikTok %s requires a video, not a caption", (mode) => {
+  const post = {
+    content: "",
+    targets: [{ channel: "tiktok" as const, connectedAccountId: "tiktok:1" }],
+    options: { tiktokMode: mode, tiktokPrivacy: "SELF_ONLY" },
+    mediaTypes: [] as string[],
+  }
+  const accounts = [{ channel: "tiktok", connectedAccountId: "tiktok:1" }]
+  expect(publishProblem(post, accounts)).toBe("TikTok needs exactly one video.")
+  expect(publishProblem({ ...post, content: "A caption alone" }, accounts)).toBe("TikTok needs exactly one video.")
+  expect(publishProblem({ ...post, mediaTypes: ["video/mp4"] }, accounts)).toBeNull()
+  expect(publishProblem({ ...post, mediaTypes: ["image/png"] }, accounts)).toBe("TikTok needs exactly one video.")
+  expect(publishProblem({ ...post, mediaTypes: ["video/mp4", "video/mp4"] }, accounts)).toBe(
+    "TikTok needs exactly one video.",
+  )
+})
+
+describe("TikTok video delivery", () => {
+  let transport: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | undefined
+  afterEach(() => transport?.mockRestore())
+
+  test.each(["direct", "draft"] as const)("%s uploads the attached bytes without requiring a caption", async (mode) => {
+    const clip = new Uint8Array([1, 2, 3, 4])
+    const fetched: string[] = []
+    transport = spyOn(globalThis, "fetch").mockImplementation(
+      Object.assign(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const request = new Request(input, init)
+          fetched.push(request.url)
+          if (request.url === "https://media.example/clip.mp4") {
+            expect(request.headers.get("Range")).toBe("bytes=0-3")
+            return new Response(clip, { status: 206 })
+          }
+          expect(request.url).toBe("https://open.tiktokapis.com/v2/post/publish/creator_info/query/")
+          return Response.json({ data: { privacy_level_options: ["SELF_ONLY"] }, error: { code: "ok" } })
+        },
+        { preconnect: fetch.preconnect },
+      ),
+    )
+    const sent: string[] = []
+    const result = await tiktok.publish(
+      {
+        tokens: { access: "fixture-access" },
+        content: "",
+        options: { tiktokMode: mode, tiktokPrivacy: "SELF_ONLY" },
+        media: [{ url: "https://media.example/clip.mp4", type: "video/mp4", size: clip.length }],
+      },
+      async (url, init, publishes) => {
+        sent.push(url)
+        if (url === "https://upload.example/video") {
+          expect(init?.method).toBe("PUT")
+          expect(new Headers(init?.headers).get("Content-Range")).toBe("bytes 0-3/4")
+          expect(new Uint8Array(await new Response(init?.body).arrayBuffer())).toEqual(clip)
+          return new Response(null, { status: 204 })
+        }
+        expect(url).toBe(
+          `https://open.tiktokapis.com/v2/post/publish/${mode === "draft" ? "inbox/video" : "video"}/init/`,
+        )
+        expect(publishes).toBe(true)
+        expect(init?.method).toBe("POST")
+        const source_info = { source: "FILE_UPLOAD", video_size: 4, chunk_size: 4, total_chunk_count: 1 }
+        if (mode === "draft") expect(init?.json).toEqual({ source_info })
+        else
+          expect(init?.json).toEqual({
+            source_info,
+            post_info: {
+              title: "",
+              privacy_level: "SELF_ONLY",
+              disable_comment: true,
+              disable_duet: true,
+              disable_stitch: true,
+              brand_content_toggle: false,
+              brand_organic_toggle: false,
+            },
+          })
+        return Response.json({
+          data: { publish_id: "fixture-publish", upload_url: "https://upload.example/video" },
+          error: { code: "ok" },
+        })
+      },
+    )
+    expect(result).toEqual({ id: "fixture-publish", pending: true })
+    expect(sent).toHaveLength(2)
+    expect(fetched).toHaveLength(mode === "draft" ? 1 : 2)
+  })
+})
 
 test("publishing rules name the first problem per network", () => {
   const post = {
@@ -47,6 +226,21 @@ test("publishing rules name the first problem per network", () => {
   expect(publishProblem(tiktok, [{ channel: "tiktok", connectedAccountId: "tiktok:1" }])).toBe(
     "TikTok needs exactly one video.",
   )
+  const clip = { ...tiktok, mediaTypes: ["video/mp4"] }
+  const account = [{ channel: "tiktok", connectedAccountId: "tiktok:1" }]
+  expect(publishProblem(clip, account)).toBe("Choose who can see the TikTok video.")
+  expect(publishProblem({ ...clip, options: { tiktokPrivacy: "SELF_ONLY", tiktokDisclose: true } }, account)).toBe(
+    "Choose whether the TikTok video promotes your brand, a third party, or both.",
+  )
+  expect(
+    publishProblem(
+      { ...clip, options: { tiktokPrivacy: "SELF_ONLY", tiktokDisclose: true, tiktokBranded: true } },
+      account,
+    ),
+  ).toBe("Branded content on TikTok can't be private.")
+  expect(publishProblem({ ...clip, options: { tiktokPrivacy: "SELF_ONLY" } }, account)).toBeNull()
+  // Visibility and disclosure are chosen in the TikTok app for a draft.
+  expect(publishProblem({ ...clip, options: { tiktokMode: "draft" as const } }, account)).toBeNull()
   const x = {
     content: "x".repeat(281),
     targets: [{ channel: "x" as const, connectedAccountId: "x:1" }],

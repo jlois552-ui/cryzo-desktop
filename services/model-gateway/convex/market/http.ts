@@ -111,6 +111,9 @@ export function marketRoutes(http: HttpRouter) {
   get("accounts/targets", (ctx, user, input) =>
     ctx.runAction(internal.market.worker.targets, { user, connectedAccountId: text(input.connectedAccountId, "channel") }),
   )
+  get("accounts/creator", (ctx, user, input) =>
+    ctx.runAction(internal.market.worker.creator, { user, connectedAccountId: text(input.connectedAccountId, "channel") }),
+  )
   post("accounts/target", (ctx, user, input) =>
     ctx.runAction(internal.market.worker.chooseTarget, {
       user,

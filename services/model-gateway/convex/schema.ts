@@ -14,7 +14,14 @@ export const options = v.object({
   redditCommunity: v.optional(v.string()),
   youtubeTitle: v.optional(v.string()),
   youtubePrivacy: v.optional(v.string()),
+  tiktokMode: v.optional(v.union(v.literal("direct"), v.literal("draft"))),
   tiktokPrivacy: v.optional(v.string()),
+  tiktokComment: v.optional(v.boolean()),
+  tiktokDuet: v.optional(v.boolean()),
+  tiktokStitch: v.optional(v.boolean()),
+  tiktokDisclose: v.optional(v.boolean()),
+  tiktokYourBrand: v.optional(v.boolean()),
+  tiktokBranded: v.optional(v.boolean()),
   instagramPostType: v.optional(v.union(v.literal("post"), v.literal("reel"), v.literal("story"), v.literal("carousel"))),
 })
 

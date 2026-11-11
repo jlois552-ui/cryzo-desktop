@@ -11,6 +11,33 @@
 .market-agent [data-component="session-header-drag"] {
   display: none;
 }
+/* ChatGPT-style chat list that slides over the conversation. */
+.market-agent-drawer {
+  width: min(280px, 85%);
+  border-inline-end: 1px solid var(--v2-border-border-muted);
+  animation: market-agent-drawer-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.market-agent-scrim {
+  background: #0000001f;
+  animation: market-agent-fade-in 160ms ease-out;
+}
+@keyframes market-agent-drawer-in {
+  from {
+    transform: translateX(-16px);
+    opacity: 0;
+  }
+}
+@keyframes market-agent-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .market-agent-drawer,
+  .market-agent-scrim {
+    animation: none;
+  }
+}
 @container (max-width: 959px) {
   .market-agent {
     position: absolute;

@@ -6,7 +6,6 @@ import { useDialog } from "@opencode/ui/context/dialog"
 import { Loader } from "@opencode/ui/loader"
 import { useSearchParams } from "@solidjs/router"
 import {
-  For,
   Match,
   Show,
   Switch,
@@ -30,7 +29,7 @@ import { ChannelsPage } from "./channels"
 import { PostEditor } from "./editor"
 import { MarketIcon } from "./icons"
 import { MediaLibrary } from "./media"
-import { createMarketModel, sections, type Section } from "./model"
+import { createMarketModel, sections } from "./model"
 
 const MarketingAgent = lazy(() => import("./agent").then((module) => ({ default: module.MarketingAgent })))
 
@@ -91,10 +90,6 @@ function MarketScreen(props: { server: ServerConnection.Any }) {
       if (section) setParams({ section: "calendar" }, { replace: true })
     }
   })
-  const go = (section: Section) => {
-    model.setState("section", section)
-    setParams({ section })
-  }
   const refresh = () => void model.load()
   onMount(() => {
     refresh()
@@ -148,22 +143,11 @@ Marketing context: ${JSON.stringify({ section: model.state.section, view: model.
           </Match>
           <Match when={true}>
             <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-              <header class="flex shrink-0 flex-wrap items-center gap-2 border-b border-v2-border-border-muted px-4 py-3">
-                <nav class="flex min-w-0 flex-1 gap-1" aria-label={language.t("market.title")}>
-                  <For each={sections}>
-                    {(section) => (
-                      <button
-                        type="button"
-                        aria-current={model.state.section === section ? "page" : undefined}
-                        class="flex h-9 items-center gap-2 rounded-lg px-3 text-[13px] text-v2-text-text-muted hover:bg-v2-overlay-simple-overlay-hover aria-[current=page]:bg-v2-background-bg-layer-03 aria-[current=page]:text-v2-text-text-base"
-                        onClick={() => go(section)}
-                      >
-                        <MarketIcon name={section} class="size-4" />
-                        {language.t(`market.nav.${section}`)}
-                      </button>
-                    )}
-                  </For>
-                </nav>
+              {/* Calendar, Analytics and Media are picked in the app sidebar, so the page shows only where you are. */}
+              <header class="flex h-12 shrink-0 items-center gap-2 border-b border-v2-border-border-muted px-4">
+                <h1 class="min-w-0 flex-1 truncate text-[14px] font-medium text-v2-text-text-base">
+                  {language.t(`market.nav.${model.state.section}`)}
+                </h1>
                 <Button variant="neutral" onClick={() => setState("agent", !state.agent)} aria-expanded={state.agent}>
                   <MarketIcon name="sparkle" class="size-4" />
                   {language.t("market.agent.title")}

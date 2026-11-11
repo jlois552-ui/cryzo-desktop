@@ -12,6 +12,7 @@ import { channels, type Account, type Channel, type Options, type Post, type Tar
 import { ConnectDialog, networkName } from "./channels"
 import { ChannelAvatar, NetworkBadge } from "./icons"
 import type { MarketModel } from "./model"
+import { TikTokSettings } from "./tiktok"
 
 const limits: Partial<Record<Channel, number>> = {
   x: 280,
@@ -52,6 +53,7 @@ export function PostEditor(props: {
     uploading: false,
     saving: false,
     confirmDelete: false,
+    tiktokBlocked: false,
   })
 
   const selected = (account: Account) =>
@@ -88,6 +90,9 @@ export function PostEditor(props: {
       const item = props.model.state.media.find((entry) => entry.storageId === id)
       return item ? [item] : []
     })
+  const needsTikTokVideo = () =>
+    used().has("tiktok") &&
+    (state.mediaIds.length !== 1 || media().length !== 1 || !media()[0]?.contentType.startsWith("video/"))
 
   const upload = async () => {
     const paths = await platform.openFilePathPickerDialog?.({
@@ -106,6 +111,11 @@ export function PostEditor(props: {
   }
 
   const save = async (mode: "draft" | "scheduled" | "now") => {
+    if (state.uploading || state.saving) return
+    if (mode !== "draft" && needsTikTokVideo()) {
+      showToast({ variant: "error", title: language.t("market.editor.tiktok.videoRequired") })
+      return
+    }
     const scheduledFor = mode === "now" ? Date.now() : new Date(state.when).getTime()
     if (mode === "scheduled" && scheduledFor < Date.now()) {
       showToast({ variant: "error", title: language.t("market.editor.pastTime") })
@@ -147,6 +157,7 @@ export function PostEditor(props: {
             : "market.toast.scheduled",
       ),
     })
+    props.model.reveal(state.targets.map((target) => target.connectedAccountId))
     await props.model.loadPosts()
     dialog.close()
   }
@@ -315,15 +326,21 @@ export function PostEditor(props: {
               <div class="flex flex-wrap gap-2">
                 <For each={media()}>
                   {(item) => (
-                    <button
-                      type="button"
-                      class="relative size-20 overflow-hidden rounded-[8px] bg-v2-background-bg-layer-02"
-                      title={language.t("market.editor.removeMedia")}
-                      disabled={locked}
-                      onClick={() => setState("mediaIds", (ids) => ids.filter((id) => id !== item.storageId))}
-                    >
-                      <MediaThumb model={props.model} url={item.url} type={item.contentType} />
-                    </button>
+                    <div class="flex w-24 flex-col gap-1">
+                      <button
+                        type="button"
+                        class="relative aspect-square overflow-hidden rounded-[8px] bg-v2-background-bg-layer-02"
+                        aria-label={language.t("market.editor.removeNamedMedia", { name: item.name })}
+                        title={language.t("market.editor.removeMedia")}
+                        disabled={locked || state.uploading || state.saving}
+                        onClick={() => setState("mediaIds", (ids) => ids.filter((id) => id !== item.storageId))}
+                      >
+                        <MediaThumb model={props.model} url={item.url} type={item.contentType} />
+                      </button>
+                      <span class="truncate text-[12px] leading-4 text-v2-text-text-muted" title={item.name}>
+                        {item.name}
+                      </span>
+                    </div>
                   )}
                 </For>
               </div>
@@ -345,6 +362,9 @@ export function PostEditor(props: {
                         type="button"
                         class="aspect-square overflow-hidden rounded-[6px] ring-2 ring-transparent aria-pressed:ring-v2-icon-icon-accent"
                         aria-pressed={state.mediaIds.includes(item.storageId)}
+                        title={item.name}
+                        aria-label={item.name}
+                        disabled={locked || state.uploading || state.saving}
                         onClick={() =>
                           setState("mediaIds", (ids) =>
                             ids.includes(item.storageId)
@@ -423,21 +443,6 @@ export function PostEditor(props: {
                   </select>
                 </label>
               </Show>
-              <Show when={used().has("tiktok")}>
-                <label class={label}>
-                  {language.t("market.editor.tiktokPrivacy")}
-                  <select
-                    class={field}
-                    value={state.options.tiktokPrivacy ?? "SELF_ONLY"}
-                    disabled={locked}
-                    onChange={(event) => setState("options", "tiktokPrivacy", event.currentTarget.value)}
-                  >
-                    <option value="SELF_ONLY">{language.t("market.editor.tiktok.self")}</option>
-                    <option value="MUTUAL_FOLLOW_FRIENDS">{language.t("market.editor.tiktok.friends")}</option>
-                    <option value="PUBLIC_TO_EVERYONE">{language.t("market.editor.tiktok.public")}</option>
-                  </select>
-                </label>
-              </Show>
               <Show when={used().has("instagram")}>
                 <label class={label}>
                   {language.t("market.editor.instagramType")}
@@ -461,6 +466,18 @@ export function PostEditor(props: {
               </Show>
             </div>
 
+            <Show when={used().has("tiktok")}>
+              <TikTokSettings
+                model={props.model}
+                targets={state.targets.filter((target) => target.channel === "tiktok")}
+                video={media().find((item) => item.contentType.startsWith("video/"))}
+                options={state.options}
+                locked={locked}
+                onOption={(key, value) => setState("options", (options) => ({ ...options, [key]: value }))}
+                onBlocked={(blocked) => setState("tiktokBlocked", blocked)}
+              />
+            </Show>
+
             <Show when={props.post?.deliveries.length}>
               <div class="flex flex-col gap-2">
                 <span class="text-[13px] font-medium leading-5 text-v2-text-text-base">
@@ -472,7 +489,13 @@ export function PostEditor(props: {
                       <NetworkBadge channel={delivery.channel} class="mt-0.5 size-4 text-[8px] leading-none" />
                       <div class="min-w-0 flex-1">
                         <div class="text-[13px] leading-5 text-v2-text-text-base">
-                          {language.t(`market.delivery.${delivery.status}`)}
+                          {language.t(
+                            delivery.channel === "tiktok" &&
+                              delivery.status === "published" &&
+                              state.options.tiktokMode === "draft"
+                              ? "market.delivery.sentToDrafts"
+                              : `market.delivery.${delivery.status}`,
+                          )}
                         </div>
                         <Show when={delivery.error}>
                           <div class="text-[12px] leading-4 text-v2-text-text-muted">{delivery.error}</div>
@@ -536,6 +559,16 @@ export function PostEditor(props: {
           </aside>
         </div>
 
+        <Show when={!locked && needsTikTokVideo()}>
+          <div class="flex items-center gap-3 border-t border-v2-border-border-muted px-6 py-3" role="status">
+            <p class="min-w-0 flex-1 text-[13px] leading-5 text-v2-text-text-base">
+              {language.t("market.editor.tiktok.videoRequired")}
+            </p>
+            <Button size="small" disabled={state.uploading || state.saving} onClick={() => void upload()}>
+              {language.t("market.editor.upload")}
+            </Button>
+          </div>
+        </Show>
         <div class="flex items-center gap-2 border-t border-v2-border-border-muted px-6 py-4">
           <Show when={props.post && props.post.status !== "publishing"}>
             <Show
@@ -561,15 +594,27 @@ export function PostEditor(props: {
             <Loader class="size-4" />
           </Show>
           <Show when={!locked}>
-            <Button variant="ghost" disabled={state.saving || !state.targets.length} onClick={() => void save("draft")}>
+            <Button
+              variant="ghost"
+              disabled={state.saving || state.uploading || !state.targets.length}
+              onClick={() => void save("draft")}
+            >
               {language.t("market.editor.saveDraft")}
             </Button>
-            <Button variant="neutral" disabled={state.saving || !state.targets.length} onClick={() => void save("now")}>
+            <Button
+              variant="neutral"
+              disabled={
+                state.saving || state.uploading || !state.targets.length || state.tiktokBlocked || needsTikTokVideo()
+              }
+              onClick={() => void save("now")}
+            >
               {language.t("market.editor.publishNow")}
             </Button>
             <Button
               variant="contrast"
-              disabled={state.saving || !state.targets.length}
+              disabled={
+                state.saving || state.uploading || !state.targets.length || state.tiktokBlocked || needsTikTokVideo()
+              }
               onClick={() => void save("scheduled")}
             >
               {language.t(props.post ? "market.editor.update" : "market.editor.schedule")}

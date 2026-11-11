@@ -88,9 +88,11 @@ export function createMarketModel() {
     }
   }
 
+  let accountsRevision = 0
   const loadAccounts = async () => {
+    const revision = ++accountsRevision
     const result = await run(() => api.accounts())
-    if (!result) return
+    if (!result || revision !== accountsRevision) return
     setState("accounts", reconcile(result.accounts, { key: "_id" }))
     setState("groups", reconcile(result.groups, { key: "_id" }))
   }
@@ -132,6 +134,21 @@ export function createMarketModel() {
     loadAccounts,
     loadPosts,
     loadMedia,
+    async disconnect(connectedAccountId: string) {
+      const done = await run(async () => {
+        await api.disconnect(connectedAccountId)
+        return true
+      })
+      if (!done) return false
+      // A focus refresh started before the deletion must not put the account back.
+      accountsRevision++
+      setState("accounts", (accounts) =>
+        accounts.filter((account) => account.connectedAccountId !== connectedAccountId),
+      )
+      setState("selectedAccounts", (selected) => selected?.filter((id) => id !== connectedAccountId) ?? null)
+      setState("analyticsRevision", (revision) => revision + 1)
+      return true
+    },
     navigate(direction: 1 | -1) {
       setState("anchor", shift(state.view, state.anchor, direction))
       void loadPosts()
@@ -152,6 +169,11 @@ export function createMarketModel() {
     },
     group(groupId: string | undefined) {
       return groupId ? state.groups.find((item) => item._id === groupId) : undefined
+    },
+    /** Keeps accounts just posted to or connected visible while the channel filter is on. */
+    reveal(connectedAccountIds: string[]) {
+      const selected = state.selectedAccounts
+      if (selected) setState("selectedAccounts", [...new Set([...selected, ...connectedAccountIds])])
     },
     visiblePosts() {
       return state.posts.filter(

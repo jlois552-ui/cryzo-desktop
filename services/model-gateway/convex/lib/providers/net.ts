@@ -42,6 +42,15 @@ export type Init = RequestInit & {
 /** Sends a request for a publishing job. `publishes` marks the call that makes the post public. */
 export type Send = (url: string, init?: Init, publishes?: boolean) => Promise<Response>
 
+export type Creator = {
+  name: string
+  privacy: string[]
+  commentDisabled: boolean
+  duetDisabled: boolean
+  stitchDisabled: boolean
+  maxDuration: number
+}
+
 export type Provider = {
   /** Environment variables holding the OAuth client ID and secret. */
   env: [string, string]
@@ -52,6 +61,8 @@ export type Provider = {
   profile(tokens: Tokens): Promise<Profile>
   /** Pages, organizations or business accounts the connection can post to. */
   targets?(tokens: Tokens): Promise<Choice[]>
+  /** What the creator may post right now; TikTok requires checking it before showing the post form. */
+  creator?(tokens: Tokens): Promise<Creator>
   publish(job: Job, send: Send): Promise<Sent>
   status?(job: Job, remoteId: string, send: Send): Promise<Status>
   metrics(input: Measure): Promise<Measured>

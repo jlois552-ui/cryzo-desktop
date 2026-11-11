@@ -94,7 +94,7 @@ async fn admitted(app: &Router, path: &std::path::Path) -> String {
         app,
         "POST",
         &format!("/api/session/{id}/prompt"),
-        json!({"id":"msg_fixture","text":"Write result.txt","resume":false}),
+        json!({"id":"msg_fixture","text":"Write result.txt\n\nHidden context","metadata":{"displayText":"Write result.txt"},"resume":false}),
     )
     .await;
     assert_eq!(status, 200);
@@ -106,7 +106,14 @@ async fn admitted(app: &Router, path: &std::path::Path) -> String {
     )
     .await;
     assert_eq!(status, 200);
-    assert_eq!(retried["data"]["payload"]["text"], "Write result.txt");
+    assert_eq!(
+        retried["data"]["payload"]["text"],
+        "Write result.txt\n\nHidden context"
+    );
+    assert_eq!(
+        retried["data"]["payload"]["metadata"]["displayText"],
+        "Write result.txt"
+    );
     id
 }
 async fn pending(app: &Router, id: &str) -> String {

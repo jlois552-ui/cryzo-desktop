@@ -2,7 +2,17 @@ import type { JSX } from "solid-js"
 import type { Account, Channel } from "./api"
 
 // Rail glyphs drawn in currentColor so they follow the theme; the shared catalog has no calendar or chart.
-const paths: Record<"overview" | "posts" | "calendar" | "analytics" | "media" | "channels" | "sparkle", JSX.Element> = {
+const paths: Record<
+  "overview" | "posts" | "calendar" | "analytics" | "media" | "channels" | "sparkle" | "sidebar" | "compose",
+  JSX.Element
+> = {
+  sidebar: (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <path d="M9.5 4.5v15" />
+    </>
+  ),
+  compose: <path d="M11 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V13M17.6 3.9a1.9 1.9 0 0 1 2.7 2.7L12.5 14.4l-3.5.9.9-3.5z" />,
   overview: <path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z" />,
   posts: (
     <>
