@@ -709,15 +709,18 @@ impl Desktop {
             return Ok(self.automation.element_from_handle(Handle::from(handle))?);
         }
         let wanted = query.to_lowercase();
-        self.top_level()?
-            .into_iter()
-            .find(|window| {
-                window
-                    .get_name()
-                    .is_ok_and(|title| title.to_lowercase().contains(&wanted))
-                    || process(window).to_lowercase().trim_end_matches(".exe")
-                        == wanted.trim_end_matches(".exe")
-            })
+        let windows = self.top_level()?;
+        let title = |window: &UIElement| window.get_name().unwrap_or_default().to_lowercase();
+        // An exact title or app name wins over a title that merely contains the query, so
+        // "Cryzo" picks the Cryzo app, not a browser tab titled "Cryzo Desktop - App Review".
+        let exact = windows.iter().find(|window| {
+            title(window) == wanted
+                || process(window).to_lowercase().trim_end_matches(".exe")
+                    == wanted.trim_end_matches(".exe")
+        });
+        exact
+            .or_else(|| windows.iter().find(|window| title(window).contains(&wanted)))
+            .cloned()
             .ok_or_else(|| anyhow!("No window matches {query:?}. Use windows to list them."))
     }
 
