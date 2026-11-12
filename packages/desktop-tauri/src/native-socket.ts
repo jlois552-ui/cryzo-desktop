@@ -14,7 +14,7 @@ export function installNativeSockets(origin: string) {
   window.WebSocket = new Proxy(window.WebSocket, {
     construct(target, args) {
       const url = new URL(String(args[0]), window.location.href)
-      if (url.origin !== base.origin) return Reflect.construct(target, args)
+      if (url.origin !== base.origin) return new target(...(args as ConstructorParameters<typeof WebSocket>))
       return new NativeSocket(url.href)
     },
   })

@@ -17,8 +17,9 @@ export function inferenceBody(input: unknown) {
   if (!("cryzo_step_id" in input) || typeof input.cryzo_step_id !== "string" || !/^msg_[a-zA-Z0-9_-]{1,120}$/.test(input.cryzo_step_id)) throw new Error("invalid step")
   const body: Record<string, unknown> = { model: input.model, messages: input.messages, stream: true, stream_options: { include_usage: true }, max_tokens: 16384 }
   // Explicit allowlist prevents provider routing, arbitrary URLs and paid fallbacks.
-  for (const key of ["tools", "tool_choice", "reasoning_effort", "chat_template_kwargs"] as const) {
-    if (key in input) body[key] = Reflect.get(input, key)
+  const allowed = new Set(["tools", "tool_choice", "reasoning_effort", "chat_template_kwargs"])
+  for (const [key, value] of Object.entries(input)) {
+    if (allowed.has(key)) body[key] = value
   }
   return { step: input.cryzo_step_id, body }
 }
