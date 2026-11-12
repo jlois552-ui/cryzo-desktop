@@ -14,6 +14,8 @@ import { SettingsAppearance } from "./appearance/appearance"
 import { experimentalSettingsAvailable, SettingsExperimental } from "./experimental/experimental"
 import { SettingsKeybinds } from "./keybinds/keybinds"
 import { SettingsNotifications } from "./notifications/notifications"
+import { SettingsComputer } from "./computer/computer"
+import { usePlatform } from "@/runtime/platform/platform"
 import { SettingsProviders } from "./providers/providers"
 import { SettingsModels } from "./models/models"
 import { SettingsServerGeneral, SettingsServerList } from "./servers/servers"
@@ -59,6 +61,8 @@ const serverPages = {
   projects: { title: "settings.projects.title", description: "settings.projects.description" },
   workspaces: { title: "settings.tab.workspaces", description: "settings.workspaces.description" },
 } as const
+
+const computerTab = { value: "computer", icon: pageIcons.computer, label: "settings.tab.computer" } as const
 
 const experimentalTab = [
   { value: "experimental", icon: pageIcons.experimental, label: "settings.tab.experimental" },
@@ -226,6 +230,7 @@ function RootSettings() {
   const surface = useSettingsSurface()
   const global = useGlobal()
   const inventory = useSettingsServers()
+  const platform = usePlatform()
 
   const [state, setState] = createStore<{ worktreeFilterReset: number; modelProvider: string | undefined }>({
     worktreeFilterReset: 0,
@@ -270,7 +275,12 @@ function RootSettings() {
       })),
     },
     {
-      items: [...rootClientTabs.map((item) => ({ ...item, label: language.t(item.label) })), ...pluginTabs()],
+      items: [
+        ...rootClientTabs.map((item) => ({ ...item, label: language.t(item.label) })),
+        // Only hosts that can control the desktop offer the page.
+        ...(platform.getComputerUse ? [{ ...computerTab, label: language.t(computerTab.label) }] : []),
+        ...pluginTabs(),
+      ],
     },
     {
       items: [
@@ -313,6 +323,9 @@ function RootSettings() {
       </Tabs.Content>
       <Tabs.Content value="shortcuts" class="settings-panel">
         <SettingsKeybinds active={surface.view().tab === "shortcuts"} />
+      </Tabs.Content>
+      <Tabs.Content value="computer" class="settings-panel">
+        <SettingsComputer />
       </Tabs.Content>
       <PluginSettingsPages />
       <Tabs.Content value="experimental" class="settings-panel">

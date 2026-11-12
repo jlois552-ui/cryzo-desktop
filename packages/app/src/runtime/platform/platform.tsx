@@ -25,6 +25,15 @@ type PlatformName = "web" | "desktop"
 
 type DesktopOS = "macos" | "windows" | "linux"
 
+/** Computer use (desktop control) settings, shared with Cryzo's engine and its MCP server. */
+export type ComputerUseSettings = {
+  enabled: boolean
+  /** When agents ask before acting: every action, once per app in each session, or never. */
+  approval: "always" | "per_app" | "never"
+  typeIntoPasswords: boolean
+  blockedApps: readonly string[]
+}
+
 export type FatalRendererErrorLog = {
   error: string
   url: string
@@ -107,6 +116,12 @@ type PlatformBase = {
 
   /** Allow native pinch/Ctrl-scroll zoom gestures (desktop only) */
   setPinchZoomEnabled?(enabled: boolean): Promise<void> | void
+
+  /** Read computer use settings; null where the host has no computer use (desktop only) */
+  getComputerUse?(): Promise<ComputerUseSettings | null>
+
+  /** Save computer use settings; agents use them from their next action (desktop only) */
+  setComputerUse?(settings: ComputerUseSettings): Promise<void>
 
   /** Run a desktop-only menu action from the app chrome */
   runDesktopMenuAction?(action: DesktopMenuAction): Promise<void> | void

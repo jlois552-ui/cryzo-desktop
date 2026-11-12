@@ -285,10 +285,21 @@ export function PostCard(props: { post: Post; model: MarketModel; onOpen: (post:
       return account ? [account] : []
     })
   const movable = () => props.post.status !== "publishing" && props.post.status !== "published"
+  // The avatars only show initials, so name the channels for screen readers and desktop control.
+  const label = () =>
+    language.t("market.post.card", {
+      channels: new Intl.ListFormat(language.intl()).format(accounts().map((account) => account.name)),
+      title: props.post.content || language.t("market.post.untitled"),
+      when: new Intl.DateTimeFormat(language.intl(), { dateStyle: "medium", timeStyle: "short" }).format(
+        props.post.scheduledFor,
+      ),
+      status: language.t(`market.status.${props.post.status}`),
+    })
 
   return (
     <button
       type="button"
+      aria-label={label()}
       draggable={movable()}
       class="flex w-full shrink-0 flex-col overflow-hidden rounded-[8px] bg-v2-background-bg-layer-02 text-start hover:bg-v2-background-bg-layer-03 data-[status=draft]:opacity-70"
       data-status={props.post.status}

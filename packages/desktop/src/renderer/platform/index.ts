@@ -48,6 +48,8 @@ export function createDesktopPlatform(api: ElectronAPI, windowState: DesktopWind
 
       return () => window.removeEventListener(DragCancelEvent, callback)
     },
+    getComputerUse: () => api.getComputerUse(),
+    setComputerUse: (settings) => api.setComputerUse(settings),
     runDesktopMenuAction: createDesktopMenuAction(api),
     checkAppExists: async (appName) => {
       return api.checkAppExists(appName)

@@ -212,7 +212,7 @@ impl Engine {
                         turn["reasoning_content"] = json!(reasoning);
                     }
                     if !tools.is_empty() {
-                        turn["tool_calls"]=json!(tools.iter().map(|tool|{let mut input=tool["state"]["input"].clone();if let Some(input)=input.as_object_mut(){input.remove("tool");}json!({"id":tool["id"],"type":"function","function":{"name":tool["name"],"arguments":if input.is_string(){input.as_str().unwrap().to_owned()}else{input.to_string()}}})}).collect::<Vec<_>>());
+                        turn["tool_calls"]=json!(tools.iter().map(|tool|json!({"id":tool["id"],"type":"function","function":{"name":tool["name"],"arguments":replayed_arguments(tool)}})).collect::<Vec<_>>());
                     }
                     conversation.push(turn);
                     for tool in tools {
@@ -576,16 +576,23 @@ impl Engine {
             command != "screenshot",
             "screenshots are not available to Cryzo agents; use snapshot or ocr"
         );
+        // The Settings switch stops desktop control at once, even mid-run, and other changes such
+        // as blocked apps apply to the next action.
+        let settings = cryzo_desktop_control::Settings::load()?;
+        ensure!(
+            settings.enabled,
+            "computer use is turned off in Cryzo Settings"
+        );
         if let Some(approval) = approval {
             self.store
                 .consume_approval(session, approval, &serde_json::to_value(operation)?)?;
         }
         let thread = self.desktop_thread()?;
+        let per_app = settings.approval == cryzo_desktop_control::Approval::PerApp;
+        let configured = thread.clone();
+        tokio::task::spawn_blocking(move || configured.configure(settings)).await??;
         // Under "ask once per app", an approved action trusts its app for the rest of the session.
-        if approval.is_some()
-            && cryzo_desktop_control::Settings::load()?.approval
-                == cryzo_desktop_control::Approval::PerApp
-        {
+        if approval.is_some() && per_app {
             let (thread, command, args) = (thread.clone(), command.clone(), args.clone());
             if let Some(app) =
                 tokio::task::spawn_blocking(move || thread.app(&command, args)).await??
@@ -695,6 +702,28 @@ impl Engine {
             _ => anyhow::bail!("not a marketing tool"),
         }
     }
+}
+
+/// A past tool call's arguments as the model sent them. Calls are stored as the parsed operation,
+/// so the `tool` tag comes off, and a desktop call's `{"command", "args"}` wrapper is unwrapped:
+/// models copy their own history, and replaying the wrapper made them send it back, which left
+/// every later desktop call without its real arguments.
+fn replayed_arguments(tool: &Value) -> String {
+    let input = &tool["state"]["input"];
+    if let Some(text) = input.as_str() {
+        return text.to_owned();
+    }
+    let desktop = tool["name"]
+        .as_str()
+        .is_some_and(|name| name.starts_with("desktop_"));
+    let mut input = match input.get("args") {
+        Some(args) if desktop => args.clone(),
+        _ => input.clone(),
+    };
+    if let Some(input) = input.as_object_mut() {
+        input.remove("tool");
+    }
+    input.to_string()
 }
 
 fn tool_definitions(plan: bool, desktop: bool) -> Value {
@@ -1273,4 +1302,22 @@ async fn log_stream(
         },
     );
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::replayed_arguments;
+
+    /// Replayed calls must match what the model sent, or it imitates the stored shape instead.
+    #[test]
+    fn replayed_arguments_match_what_the_model_sent() {
+        let desktop = json!({"name":"desktop_find","state":{"status":"completed","input":{"tool":"desktop","command":"find","args":{"text":"Download"}}}});
+        assert_eq!(replayed_arguments(&desktop), r#"{"text":"Download"}"#);
+        let read = json!({"name":"read","state":{"status":"completed","input":{"tool":"read","path":"a.txt"}}});
+        assert_eq!(replayed_arguments(&read), r#"{"path":"a.txt"}"#);
+        let streaming = json!({"name":"desktop_act","state":{"status":"streaming","input":"{\"name\":\"OK\"}"}});
+        assert_eq!(replayed_arguments(&streaming), r#"{"name":"OK"}"#);
+    }
 }

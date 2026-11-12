@@ -14,6 +14,8 @@ impl Desktop {
         bail!(UNSUPPORTED)
     }
 
+    pub fn configure(&mut self, _settings: Settings) {}
+
     pub fn call(&mut self, _command: &str, _args: &Value) -> Result<Output> {
         bail!(UNSUPPORTED)
     }

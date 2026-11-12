@@ -282,6 +282,28 @@ pub async fn desktop_call(
             app.emit("cryzo:desktop", json!({"_tag":"WindowPinchZoomChanged","enabled":enabled})).map_err(|e| e.to_string())?;
             Ok(Value::Null)
         }
+        // Computer use (desktop control) lives in its own JSON file so the standalone MCP server
+        // and Cryzo's engine read the same settings. Windows only for now.
+        "AppGetComputerUse" => {
+            if !cfg!(windows) { return Ok(Value::Null); }
+            let settings = cryzo_desktop_control::Settings::load().map_err(|e| format!("{e:#}"))?;
+            Ok(json!({
+                "enabled": settings.enabled,
+                "approval": settings.approval,
+                "typeIntoPasswords": settings.type_into_passwords,
+                "blockedApps": settings.blocked_apps,
+            }))
+        }
+        "AppSetComputerUse" => {
+            let next = &payload["settings"];
+            let mut settings = cryzo_desktop_control::Settings::load().map_err(|e| format!("{e:#}"))?;
+            settings.enabled = next["enabled"].as_bool().ok_or("invalid computer use setting")?;
+            settings.approval = serde_json::from_value(next["approval"].clone()).map_err(|e| e.to_string())?;
+            settings.type_into_passwords = next["typeIntoPasswords"].as_bool().ok_or("invalid computer use setting")?;
+            settings.blocked_apps = serde_json::from_value(next["blockedApps"].clone()).map_err(|e| e.to_string())?;
+            settings.save().map_err(|e| format!("{e:#}"))?;
+            Ok(Value::Null)
+        }
         "WindowSetZoomFactor" | "WindowSetZoomLevel" => {
             let factor = if tag == "WindowSetZoomLevel" { payload["level"].as_f64().ok_or("invalid zoom level")? }
                 else { payload["factor"].as_f64().ok_or("invalid zoom factor")? };

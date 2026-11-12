@@ -30,8 +30,8 @@ use windows::{
             },
             Shell::ShellExecuteW,
             WindowsAndMessaging::{
-                GetForegroundWindow, GetMessageW, MSG, SW_SHOWNORMAL, SetForegroundWindow,
-                WM_HOTKEY,
+                GetForegroundWindow, GetMessageW, IsWindow, MSG, SW_SHOWNORMAL,
+                SetForegroundWindow, WM_HOTKEY,
             },
         },
     },
@@ -66,8 +66,15 @@ const PROPERTIES: [UIProperty; 15] = [
 
 /// Siblings printed under one parent before the rest collapse into "… N more".
 const SIBLINGS: usize = 40;
-/// Settle time after an action before reading what changed.
+/// Settle time after a launched window comes to the front.
 const SETTLE: Duration = Duration::from_millis(350);
+/// After an action, the window is re-read every `POLL` until it has not changed for `QUIET`, so
+/// content that loads a moment later (a fetched list, a dialog) lands in the action's own result.
+const POLL: Duration = Duration::from_millis(50);
+const QUIET: Duration = Duration::from_millis(350);
+const SETTLE_LIMIT: Duration = Duration::from_secs(3);
+/// Elements that disappeared are listed one by one up to this many, then only counted.
+const GONE: usize = 8;
 
 pub struct Desktop {
     automation: UIAutomation,
@@ -82,12 +89,16 @@ pub struct Desktop {
     targets: HashMap<String, Target>,
     /// Previous snapshot lines per window handle, for diff mode.
     last: HashMap<isize, Vec<String>>,
+    /// The Cryzo Chrome, connected on the first browser tool call.
+    browser: Option<crate::browser::Browser>,
 }
 
 struct Target {
     element: UIElement,
-    kind: ControlType,
     window: isize,
+    name: String,
+    /// Lowercase control type, such as `button` or `tabitem`.
+    role: String,
     label: String,
     password: bool,
 }
@@ -123,7 +134,13 @@ impl Desktop {
             next: 0,
             targets: HashMap::new(),
             last: HashMap::new(),
+            browser: None,
         })
+    }
+
+    /// Applies settings the user changed while this desktop was running.
+    pub fn configure(&mut self, settings: Settings) {
+        self.settings = settings;
     }
 
     /// Runs one tool by name with JSON arguments, the shape both MCP and the Cryzo engine use.
@@ -142,7 +159,22 @@ impl Desktop {
                 args.get("diff").and_then(Value::as_bool).unwrap_or(false),
             ),
             "find" => self.find(required("text")?, text("role"), text("window")),
-            "act" => self.act(required("id")?, required("action")?, text("value")),
+            "act" => {
+                let id = match text("id") {
+                    Some(id) => id.to_string(),
+                    None => self.resolve(
+                        text("name").ok_or_else(|| anyhow!("act needs id or name"))?,
+                        text("role"),
+                        text("window"),
+                    )?,
+                };
+                self.act(&id, required("action")?, text("value"))
+            }
+            "batch" => self.batch(
+                args.get("steps")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| anyhow!("batch needs steps"))?,
+            ),
             "key" => self.key(required("keys")?, text("window")),
             "focus" => self.focus(required("window")?),
             "launch" => self.launch(required("app")?),
@@ -166,13 +198,67 @@ impl Desktop {
                 let (header, jpeg) = self.screenshot(text("window"))?;
                 return Ok(Output::Image { header, jpeg });
             }
+            command if command.starts_with("browser_") => {
+                let (max_lines, passwords) =
+                    (self.settings.max_lines, self.settings.type_into_passwords);
+                self.browser()?.call(command, args, max_lines, passwords)
+            }
             _ => Err(anyhow!("Unknown desktop tool {command:?}")),
         };
         output.map(Output::Text)
     }
 
-    /// A human sentence for an approval card, such as `click button "Post now" in chrome.exe`.
-    pub fn describe(&self, command: &str, args: &Value) -> String {
+    /// The Cryzo Chrome, started or reconnected when it was closed.
+    fn browser(&mut self) -> Result<&mut crate::browser::Browser> {
+        if !self.browser.as_mut().is_some_and(|browser| browser.alive()) {
+            self.browser = Some(crate::browser::Browser::connect()?);
+        }
+        self.browser
+            .as_mut()
+            .ok_or_else(|| anyhow!("the browser is not connected"))
+    }
+
+    /// A human sentence for an approval card, such as `click button "Post now" in chrome.exe`,
+    /// with a warning when the app reaches far beyond itself (a shell, every file, system
+    /// settings), so the user can decide whether the task warrants that.
+    pub fn describe(&mut self, command: &str, args: &Value) -> String {
+        let steps = match command {
+            "batch" => args
+                .get("steps")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(|step| (step["tool"].as_str().unwrap_or_default(), step))
+                .collect(),
+            _ => vec![(command, args)],
+        };
+        let warnings = steps
+            .into_iter()
+            .filter_map(|(tool, step)| {
+                let app = match tool {
+                    "launch" => step["app"].as_str().map(str::to_lowercase),
+                    _ => self.app(tool, step),
+                }?;
+                reach(&app).map(|reach| format!("{app} {reach}"))
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        let sentence = self.sentence(command, args);
+        if warnings.is_empty() {
+            return sentence;
+        }
+        format!(
+            "{sentence} (warning: {})",
+            warnings.into_iter().collect::<Vec<_>>().join("; ")
+        )
+    }
+
+    fn sentence(&mut self, command: &str, args: &Value) -> String {
+        if command.starts_with("browser_") {
+            return match self.browser() {
+                Ok(browser) => browser.describe(command, args),
+                Err(_) => command.replace('_', " "),
+            };
+        }
         let text = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
         let window = |key: &str| {
             self.window(args.get(key).and_then(Value::as_str))
@@ -186,6 +272,27 @@ impl Desktop {
                 .unwrap_or_else(|_| "an unknown window".into())
         };
         match command {
+            "act" if text("id").is_empty() => format!(
+                "{} {} {:?} in {}{}",
+                text("action"),
+                args.get("role")
+                    .and_then(Value::as_str)
+                    .unwrap_or("element"),
+                text("name"),
+                window("window"),
+                match text("action") {
+                    "type" => format!(": {:?}", clip(text("value"), 200)),
+                    _ => String::new(),
+                }
+            ),
+            "batch" => args
+                .get("steps")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(|step| self.sentence(step["tool"].as_str().unwrap_or_default(), step))
+                .collect::<Vec<_>>()
+                .join("; then "),
             "act" => match self.targets.get(text("id")) {
                 Some(target) => {
                     let app = self
@@ -227,10 +334,30 @@ impl Desktop {
         }
     }
 
-    /// The process a command would act on, for "ask once per app".
-    pub fn app(&self, command: &str, args: &Value) -> Option<String> {
+    /// The process a command would act on, for "ask once per app". Browser commands count each
+    /// website as its own app.
+    pub fn app(&mut self, command: &str, args: &Value) -> Option<String> {
+        if command.starts_with("browser_") {
+            return self
+                .browser()
+                .ok()?
+                .site(command, args)
+                .map(|site| format!("site {site}"));
+        }
         let text = |key: &str| args.get(key).and_then(Value::as_str);
         let app = match command {
+            "act" if text("id").is_none() => process(&self.window(text("window")).ok()?),
+            // A batch counts as one app only when every step acts on that same app.
+            "batch" => {
+                let apps = args
+                    .get("steps")?
+                    .as_array()?
+                    .iter()
+                    .filter(|step| crate::acts(step["tool"].as_str().unwrap_or_default()))
+                    .map(|step| self.app(step["tool"].as_str().unwrap_or_default(), step))
+                    .collect::<Option<HashSet<_>>>()?;
+                return (apps.len() == 1).then(|| apps.into_iter().next()).flatten();
+            }
             "act" => process(
                 &self
                     .automation
@@ -284,31 +411,31 @@ impl Desktop {
         let window = self.window(window)?;
         self.blocked(&window)?;
         let hwnd = hwnd(&window);
-        let first = self.scan(&window, hwnd, None, self.settings.max_lines);
+        let first = self.read(&window, hwnd);
         // Chromium and WebView2 build their web accessibility tree only after the first UIA
         // client asks, so a near-empty first read is usually just a cold tree.
-        let scan = if first.lines.len() < 8 {
+        let (lines, truncated) = if first.0.len() < 8 {
             std::thread::sleep(Duration::from_millis(700));
-            self.scan(&window, hwnd, None, self.settings.max_lines)
+            self.read(&window, hwnd)
         } else {
             first
         };
-        let lines = scan
-            .lines
-            .iter()
-            .map(|(depth, line)| format!("{}{line}", "  ".repeat(depth + 1)))
-            .collect::<Vec<_>>();
         let header = header(&window);
         let previous = self.last.insert(hwnd, lines.clone());
+        let ocr = if sparse(&lines) {
+            ocr(hwnd)
+        } else {
+            String::new()
+        };
         if let (true, Some(previous)) = (diff, previous) {
-            return Ok(changes(&header, &previous, &lines));
+            return Ok(format!("{}{ocr}", changes(&header, &previous, &lines)));
         }
-        let note = if scan.truncated {
+        let note = if truncated {
             "\n  … cut off at the line or time budget; use find to reach the rest"
         } else {
             ""
         };
-        Ok(format!("{header}\n{}{note}", lines.join("\n")))
+        Ok(format!("{header}\n{}{note}{ocr}", lines.join("\n")))
     }
 
     /// Elements whose name or value contains `text` (and whose role matches, when given).
@@ -331,6 +458,77 @@ impl Desktop {
             .join("\n"))
     }
 
+    /// The ID of the element called `name`: an exact (case-insensitive) name match first, else the
+    /// first element whose name or value contains it. Saves a find before every act.
+    fn resolve(&mut self, name: &str, role: Option<&str>, window: Option<&str>) -> Result<String> {
+        let window = self.window(window)?;
+        self.blocked(&window)?;
+        let hwnd = hwnd(&window);
+        let wanted = name.to_lowercase();
+        let role = role.map(str::to_lowercase);
+        let exact = |target: &Target| {
+            target.name.to_lowercase() == wanted
+                && role.as_ref().is_none_or(|role| *role == target.role)
+        };
+        // The window's last settled read usually holds the element already, which saves a full
+        // scan (200 ms to 1.5 s in WebView2). A live name read confirms it still exists.
+        let cached = self
+            .last
+            .get(&hwnd)
+            .into_iter()
+            .flatten()
+            .filter_map(|line| line_id(line.trim()))
+            .find(|id| {
+                self.targets
+                    .get(id.as_str())
+                    .is_some_and(|target| exact(target) && target.element.get_name().is_ok())
+            });
+        if let Some(id) = cached {
+            return Ok(id);
+        }
+        let scan = self.scan(&window, hwnd, Some((wanted.clone(), role.clone())), 50);
+        let ids = scan
+            .lines
+            .iter()
+            .filter_map(|(_, line)| line_id(line))
+            .collect::<Vec<_>>();
+        ids.iter()
+            .find(|id| self.targets.get(id.as_str()).is_some_and(exact))
+            .or(ids.first())
+            .cloned()
+            .ok_or_else(|| anyhow!("No element matching {name:?} in {}", header(&window)))
+    }
+
+    /// Runs several tools in order in one call and returns each result. Stops at the first failure.
+    /// Acting steps before the last report one summary line each, since the model needs the end
+    /// state, not every view in between; reading steps and the last step report in full.
+    pub fn batch(&mut self, steps: &[Value]) -> Result<String> {
+        let mut results = Vec::new();
+        for (index, step) in steps.iter().enumerate() {
+            let tool = step["tool"].as_str().unwrap_or_default();
+            let result = match tool {
+                "batch" | "screenshot" => Err(anyhow!("{tool} cannot run inside batch")),
+                _ => self.call(tool, step),
+            };
+            match result {
+                Ok(Output::Text(text)) if crate::acts(tool) && index + 1 < steps.len() => {
+                    results.push(format!("{}. {tool}: {}", index + 1, summary(&text)))
+                }
+                Ok(Output::Text(text)) => results.push(format!("{}. {tool}: {text}", index + 1)),
+                Ok(Output::Image { .. }) => unreachable!("screenshot is refused above"),
+                Err(error) => {
+                    results.push(format!(
+                        "{}. {tool} failed: {error:#}\nThe remaining {} step(s) did not run.",
+                        index + 1,
+                        steps.len() - index - 1
+                    ));
+                    bail!("{}", results.join("\n"));
+                }
+            }
+        }
+        Ok(results.join("\n"))
+    }
+
     /// Acts on an element from a snapshot, then returns what changed in its window.
     pub fn act(&mut self, id: &str, action: &str, value: Option<&str>) -> Result<String> {
         stopped()?;
@@ -341,7 +539,6 @@ impl Desktop {
         let element = target.element.clone();
         let label = format!("[{id}] {}", target.label);
         let password = target.password;
-        let kind = target.kind;
         let window_id = target.window;
         let window = self
             .automation
@@ -361,17 +558,16 @@ impl Desktop {
                         "Typing into password fields is off in desktop-control settings (typeIntoPasswords)."
                     );
                 }
-                // Documents get real keystrokes so the app's undo history and input events see
-                // them; single fields take the value directly, which is faster and exact.
-                let set = kind != ControlType::Document
-                    && element
-                        .get_pattern::<UIValuePattern>()
-                        .ok()
-                        .filter(|pattern| !pattern.is_readonly().unwrap_or(true))
-                        .is_some_and(|pattern| pattern.set_value(text).is_ok());
+                // Setting the value is exact and instant. Injected keystrokes are not: Windows 11
+                // Notepad dropped and repeated characters even at 20 ms apart. Keystrokes remain
+                // the fallback for controls without a writable value.
+                let set = element
+                    .get_pattern::<UIValuePattern>()
+                    .ok()
+                    .filter(|pattern| !pattern.is_readonly().unwrap_or(true))
+                    .is_some_and(|pattern| pattern.set_value(text).is_ok());
                 if !set {
                     element.set_focus()?;
-                    // Faster intervals drop characters in some apps (Notepad lost letters at 5 ms).
                     Keyboard::new().interval(20).send_text(text)?;
                 }
             }
@@ -388,7 +584,6 @@ impl Desktop {
             _ => bail!("Unknown action {action:?}"),
         }
         self.audit(&window, &label, action);
-        std::thread::sleep(SETTLE);
         Ok(format!("{action} {label}: done\n{}", self.after(window_id)))
     }
 
@@ -410,7 +605,6 @@ impl Desktop {
         }
         Keyboard::new().interval(5).send_keys(keys)?;
         self.audit(&window, "keys", "key");
-        std::thread::sleep(SETTLE);
         Ok(format!("sent keys\n{}", self.after(window_id)))
     }
 
@@ -495,7 +689,6 @@ impl Desktop {
             _ => mouse.click(&point)?,
         }
         self.audit(&element, &format!("point {x},{y}"), "click_at");
-        std::thread::sleep(SETTLE);
         Ok(format!(
             "clicked {x},{y}\n{}",
             self.after(unsafe { GetForegroundWindow() }.0 as isize)
@@ -646,8 +839,9 @@ impl Desktop {
             id,
             Target {
                 element: element.clone(),
-                kind,
                 window: hwnd,
+                name: name.clone(),
+                role,
                 label,
                 password,
             },
@@ -668,11 +862,29 @@ impl Desktop {
         id
     }
 
-    /// What changed in the acted-on window, plus the new foreground window when it moved.
+    /// A window's snapshot lines, indented, and whether they were cut off.
+    fn read(&mut self, window: &UIElement, hwnd: isize) -> (Vec<String>, bool) {
+        let scan = self.scan(window, hwnd, None, self.settings.max_lines);
+        let lines = scan
+            .lines
+            .iter()
+            .map(|(depth, line)| format!("{}{line}", "  ".repeat(depth + 1)))
+            .collect();
+        (lines, scan.truncated)
+    }
+
+    /// What changed in the acted-on window once it settles, plus the new foreground window when
+    /// it moved.
     fn after(&mut self, window_id: isize) -> String {
-        let changes = self
-            .snapshot(Some(&format!("w{window_id:x}")), true)
-            .unwrap_or_else(|error| format!("(the window is gone or unreadable: {error})"));
+        let settled = self
+            .settle(window_id)
+            .unwrap_or_else(|error| format!("(the window is unreadable: {error})"));
+        let changes = if unsafe { IsWindow(Some(HWND(window_id as *mut _))) }.as_bool() {
+            settled
+        } else {
+            self.last.remove(&window_id);
+            format!("window [w{window_id:x}] closed")
+        };
         let foreground = unsafe { GetForegroundWindow() }.0 as isize;
         if foreground == window_id || foreground == 0 {
             return changes;
@@ -683,6 +895,36 @@ impl Desktop {
             .map(|window| header(&window))
             .unwrap_or_default();
         format!("{changes}\nforeground is now [w{foreground:x}] {now}")
+    }
+
+    /// Re-reads the window until it stops changing, then diffs it against its last snapshot (or
+    /// prints it whole when there is none).
+    fn settle(&mut self, window_id: isize) -> Result<String> {
+        let window = self
+            .automation
+            .element_from_handle(Handle::from(window_id))?;
+        let deadline = Instant::now() + SETTLE_LIMIT;
+        std::thread::sleep(POLL);
+        let mut lines = self.read(&window, window_id).0;
+        let mut quiet = Instant::now();
+        while quiet.elapsed() < QUIET && Instant::now() < deadline {
+            std::thread::sleep(POLL);
+            let next = self.read(&window, window_id).0;
+            if next != lines {
+                lines = next;
+                quiet = Instant::now();
+            }
+        }
+        let header = header(&window);
+        let ocr = if sparse(&lines) {
+            ocr(window_id)
+        } else {
+            String::new()
+        };
+        Ok(match self.last.insert(window_id, lines.clone()) {
+            Some(previous) => format!("{}{ocr}", changes(&header, &previous, &lines)),
+            None => format!("{header}\n{}{ocr}", lines.join("\n")),
+        })
     }
 
     fn top_level(&self) -> Result<Vec<UIElement>> {
@@ -719,7 +961,11 @@ impl Desktop {
                     == wanted.trim_end_matches(".exe")
         });
         exact
-            .or_else(|| windows.iter().find(|window| title(window).contains(&wanted)))
+            .or_else(|| {
+                windows
+                    .iter()
+                    .find(|window| title(window).contains(&wanted))
+            })
             .cloned()
             .ok_or_else(|| anyhow!("No window matches {query:?}. Use windows to list them."))
     }
@@ -791,7 +1037,7 @@ pub fn start_stop_hotkey() {
     });
 }
 
-fn stopped() -> Result<()> {
+pub(crate) fn stopped() -> Result<()> {
     if STOPPED.load(Ordering::SeqCst) {
         bail!("Desktop control was stopped with Ctrl+Alt+Esc. Restart it to continue.");
     }
@@ -883,23 +1129,168 @@ fn states(element: &UIElement, kind: ControlType, name: &str, password: bool) ->
         .collect()
 }
 
-fn changes(header: &str, previous: &[String], now: &[String]) -> String {
+/// What controlling an app can reach beyond the app itself, for approval warnings. Matched on the
+/// process name, or on the name given to `launch`.
+fn reach(app: &str) -> Option<&'static str> {
+    let app = app
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(app)
+        .trim_end_matches(".exe");
+    if [
+        "cmd",
+        "powershell",
+        "pwsh",
+        "windowsterminal",
+        "wt",
+        "wsl",
+        "bash",
+        "openconsole",
+        "conhost",
+        "code",
+        "cursor",
+        "windsurf",
+        "devenv",
+        "idea64",
+        "rider64",
+    ]
+    .contains(&app)
+    {
+        return Some("is equivalent to shell access");
+    }
+    if app == "explorer" {
+        return Some("can read or write any file");
+    }
+    if [
+        "systemsettings",
+        "ms-settings:",
+        "control",
+        "regedit",
+        "mmc",
+        "taskmgr",
+    ]
+    .contains(&app)
+    {
+        return Some("can change system settings");
+    }
+    None
+}
+
+/// The element ID a snapshot line starts with, such as `e12` from `[e12] button "Save"`.
+fn line_id(line: &str) -> Option<String> {
+    line.strip_prefix('[')?
+        .split_once(']')
+        .map(|(id, _)| id.to_string())
+}
+
+/// Whether a window shows UI Automation almost nothing beyond its title bar, as games, canvases,
+/// video and remote desktops do. Those windows are read by OCR automatically, so the agent never
+/// has to notice an empty tree and spend another call asking.
+fn sparse(lines: &[String]) -> bool {
+    lines
+        .iter()
+        .filter_map(|line| line.split('"').nth(1))
+        .filter(|name| {
+            !name.is_empty()
+                && ![
+                    "minimize",
+                    "maximize",
+                    "restore",
+                    "close",
+                    "system",
+                    "system menu bar",
+                ]
+                .contains(&name.to_lowercase().as_str())
+        })
+        .count()
+        < 3
+}
+
+/// A window's text by OCR, as lines to append to a snapshot or action result.
+fn ocr(hwnd: isize) -> String {
+    match capture(hwnd).and_then(|shot| shot.ocr()) {
+        Ok(lines) if lines.is_empty() => {
+            "\n  (little UI Automation text, and OCR found none)".into()
+        }
+        Ok(lines) => format!(
+            "\n  read by OCR because the window shows little UI Automation text (click_at x,y):\n{}",
+            lines
+                .iter()
+                .map(|line| format!("  {line}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+        Err(error) => format!("\n  (little UI Automation text, and OCR failed: {error:#})"),
+    }
+}
+
+/// One line for an acting step in the middle of a batch: its result line, window notes such as
+/// "closed" or the new foreground, and how many elements changed.
+fn summary(text: &str) -> String {
+    let changed = text
+        .lines()
+        .filter(|line| {
+            ["~ ", "+ ", "- ", "  "]
+                .iter()
+                .any(|mark| line.starts_with(mark))
+        })
+        .count();
+    let notes = text
+        .lines()
+        .filter(|line| {
+            !["~ ", "+ ", "- ", "  "]
+                .iter()
+                .any(|mark| line.starts_with(mark))
+        })
+        .map(|line| line.trim_end_matches(" changed:"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    match changed {
+        0 => notes,
+        _ => format!("{notes} ({changed} lines changed)"),
+    }
+}
+
+/// `~` marks an element whose line changed, `+` a new one and `-` one that is gone. Long runs of
+/// gone elements (a view switched away) are only counted, since the model rarely needs them.
+pub(crate) fn changes(header: &str, previous: &[String], now: &[String]) -> String {
+    let id = line_id;
     let before = previous
         .iter()
         .map(|line| line.trim())
         .collect::<HashSet<_>>();
     let after = now.iter().map(|line| line.trim()).collect::<HashSet<_>>();
-    let removed = previous
+    let ids_before = before
+        .iter()
+        .filter_map(|line| id(line))
+        .collect::<HashSet<_>>();
+    let ids_after = after
+        .iter()
+        .filter_map(|line| id(line))
+        .collect::<HashSet<_>>();
+    let gone = previous
         .iter()
         .map(|line| line.trim())
         .filter(|line| !after.contains(line))
-        .map(|line| format!("- {line}"));
-    let added = now
-        .iter()
-        .map(|line| line.trim())
-        .filter(|line| !before.contains(line))
-        .map(|line| format!("+ {line}"));
-    let lines = removed.chain(added).collect::<Vec<_>>();
+        .filter(|line| id(line).is_none_or(|id| !ids_after.contains(&id)))
+        .collect::<Vec<_>>();
+    let gone = if gone.len() > GONE {
+        vec![format!("- {} elements gone", gone.len())]
+    } else {
+        gone.iter().map(|line| format!("- {line}")).collect()
+    };
+    let lines = gone
+        .into_iter()
+        .chain(
+            now.iter()
+                .map(|line| line.trim())
+                .filter(|line| !before.contains(line))
+                .map(|line| match id(line) {
+                    Some(id) if ids_before.contains(&id) => format!("~ {line}"),
+                    _ => format!("+ {line}"),
+                }),
+        )
+        .collect::<Vec<_>>();
     if lines.is_empty() {
         return format!("{header}: no visible change");
     }
@@ -972,4 +1363,64 @@ fn clip(text: &str, max: usize) -> String {
         return text.to_string();
     }
     format!("{}…", text.chars().take(max).collect::<String>())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{changes, sparse};
+
+    #[test]
+    fn sparse_ignores_title_bar_controls() {
+        let lines = |items: &[&str]| {
+            items
+                .iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert!(sparse(&lines(&[
+            r#"  [e1] titlebar """#,
+            r#"    [e2] button "Minimize""#,
+            r#"    [e3] button "Maximize""#,
+            r#"    [e4] button "Close""#,
+            r#"  [e5] pane "Game""#,
+        ])));
+        assert!(!sparse(&lines(&[
+            r#"  [e1] text "Do you want to save changes?""#,
+            r#"  [e2] button "Save""#,
+            r#"  [e3] button "Don't save""#,
+            r#"  [e4] button "Close""#,
+        ])));
+    }
+
+    #[test]
+    fn changes_mark_changed_elements_and_count_long_removals() {
+        let lines = |items: &[&str]| {
+            items
+                .iter()
+                .map(|line| format!("  {line}"))
+                .collect::<Vec<_>>()
+        };
+        let previous = lines(&[
+            r#"[e1] button "Cryzo" checked"#,
+            r#"[e2] tabitem "Month" selected"#,
+            r#"[e3] text "No posts""#,
+        ]);
+        let now = lines(&[
+            r#"[e1] button "Cryzo" unchecked"#,
+            r#"[e2] tabitem "Month" selected"#,
+            r#"[e4] button "Media post""#,
+        ]);
+        assert_eq!(
+            changes("w", &previous, &now),
+            "w changed:\n- [e3] text \"No posts\"\n~ [e1] button \"Cryzo\" unchecked\n+ [e4] button \"Media post\""
+        );
+
+        let grid = (0..20)
+            .map(|day| format!("  [e{}] text \"{day}\"", day + 10))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            changes("w", &grid, &lines(&[r#"[e9] text "Done""#])),
+            "w changed:\n- 20 elements gone\n+ [e9] text \"Done\""
+        );
+    }
 }
