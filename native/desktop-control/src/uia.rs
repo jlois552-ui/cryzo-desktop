@@ -9,12 +9,13 @@ use anyhow::{Result, anyhow, bail};
 use uiautomation::{
     UIAutomation, UIElement, UITreeWalker,
     core::UICacheRequest,
-    inputs::{Keyboard, Mouse},
+    inputs::{Mouse, Parser},
     patterns::{
-        UIExpandCollapsePattern, UIInvokePattern, UIScrollItemPattern, UISelectionItemPattern,
-        UITogglePattern, UIValuePattern,
+        UIExpandCollapsePattern, UIInvokePattern, UIScrollItemPattern, UIScrollPattern,
+        UISelectionItemPattern, UITogglePattern, UIValuePattern,
     },
-    types::{ControlType, Handle, Point, TreeScope, UIProperty},
+    types::{ControlType, Handle, Point, ScrollAmount, TreeScope, UIProperty},
+    variants::Variant,
 };
 use windows::{
     Win32::{
@@ -26,7 +27,8 @@ use windows::{
         UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext},
         UI::{
             Input::KeyboardAndMouse::{
-                MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, RegisterHotKey, VK_ESCAPE,
+                INPUT, KEYEVENTF_KEYUP, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, RegisterHotKey,
+                SendInput, VK_ESCAPE,
             },
             Shell::ShellExecuteW,
             WindowsAndMessaging::{
@@ -443,7 +445,7 @@ impl Desktop {
         let window = self.window(window)?;
         self.blocked(&window)?;
         let filter = (text.to_lowercase(), role.map(str::to_lowercase));
-        let scan = self.scan(&window, hwnd(&window), Some(filter), 50);
+        let scan = self.search(&window, hwnd(&window), filter);
         if scan.lines.is_empty() {
             return Ok(format!(
                 "No element matching {text:?} in {}",
@@ -486,7 +488,7 @@ impl Desktop {
         if let Some(id) = cached {
             return Ok(id);
         }
-        let scan = self.scan(&window, hwnd, Some((wanted.clone(), role.clone())), 50);
+        let scan = self.search(&window, hwnd, (wanted.clone(), role.clone()));
         let ids = scan
             .lines
             .iter()
@@ -568,11 +570,18 @@ impl Desktop {
                     .is_some_and(|pattern| pattern.set_value(text).is_ok());
                 if !set {
                     element.set_focus()?;
-                    Keyboard::new().interval(20).send_text(text)?;
+                    type_text(text, None)?;
                 }
             }
             "toggle" => element.get_pattern::<UITogglePattern>()?.toggle()?,
-            "select" => element.get_pattern::<UISelectionItemPattern>()?.select()?,
+            // Many list items only respond to a click (Windows Settings pages, for one).
+            "select" => match element.get_pattern::<UISelectionItemPattern>() {
+                Ok(pattern) => pattern.select()?,
+                Err(_) => match element.get_pattern::<UIInvokePattern>() {
+                    Ok(pattern) => pattern.invoke()?,
+                    Err(_) => element.click()?,
+                },
+            },
             "expand" => element.get_pattern::<UIExpandCollapsePattern>()?.expand()?,
             "collapse" => element
                 .get_pattern::<UIExpandCollapsePattern>()?
@@ -580,6 +589,17 @@ impl Desktop {
             "scroll_into_view" => element
                 .get_pattern::<UIScrollItemPattern>()?
                 .scroll_into_view()?,
+            "scroll_down" | "scroll_up" => self
+                .scroller(&element)
+                .ok_or_else(|| anyhow!("Nothing scrollable contains {label}."))?
+                .scroll(
+                    ScrollAmount::NoAmount,
+                    if action == "scroll_down" {
+                        ScrollAmount::LargeIncrement
+                    } else {
+                        ScrollAmount::LargeDecrement
+                    },
+                )?,
             "focus" => element.set_focus()?,
             _ => bail!("Unknown action {action:?}"),
         }
@@ -596,16 +616,54 @@ impl Desktop {
         let window_id = hwnd(&window);
         bring_forward(&window);
         let focused = self.automation.get_focused_element().ok();
-        if focused.is_some_and(|element| element.is_password().unwrap_or(false))
+        if focused
+            .as_ref()
+            .is_some_and(|element| element.is_password().unwrap_or(false))
             && !self.settings.type_into_passwords
         {
             bail!(
                 "The focused field is a password field, and typing into password fields is off in desktop-control settings."
             );
         }
-        Keyboard::new().interval(5).send_keys(keys)?;
+        // Plain text into an empty field is set exactly instead of typed. Otherwise it is typed,
+        // and the field is read back so lost keystrokes are reported instead of passing silently.
+        let plain = !keys.contains(['{', '}', '(', ')', '\n', '\t']);
+        let field = focused
+            .and_then(|element| element.get_pattern::<UIValuePattern>().ok())
+            .filter(|pattern| !pattern.is_readonly().unwrap_or(true));
+        let set = plain
+            && field.as_ref().is_some_and(|pattern| {
+                pattern.get_value().is_ok_and(|value| value.is_empty())
+                    && pattern.set_value(keys).is_ok()
+            });
+        if set {
+            // Setting the value can leave it selected; typing next would replace it.
+            send_keys("{ctrl}{end}", None)?;
+        } else {
+            send_keys(keys, field.as_ref())?;
+        }
+        // The last keys can still be on their way when the loop ends.
+        let deadline = Instant::now() + Duration::from_millis(500);
+        let note = field
+            .filter(|_| plain)
+            .and_then(|pattern| loop {
+                let value = pattern.get_value().ok()?;
+                if value.contains(keys) || Instant::now() >= deadline {
+                    break Some(value);
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            })
+            .filter(|value| !value.contains(keys))
+            .map(|value| {
+                let tail = value.chars().rev().take(60).collect::<Vec<_>>();
+                format!(
+                    "\n(warning: some keystrokes were lost; the field ends with {}. Set the whole text with act type.)",
+                    quote(&tail.into_iter().rev().collect::<String>())
+                )
+            })
+            .unwrap_or_default();
         self.audit(&window, "keys", "key");
-        Ok(format!("sent keys\n{}", self.after(window_id)))
+        Ok(format!("sent keys\n{}{note}", self.after(window_id)))
     }
 
     /// Brings a window to the front.
@@ -704,9 +762,22 @@ impl Desktop {
     ) -> Result<String> {
         let deadline = Instant::now() + timeout;
         loop {
-            let found = self.find(text, None, window)?;
-            if !found.starts_with("No element matching") {
-                return Ok(found);
+            // A plain scan, not find: paging a list on every poll would scroll it back and forth.
+            let target = self.window(window)?;
+            self.blocked(&target)?;
+            let scan = self.scan(
+                &target,
+                hwnd(&target),
+                Some((text.to_lowercase(), None)),
+                50,
+            );
+            if !scan.lines.is_empty() {
+                return Ok(scan
+                    .lines
+                    .into_iter()
+                    .map(|(_, line)| line)
+                    .collect::<Vec<_>>()
+                    .join("\n"));
             }
             if Instant::now() >= deadline {
                 bail!("{text:?} did not appear within {} ms", timeout.as_millis());
@@ -735,6 +806,96 @@ impl Desktop {
                 .push((0, format!("(could not read this window: {error})"))),
         }
         scan
+    }
+
+    /// Matching elements, paging through the window's scrollable areas when none are loaded yet.
+    /// Windows Settings and other virtualized lists only create items once they scroll into view,
+    /// so a plain scan cannot see them.
+    fn search(
+        &mut self,
+        window: &UIElement,
+        hwnd: isize,
+        filter: (String, Option<String>),
+    ) -> Scan {
+        let scan = self.scan(window, hwnd, Some(filter.clone()), 50);
+        if !scan.lines.is_empty() {
+            return scan;
+        }
+        let areas = self
+            .automation
+            .create_property_condition(
+                UIProperty::IsScrollPatternAvailable,
+                Variant::from(true),
+                None,
+            )
+            .and_then(|condition| window.find_all(TreeScope::Descendants, &condition))
+            .unwrap_or_default();
+        let deadline = Instant::now() + Duration::from_secs(6);
+        for area in areas {
+            let Some(pattern) = area
+                .get_pattern::<UIScrollPattern>()
+                .ok()
+                .filter(|pattern| pattern.is_vertically_scrollable().unwrap_or(false))
+            else {
+                continue;
+            };
+            let start = pattern.get_vertical_scroll_percent().unwrap_or(0.0);
+            // From the top, since the match may sit above the current view. -1 leaves the
+            // horizontal position alone (UIA_ScrollPatternNoScroll).
+            let _ = pattern.set_scroll_percent(-1.0, 0.0);
+            let mut position = -1.0;
+            while Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(150));
+                let found = self.scan(window, hwnd, Some(filter.clone()), 50);
+                if !found.lines.is_empty() {
+                    return found;
+                }
+                let now = pattern.get_vertical_scroll_percent().unwrap_or(100.0);
+                if now >= 100.0 || now == position {
+                    break;
+                }
+                position = now;
+                if pattern
+                    .scroll(ScrollAmount::NoAmount, ScrollAmount::LargeIncrement)
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            let _ = pattern.set_scroll_percent(-1.0, start);
+        }
+        scan
+    }
+
+    /// The nearest vertically scrollable area that holds `element` (or the element itself), else
+    /// the first one inside it, so scroll works on any element of a list or on a whole pane.
+    fn scroller(&self, element: &UIElement) -> Option<UIScrollPattern> {
+        let scrollable = |element: &UIElement| {
+            element
+                .get_pattern::<UIScrollPattern>()
+                .ok()
+                .filter(|pattern| pattern.is_vertically_scrollable().unwrap_or(false))
+        };
+        std::iter::successors(Some(element.clone()), |element| {
+            self.walker.get_parent(element).ok()
+        })
+        .take(30)
+        .find_map(|element| scrollable(&element))
+        .or_else(|| {
+            let condition = self
+                .automation
+                .create_property_condition(
+                    UIProperty::IsScrollPatternAvailable,
+                    Variant::from(true),
+                    None,
+                )
+                .ok()?;
+            element
+                .find_all(TreeScope::Descendants, &condition)
+                .ok()?
+                .iter()
+                .find_map(scrollable)
+        })
     }
 
     fn visit(
@@ -829,7 +990,7 @@ impl Desktop {
             }
         }
         let id = self.id_for(element);
-        let label = format!("{role} {name:?}");
+        let label = format!("{role} {}", quote(&name));
         let line = [format!("[{id}] {label}")]
             .into_iter()
             .chain(states)
@@ -1044,6 +1205,122 @@ pub(crate) fn stopped() -> Result<()> {
     Ok(())
 }
 
+/// Sends keys in the `key` syntax, one key press (with its modifiers) per SendInput call. When the
+/// focused field exposes its text, each press waits until the text changes, so typing goes as fast
+/// as the app takes it. Windows 11 Notepad lost or repeated characters under fixed pacing (5 to
+/// 20 ms) and turned Unicode key events into runs of one letter even 25 ms apart.
+fn send_keys(keys: &str, field: Option<&UIValuePattern>) -> Result<()> {
+    let keys = keys
+        .replace("\r\n", "{enter}")
+        .replace('\n', "{enter}")
+        .replace('\t', "{tab}");
+    for (index, input) in Parser::new(false).parse_input(&keys)?.iter().enumerate() {
+        if index > 0 {
+            // Lets a shortcut's effect (a new tab, a dialog) appear before the next keys land.
+            std::thread::sleep(Duration::from_millis(40));
+        }
+        for press in presses(&input.create_inputs()?) {
+            // Reading a huge document back after every key would cost more than it saves.
+            let before = field
+                .and_then(|field| field.get_value().ok())
+                .filter(|value| value.len() < 20_000);
+            // Modifiers are released only once the key has landed: Notepad read Shift as already
+            // up and typed \ for |.
+            let release = press
+                .iter()
+                .rev()
+                .take_while(|event| modifier(event) && up(event))
+                .count();
+            let (keys, release) = press.split_at(press.len() - release);
+            send_input(keys)?;
+            match (field, before) {
+                (Some(field), Some(before)) => {
+                    let deadline = Instant::now() + Duration::from_millis(200);
+                    while Instant::now() < deadline
+                        && field.get_value().is_ok_and(|value| value == before)
+                    {
+                        std::thread::sleep(Duration::from_millis(3));
+                    }
+                }
+                _ => std::thread::sleep(Duration::from_millis(12)),
+            }
+            if !release.is_empty() {
+                send_input(release)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Shift, Ctrl, Alt or a Windows key, either side.
+fn modifier(event: &INPUT) -> bool {
+    matches!(
+        unsafe { event.Anonymous.ki }.wVk.0,
+        0x10..=0x12 | 0x5b | 0x5c | 0xa0..=0xa5
+    )
+}
+
+fn up(event: &INPUT) -> bool {
+    unsafe { event.Anonymous.ki }.dwFlags.0 & KEYEVENTF_KEYUP.0 != 0
+}
+
+/// Splits key events into presses: each ends when a key is released with no modifier held, so a
+/// shifted letter or a Ctrl shortcut stays in one piece.
+fn presses(events: &[INPUT]) -> Vec<&[INPUT]> {
+    let mut presses = Vec::new();
+    let mut start = 0;
+    let mut held = 0;
+    for (index, event) in events.iter().enumerate() {
+        if modifier(event) {
+            held += if up(event) { -1 } else { 1 };
+        }
+        if up(event) && held <= 0 {
+            presses.push(&events[start..=index]);
+            start = index + 1;
+            held = 0;
+        }
+    }
+    if start < events.len() {
+        presses.push(&events[start..]);
+    }
+    presses
+}
+
+/// Types `text` literally, braces and parentheses included.
+fn type_text(text: &str, field: Option<&UIValuePattern>) -> Result<()> {
+    let escaped = text
+        .chars()
+        .map(|c| match c {
+            '{' | '}' | '(' | ')' => format!("{{{c}}}"),
+            _ => c.to_string(),
+        })
+        .collect::<String>();
+    send_keys(&escaped, field)
+}
+
+fn send_input(events: &[INPUT]) -> Result<()> {
+    let sent = unsafe { SendInput(events, std::mem::size_of::<INPUT>() as i32) };
+    if sent as usize != events.len() {
+        bail!(
+            "Windows accepted {sent} of {} key events (another app may be blocking input)",
+            events.len()
+        );
+    }
+    Ok(())
+}
+
+/// A name or value in quotes, with only quotes and backslashes escaped. Debug formatting would
+/// turn every non-ASCII letter into a \u{…} escape the model then has to decode.
+pub(crate) fn quote(text: &str) -> String {
+    format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Zero-width and text-direction marks, which Windows puts around dates and numbers in some
+/// locales. They are invisible on screen and only confuse matching.
+pub(crate) fn invisible(c: char) -> bool {
+    matches!(c, '\u{200b}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
+}
+
 fn states(element: &UIElement, kind: ControlType, name: &str, password: bool) -> Vec<String> {
     // Roles that carry no useful state (a link's value is its URL, which costs many tokens and
     // rarely helps).
@@ -1116,7 +1393,7 @@ fn states(element: &UIElement, kind: ControlType, name: &str, password: bool) ->
             if password {
                 "value=hidden".to_string()
             } else {
-                format!("value={:?}", clip(&clean(&value), 80))
+                format!("value={}", quote(&clip(&clean(&value), 80)))
             }
         })
         .into_iter()
@@ -1353,7 +1630,7 @@ fn clean(text: &str) -> String {
     // Icon fonts put glyphs in the Unicode private use area; they carry no meaning as text.
     let text = text
         .chars()
-        .filter(|c| !('\u{e000}'..='\u{f8ff}').contains(c))
+        .filter(|c| !('\u{e000}'..='\u{f8ff}').contains(c) && !invisible(*c))
         .collect::<String>();
     clip(&text.split_whitespace().collect::<Vec<_>>().join(" "), 120)
 }
@@ -1367,7 +1644,7 @@ fn clip(text: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{changes, sparse};
+    use super::{changes, clean, quote, sparse};
 
     #[test]
     fn sparse_ignores_title_bar_controls() {
@@ -1390,6 +1667,12 @@ mod tests {
             r#"  [e3] button "Don't save""#,
             r#"  [e4] button "Close""#,
         ])));
+    }
+
+    #[test]
+    fn text_drops_invisible_marks_and_keeps_letters_readable() {
+        assert_eq!(clean("\u{200e}1/\u{200e}6/\u{200e}2025"), "1/6/2025");
+        assert_eq!(quote("café \"Ünïcode\""), r#""café \"Ünïcode\"""#);
     }
 
     #[test]

@@ -169,7 +169,7 @@ pub fn tools() -> Value {
           "inputSchema": { "type": "object", "properties": {} } },
         { "name": "snapshot", "description": "Read a window as a compact text tree of elements with IDs, roles, names and states. With diff=true, return only what changed since the last snapshot of that window. When a window shows almost no elements (games, canvases, video, remote desktops), its text is added by OCR automatically, each line ending with @x,y for click_at.",
           "inputSchema": { "type": "object", "properties": { "window": window, "diff": { "type": "boolean" } } } },
-        { "name": "find", "description": "Search a window for elements whose name or value contains text (case-insensitive). Reaches elements a cut-off snapshot did not show.",
+        { "name": "find", "description": "Search a window for elements whose name or value contains text (case-insensitive). Reaches elements a cut-off snapshot did not show, and scrolls lists that only load items once they come into view (such as Windows Settings).",
           "inputSchema": { "type": "object", "properties": { "text": { "type": "string" }, "role": { "type": "string", "description": "Optional role such as button, edit, listitem." }, "window": window }, "required": ["text"] } },
         { "name": "act", "description": "Act on an element, given its ID from snapshot or find, or its name (exact match first, then contains) with an optional role and window. type replaces the field's or document's whole text exactly when the control allows it, otherwise types at the cursor. Waits for the window to settle and returns what changed.",
           "inputSchema": { "type": "object", "properties": {
@@ -177,7 +177,7 @@ pub fn tools() -> Value {
               "name": { "type": "string", "description": "Element name, used when id is omitted." },
               "role": { "type": "string", "description": "Optional role for name, such as button, tabitem, document." },
               "window": window,
-              "action": { "type": "string", "enum": ["click", "double_click", "right_click", "type", "toggle", "select", "expand", "collapse", "scroll_into_view", "focus"] },
+              "action": { "type": "string", "enum": ["click", "double_click", "right_click", "type", "toggle", "select", "expand", "collapse", "scroll_into_view", "scroll_down", "scroll_up", "focus"], "description": "scroll_down and scroll_up page the list or pane that holds the element." },
               "value": { "type": "string", "description": "Text for type." } }, "required": ["action"] } },
         { "name": "batch", "description": "Run several steps in order in one call and return each result; stops at the first failure. Each step is {\"tool\": name, ...that tool's arguments}, e.g. [{\"tool\":\"act\",\"name\":\"List\",\"role\":\"tabitem\",\"action\":\"click\",\"window\":\"Cryzo\"},{\"tool\":\"launch\",\"app\":\"notepad\"},{\"tool\":\"act\",\"role\":\"document\",\"name\":\"Text editor\",\"action\":\"type\",\"value\":\"hi\"}]. Steps without a window use the foreground window at that moment. Acting steps before the last return a one-line summary; reading steps (find, snapshot) and the last step return in full, so add a find where you need to check something midway.",
           "inputSchema": { "type": "object", "properties": { "steps": { "type": "array", "items": { "type": "object", "properties": { "tool": { "type": "string" } }, "required": ["tool"] } } }, "required": ["steps"] } },

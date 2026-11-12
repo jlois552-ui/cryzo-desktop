@@ -18,7 +18,7 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket};
 
-use crate::uia::{changes, stopped};
+use crate::uia::{changes, invisible, quote, stopped};
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const LOAD_LIMIT: Duration = Duration::from_secs(10);
@@ -898,10 +898,6 @@ fn states(node: &Value) -> Vec<String> {
 }
 
 /// Quotes page text without Rust's debug escapes, which mangle combining marks in many scripts.
-fn quote(text: &str) -> String {
-    format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
-}
-
 fn host(url: &str) -> &str {
     url.split("://")
         .nth(1)
@@ -912,6 +908,7 @@ fn host(url: &str) -> &str {
 }
 
 fn clean(text: &str) -> String {
+    let text = text.chars().filter(|c| !invisible(*c)).collect::<String>();
     clip(&text.split_whitespace().collect::<Vec<_>>().join(" "), 120)
 }
 
