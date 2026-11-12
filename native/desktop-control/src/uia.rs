@@ -1,4 +1,5 @@
 use std::{
+    cell::OnceCell,
     collections::{HashMap, HashSet},
     io::Write,
     sync::atomic::{AtomicBool, Ordering},
@@ -19,7 +20,7 @@ use uiautomation::{
 };
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, HWND},
+        Foundation::{CloseHandle, HWND, RECT},
         System::Threading::{
             OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
             QueryFullProcessImageNameW,
@@ -42,7 +43,7 @@ use windows::{
 
 use serde_json::Value;
 
-use crate::{Output, Settings, capture::capture};
+use crate::{Output, Settings, capture::capture, overlay::Overlay};
 
 /// Set by the global stop hotkey. Once set, every acting call fails until the process restarts.
 static STOPPED: AtomicBool = AtomicBool::new(false);
@@ -93,6 +94,7 @@ pub struct Desktop {
     last: HashMap<isize, Vec<String>>,
     /// The Cryzo Chrome, connected on the first browser tool call.
     browser: Option<crate::browser::Browser>,
+    overlay: OnceCell<Option<Overlay>>,
 }
 
 struct Target {
@@ -137,6 +139,7 @@ impl Desktop {
             targets: HashMap::new(),
             last: HashMap::new(),
             browser: None,
+            overlay: OnceCell::new(),
         })
     }
 
@@ -154,6 +157,17 @@ impl Desktop {
                 .and_then(Value::as_i64)
                 .ok_or_else(|| anyhow!("{command} needs {key}"))
         };
+        if let Some(overlay) = self.running_overlay() {
+            match command {
+                "windows" | "snapshot" | "find" | "wait_for" | "ocr" | "screenshot" => {
+                    overlay.step("Reading the screen")
+                }
+                "browser_snapshot" | "browser_find" | "browser_downloads" => {
+                    overlay.step("Reading the page")
+                }
+                _ => {}
+            }
+        }
         let output = match command {
             "windows" => self.windows(),
             "snapshot" => self.snapshot(
@@ -203,7 +217,13 @@ impl Desktop {
             command if command.starts_with("browser_") => {
                 let (max_lines, passwords) =
                     (self.settings.max_lines, self.settings.type_into_passwords);
-                self.browser()?.call(command, args, max_lines, passwords)
+                let overlay = if crate::acts(command) {
+                    self.overlay().cloned()
+                } else {
+                    None
+                };
+                self.browser()?
+                    .call(command, args, max_lines, passwords, overlay.as_ref())
             }
             _ => Err(anyhow!("Unknown desktop tool {command:?}")),
         };
@@ -546,6 +566,8 @@ impl Desktop {
             .automation
             .element_from_handle(Handle::from(window_id))?;
         self.blocked(&window)?;
+        let step = format!("{} {}", verb(action), target.label);
+        self.show(&step, Some(&element));
         match action {
             "click" => match element.get_pattern::<UIInvokePattern>() {
                 Ok(pattern) => pattern.invoke()?,
@@ -603,6 +625,13 @@ impl Desktop {
             "focus" => element.set_focus()?,
             _ => bail!("Unknown action {action:?}"),
         }
+        if matches!(
+            action,
+            "click" | "double_click" | "right_click" | "toggle" | "select"
+        ) && let Some(overlay) = self.running_overlay()
+        {
+            overlay.click();
+        }
         self.audit(&window, &label, action);
         Ok(format!("{action} {label}: done\n{}", self.after(window_id)))
     }
@@ -625,9 +654,16 @@ impl Desktop {
                 "The focused field is a password field, and typing into password fields is off in desktop-control settings."
             );
         }
+        let plain = !keys.contains(['{', '}', '(', ')', '\n', '\t']);
+        let title = clean(&window.get_name().unwrap_or_default());
+        let step = if plain {
+            format!("Typing in {title}")
+        } else {
+            format!("Pressing {} in {title}", clip(keys, 30))
+        };
+        self.show(&step, focused.as_ref());
         // Plain text into an empty field is set exactly instead of typed. Otherwise it is typed,
         // and the field is read back so lost keystrokes are reported instead of passing silently.
-        let plain = !keys.contains(['{', '}', '(', ')', '\n', '\t']);
         let field = focused
             .and_then(|element| element.get_pattern::<UIValuePattern>().ok())
             .filter(|pattern| !pattern.is_readonly().unwrap_or(true));
@@ -671,8 +707,34 @@ impl Desktop {
         stopped()?;
         let window = self.window(Some(window))?;
         self.blocked(&window)?;
+        let step = format!(
+            "Switching to {}",
+            clean(&window.get_name().unwrap_or_default())
+        );
+        self.show(&step, None);
         bring_forward(&window);
         Ok(format!("focused {}", header(&window)))
+    }
+
+    /// Shows the step on the overlay, gliding the agent cursor to `element` when it has a place
+    /// on screen.
+    fn show(&self, step: &str, element: Option<&UIElement>) {
+        let Some(overlay) = self.overlay() else {
+            return;
+        };
+        let rect = element
+            .and_then(|element| element.get_bounding_rectangle().ok())
+            .map(|rect| RECT {
+                left: rect.get_left(),
+                top: rect.get_top(),
+                right: rect.get_right(),
+                bottom: rect.get_bottom(),
+            })
+            .filter(|rect| rect.right > rect.left && rect.bottom > rect.top);
+        match rect {
+            Some(rect) => overlay.point(step, rect),
+            None => overlay.step(step),
+        }
     }
 
     /// Opens an app, file or URL through the Windows shell (no command line is parsed), then waits
@@ -682,6 +744,7 @@ impl Desktop {
         if let Some(entry) = self.blocked_entry(app, "") {
             bail!("{entry} is on the blocked apps list in desktop-control settings.");
         }
+        self.show(&format!("Opening {}", clip(app, 60)), None);
         let before = unsafe { GetForegroundWindow() };
         let result = unsafe {
             ShellExecuteW(
@@ -739,6 +802,16 @@ impl Desktop {
             self.blocked_entry(&element.get_name().unwrap_or_default(), &process(&element))
         {
             bail!("{entry} is on the blocked apps list in desktop-control settings.");
+        }
+        if let Some(overlay) = self.overlay() {
+            let spot = RECT {
+                left: x - 10,
+                top: y - 10,
+                right: x + 10,
+                bottom: y + 10,
+            };
+            overlay.point(format!("Clicking at {x}, {y}"), spot);
+            overlay.click();
         }
         let mouse = Mouse::default();
         match button {
@@ -1094,8 +1167,26 @@ impl Desktop {
             std::iter::successors(self.walker.get_first_child(&root).ok(), |element| {
                 self.walker.get_next_sibling(element).ok()
             })
+            // The overlay's own windows are not something to act on, and their titles would
+            // match a query like "cryzo".
+            .filter(|window| {
+                !window
+                    .get_classname()
+                    .is_ok_and(|class| class.starts_with("CryzoOverlay"))
+            })
             .collect(),
         )
+    }
+
+    /// The on-screen overlay, started by the first action. None when it could not start.
+    fn overlay(&self) -> Option<&Overlay> {
+        self.overlay.get_or_init(Overlay::start).as_ref()
+    }
+
+    /// The overlay only when an action has already started it, so reading alone never shows it
+    /// but reads during a run keep it up.
+    fn running_overlay(&self) -> Option<&Overlay> {
+        self.overlay.get().and_then(Option::as_ref)
     }
 
     /// Resolves `w<hex handle>`, a title fragment or a process name; None means the foreground window.
@@ -1198,9 +1289,20 @@ pub fn start_stop_hotkey() {
     });
 }
 
+/// The overlay's Stop button: the same as pressing Ctrl+Alt+Esc.
+pub(crate) fn stop() {
+    STOPPED.store(true, Ordering::SeqCst);
+}
+
+pub(crate) fn is_stopped() -> bool {
+    STOPPED.load(Ordering::SeqCst)
+}
+
 pub(crate) fn stopped() -> Result<()> {
     if STOPPED.load(Ordering::SeqCst) {
-        bail!("Desktop control was stopped with Ctrl+Alt+Esc. Restart it to continue.");
+        bail!(
+            "The user stopped desktop control (the Stop button or Ctrl+Alt+Esc). Restart it to continue."
+        );
     }
     Ok(())
 }
@@ -1307,6 +1409,25 @@ fn send_input(events: &[INPUT]) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// How the overlay names an action, as in `Clicking button "Save"`.
+pub(crate) fn verb(action: &str) -> &str {
+    match action {
+        "click" => "Clicking",
+        "double_click" => "Double-clicking",
+        "right_click" => "Right-clicking",
+        "type" => "Typing into",
+        "toggle" => "Toggling",
+        "select" => "Selecting",
+        "expand" => "Expanding",
+        "collapse" => "Collapsing",
+        "scroll_into_view" => "Scrolling to",
+        "scroll_down" => "Scrolling down",
+        "scroll_up" => "Scrolling up",
+        "focus" => "Focusing",
+        _ => action,
+    }
 }
 
 /// A name or value in quotes, with only quotes and backslashes escaped. Debug formatting would

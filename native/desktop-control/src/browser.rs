@@ -17,8 +17,12 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket};
+use windows::Win32::Foundation::RECT;
 
-use crate::uia::{changes, invisible, quote, stopped};
+use crate::{
+    overlay::Overlay,
+    uia::{changes, invisible, quote, stopped, verb},
+};
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const LOAD_LIMIT: Duration = Duration::from_secs(10);
@@ -187,12 +191,16 @@ impl Browser {
         args: &Value,
         max_lines: usize,
         passwords: bool,
+        overlay: Option<&Overlay>,
     ) -> Result<String> {
         let text = |key: &str| args.get(key).and_then(Value::as_str);
         let required = |key: &str| text(key).ok_or_else(|| anyhow!("{command} needs {key}"));
         match command {
             "browser_open" => {
                 stopped()?;
+                if let Some(overlay) = overlay {
+                    overlay.step(format!("Opening {}", required("url")?));
+                }
                 self.open(required("url")?)?;
                 let lines = self.settle(max_lines)?;
                 let header = self.header()?;
@@ -216,11 +224,14 @@ impl Browser {
                         text("role"),
                     )?,
                 };
-                self.act(&id, required("action")?, text("value"), passwords)?;
+                self.act(&id, required("action")?, text("value"), passwords, overlay)?;
                 self.after(max_lines)
             }
             "browser_key" => {
                 stopped()?;
+                if let Some(overlay) = overlay {
+                    overlay.step(format!("Pressing {} in the browser", required("keys")?));
+                }
                 self.key(required("keys")?)?;
                 self.after(max_lines)
             }
@@ -306,7 +317,14 @@ impl Browser {
         Ok(())
     }
 
-    fn act(&mut self, id: &str, action: &str, value: Option<&str>, passwords: bool) -> Result<()> {
+    fn act(
+        &mut self,
+        id: &str,
+        action: &str,
+        value: Option<&str>,
+        passwords: bool,
+        overlay: Option<&Overlay>,
+    ) -> Result<()> {
         if !self.nodes.contains_key(id) {
             self.read(usize::MAX)?;
         }
@@ -315,6 +333,41 @@ impl Browser {
             .get(id)
             .cloned()
             .ok_or_else(|| anyhow!("Unknown element {id}; take a new browser_snapshot"))?;
+        let backend = json!({"backendNodeId":node.backend});
+        if let Some(overlay) = overlay {
+            let _ = self.send("DOM.scrollIntoViewIfNeeded", backend.clone());
+            let site = self
+                .url()
+                .map(|url| host(&url).to_string())
+                .unwrap_or_default();
+            let step = format!(
+                "{} {} {} on {site}",
+                verb(action),
+                node.role,
+                quote(&node.name)
+            );
+            match self.screen_box(node.backend) {
+                Some(rect) => overlay.point(step, rect),
+                None => overlay.step(step),
+            }
+        }
+        let result = self.perform(&node, action, value, passwords);
+        if result.is_ok()
+            && matches!(action, "click" | "double_click" | "select")
+            && let Some(overlay) = overlay
+        {
+            overlay.click();
+        }
+        result
+    }
+
+    fn perform(
+        &mut self,
+        node: &Node,
+        action: &str,
+        value: Option<&str>,
+        passwords: bool,
+    ) -> Result<()> {
         let backend = json!({"backendNodeId":node.backend});
         match action {
             "click" | "double_click" => {
@@ -367,7 +420,11 @@ impl Browser {
                     "function(v){ const o = [...(this.options || [])].find(o => o.text.trim() === v || o.value === v); if (!o) return false; this.value = o.value; this.dispatchEvent(new Event('input', {bubbles: true})); this.dispatchEvent(new Event('change', {bubbles: true})); return true }",
                     json!([{"value":value}]),
                 )?;
-                ensure!(picked == json!(true), "no option {value:?} in {id}");
+                ensure!(
+                    picked == json!(true),
+                    "no option {value:?} in {}",
+                    quote(&node.name)
+                );
             }
             "focus" => {
                 self.send("DOM.focus", backend)?;
@@ -707,6 +764,55 @@ impl Browser {
                 self.visit(child, by_id, next, &child_parent, lines, seen, max_lines);
             }
         }
+    }
+
+    /// Where an element sits on the screen in physical pixels, from its box on the page and the
+    /// browser window's position. It assumes 100% page zoom; only the overlay uses it.
+    fn screen_box(&mut self, backend: i64) -> Option<RECT> {
+        let model = self
+            .send("DOM.getBoxModel", json!({"backendNodeId":backend}))
+            .ok()?;
+        let quad = model["model"]["border"]
+            .as_array()?
+            .iter()
+            .filter_map(Value::as_f64)
+            .collect::<Vec<_>>();
+        let window = self
+            .send(
+                "Runtime.evaluate",
+                json!({"expression":"[screenX,screenY,outerWidth,innerWidth,outerHeight,innerHeight,devicePixelRatio]","returnByValue":true}),
+            )
+            .ok()?;
+        let window = window["result"]["value"]
+            .as_array()?
+            .iter()
+            .filter_map(Value::as_f64)
+            .collect::<Vec<_>>();
+        let (
+            &[x0, y0, x1, y1, x2, y2, x3, y3],
+            &[
+                x,
+                y,
+                outer_width,
+                inner_width,
+                outer_height,
+                inner_height,
+                ratio,
+            ],
+        ) = (quad.as_slice(), window.as_slice())
+        else {
+            return None;
+        };
+        // The frame around the page is the window border on each side, plus the toolbar on top.
+        let frame = (outer_width - inner_width) / 2.0;
+        let (left, top) = (x + frame, y + outer_height - inner_height - frame);
+        let screen = |page: f64, origin: f64| ((origin + page) * ratio).round() as i32;
+        Some(RECT {
+            left: screen(x0.min(x1).min(x2).min(x3), left),
+            top: screen(y0.min(y1).min(y2).min(y3), top),
+            right: screen(x0.max(x1).max(x2).max(x3), left),
+            bottom: screen(y0.max(y1).max(y2).max(y3), top),
+        })
     }
 
     fn center(&mut self, backend: i64) -> Result<(f64, f64)> {

@@ -19,6 +19,8 @@ mod browser;
 #[cfg(windows)]
 mod capture;
 #[cfg(windows)]
+mod overlay;
+#[cfg(windows)]
 mod uia;
 #[cfg(not(windows))]
 mod unsupported;
