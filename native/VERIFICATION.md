@@ -122,3 +122,29 @@ Website ownership was verified through Google Search Console after website PR #3
 Verification: gateway tests passed (6 quota, 10 Marketing), gateway type check and desktop type check passed, renderer build and production-configured Windows GNU build passed. Existing CSS/chunk-size warnings and GNU multiple-manifest warning remain. The executable was installed with `-NoLaunch`, its SHA-256 matched the built executable, and the user's running session was preserved.
 
 Production `/health` returned `configured:true`. That endpoint checks gateway configuration only; it does not verify social app secrets or connected accounts. After the user explicitly requested a restart, the old instance was closed normally and the installed production build opened. Google device sign-in, authenticated provider/account reads, Marketing → Channels, X/YouTube OAuth returns and their available analytics reads were verified. TikTok credentials and website ownership are configured, but its draft cannot save until the app icon and genuine demo video are supplied. LinkedIn app 264204164 has its logo, Share/OpenID products, callback and verified production credentials; its Page association was verified on Nov 1, 2026, and its Auth screen now lists the member scopes. Actual member OAuth connection remains unverified. On Nov 2, Edge reached the user's existing Meta developer dashboard, and Cryzo Desktop app 1120975114168572 was created with explicit approval. Eight adapter permissions show Ready for testing; both production callbacks and app/policy settings are saved. Production app ID is set, but automatic approval review blocked saving the app secret even after renewed consent, and the browser upload gate declined the icon upload. No Meta OAuth/account/read verification or Advanced Access approval is claimed. See `MARKET-REVIEW.md` for exact blockers. The mounted Marketing view caches provider status until it is reloaded. No unsigned public release, universal provider approval or completed review submission is claimed.
+
+## Native foundation verification, 2026-10-27
+
+
+Recorded 2026-10-27. This is a development milestone, not a release certificate.
+
+### Passed locally
+
+- Rust 1.99.1, `stable-x86_64-pc-windows-gnu`, with MinGW UCRT.
+- `cargo test --locked -p cryzo-engine`: **8 integration tests passed**, zero failed. Tests use temporary databases/workspaces and a local HTTP fixture; no paid model requests or real provider credentials.
+- `cargo clippy --locked -p cryzo-engine --all-targets -- -D warnings`: passed.
+- `cargo fmt --all --check`: passed.
+- Desktop frontend `npm run typecheck:tsc`: passed.
+- Desktop frontend `npm run build:ui`: passed with Vite 8.3.5 and SolidJS 1.9.17.
+- `npm audit --prefix packages/desktop-tauri --workspaces=false --audit-level=low`: zero reported vulnerabilities.
+- `git diff --check`: passed.
+
+### External verification blocked
+
+The GitHub Actions jobs did not start. GitHub's check annotations report: “The job was not started because your account is locked due to a billing issue.” No billing settings were changed.
+
+Windows MSVC, macOS Apple Silicon and macOS Intel verification therefore remain pending. The local Windows C++ Build Tools installer also did not complete. GNU-target engine results above do not prove MSVC or macOS compatibility.
+
+### Still outside these results
+
+Tauri native host compilation is being checked separately. No signed installer, update, macOS notarization, live credential-store operation, live provider account, complete coding-agent run, hosted scheduler, collaboration workflow, payment or deployment is certified by the checks above. See `README.md` for the complete outstanding implementation scope.
