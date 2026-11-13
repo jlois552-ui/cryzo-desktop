@@ -1493,10 +1493,16 @@ pub(crate) fn verb(action: &str) -> &str {
     }
 }
 
-/// A name or value in quotes, with only quotes and backslashes escaped. Debug formatting would
-/// turn every non-ASCII letter into a \u{…} escape the model then has to decode.
+/// A name or value in quotes, escaped like a JSON string: backslashes, quotes and line breaks
+/// (as \n), nothing else. Debug formatting would turn every non-ASCII letter into a \u{…} escape
+/// the model then has to decode.
 pub(crate) fn quote(text: &str) -> String {
-    format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
+    format!(
+        "\"{}\"",
+        text.replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+    )
 }
 
 /// Zero-width and text-direction marks, which Windows puts around dates and numbers in some
@@ -1585,7 +1591,7 @@ fn states(element: &UIElement, kind: ControlType, name: &str, password: bool) ->
                     .split('\n')
                     .map(clean)
                     .collect::<Vec<_>>()
-                    .join("\\n");
+                    .join("\n");
                 format!("value={}", quote(&clip(&lines, 80)))
             }
         })
@@ -1866,6 +1872,10 @@ mod tests {
     fn text_drops_invisible_marks_and_keeps_letters_readable() {
         assert_eq!(clean("\u{200e}1/\u{200e}6/\u{200e}2025"), "1/6/2025");
         assert_eq!(quote("café \"Ünïcode\""), r#""café \"Ünïcode\"""#);
+        // A line break reads as \n, the way a model writes it back in JSON; a real backslash
+        // followed by n stays distinguishable.
+        assert_eq!(quote("Monday.\nBring"), r#""Monday.\nBring""#);
+        assert_eq!(quote(r"C:\new"), r#""C:\\new""#);
     }
 
     #[test]

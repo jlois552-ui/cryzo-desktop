@@ -13,6 +13,9 @@ export type Context = {
   /** Form posts the fixture server received during this run. */
   received: Record<string, string>[]
   downloads: string
+  /** Unique per run, for file names: Notepad restores old tabs, and a tab left by an earlier run
+   * with the same name was edited instead of this run's file. */
+  tag: string
 }
 
 type Verdict = { ok: boolean; detail: string }
@@ -38,9 +41,9 @@ export const tasks: Task[] = [
   {
     id: "notepad-new",
     prompt: (context) =>
-      `${onScreen} Open Notepad, type exactly these two lines:\nCryzo eval line one\nSecond line: 42 apples\nThen save the file as ${path.join(context.dir, "notes.txt")} and close that Notepad tab.`,
+      `${onScreen} Open Notepad, type exactly these two lines:\nCryzo eval line one\nSecond line: 42 apples\nThen save the file as ${path.join(context.dir, `notes-${context.tag}.txt`)} and close that Notepad tab.`,
     check: async (context) => {
-      const file = path.join(context.dir, "notes.txt")
+      const file = path.join(context.dir, `notes-${context.tag}.txt`)
       if (!existsSync(file)) return verdict(false, "notes.txt was not saved")
       const text = normalize(await Bun.file(file).text())
       return verdict(text === "Cryzo eval line one\nSecond line: 42 apples", `file ${quote(text)}`)
@@ -48,11 +51,11 @@ export const tasks: Task[] = [
   },
   {
     id: "notepad-edit",
-    setup: (context) => writeFile(path.join(context.dir, "draft.txt"), "The meeting is on Monday.\r\nBring the slides.\r\n"),
+    setup: (context) => writeFile(path.join(context.dir, `draft-${context.tag}.txt`), "The meeting is on Monday.\r\nBring the slides.\r\n"),
     prompt: (context) =>
-      `${onScreen} Open ${path.join(context.dir, "draft.txt")} in Notepad, change "Monday" to "Friday", save it, and close that Notepad tab.`,
+      `${onScreen} Open ${path.join(context.dir, `draft-${context.tag}.txt`)} in Notepad, change "Monday" to "Friday", save it, and close that Notepad tab.`,
     check: async (context) => {
-      const text = normalize(await Bun.file(path.join(context.dir, "draft.txt")).text())
+      const text = normalize(await Bun.file(path.join(context.dir, `draft-${context.tag}.txt`)).text())
       return verdict(text === "The meeting is on Friday.\nBring the slides.", `file ${quote(text)}`)
     },
   },
@@ -130,9 +133,9 @@ export const tasks: Task[] = [
   {
     id: "cross-app",
     prompt: (context) =>
-      `${onScreen} In the Cryzo browser, open ${context.web}/code and read the confirmation code. Then open Notepad, put only that code in a new file, save it as ${path.join(context.dir, "code.txt")}, and close that Notepad tab.`,
+      `${onScreen} In the Cryzo browser, open ${context.web}/code and read the confirmation code. Then open Notepad, put only that code in a new file, save it as ${path.join(context.dir, `code-${context.tag}.txt`)}, and close that Notepad tab.`,
     check: async (context) => {
-      const file = path.join(context.dir, "code.txt")
+      const file = path.join(context.dir, `code-${context.tag}.txt`)
       if (!existsSync(file)) return verdict(false, "code.txt was not saved")
       const text = normalize(await Bun.file(file).text())
       return verdict(text === "QX-7341", `file ${quote(text)}`)

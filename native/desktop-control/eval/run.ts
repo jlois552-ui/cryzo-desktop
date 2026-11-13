@@ -73,7 +73,7 @@ for (const task of selected) {
   for (let run = 1; run <= runs; run++) {
     const dir = path.join(project, `${task.id}-${run}`)
     await mkdir(dir, { recursive: true })
-    const context: Context = { dir, web: fixtures.url, received: fixtures.received, downloads: path.join(homedir(), "Downloads") }
+    const context: Context = { dir, web: fixtures.url, received: fixtures.received, downloads: path.join(homedir(), "Downloads"), tag: `${path.basename(work).slice(-6)}${run}` }
     fixtures.received.length = 0
     const result = await attempt(task, context, run)
     results.push(result)
