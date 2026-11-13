@@ -6,14 +6,14 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail, ensure};
 use uiautomation::{
     UIAutomation, UIElement, UITreeWalker,
     core::UICacheRequest,
     inputs::{Mouse, Parser},
     patterns::{
         UIExpandCollapsePattern, UIInvokePattern, UIScrollItemPattern, UIScrollPattern,
-        UISelectionItemPattern, UITogglePattern, UIValuePattern,
+        UISelectionItemPattern, UITextPattern, UITogglePattern, UIValuePattern,
     },
     types::{ControlType, Handle, Point, ScrollAmount, TreeScope, UIProperty},
     variants::Variant,
@@ -404,9 +404,10 @@ impl Desktop {
     /// Top-level windows, foreground first marked with `*`.
     pub fn windows(&self) -> Result<String> {
         let foreground = unsafe { GetForegroundWindow() }.0 as isize;
-        let lines = self
-            .top_level()?
+        let top = self.top_level()?;
+        let lines = top
             .iter()
+            .chain(self.dialogs(&top).iter())
             .filter(|window| !window.is_offscreen().unwrap_or(true))
             .filter_map(|window| {
                 let title = clean(&window.get_name().ok()?);
@@ -566,6 +567,13 @@ impl Desktop {
             .automation
             .element_from_handle(Handle::from(window_id))?;
         self.blocked(&window)?;
+        if action == "read" {
+            ensure!(
+                !password,
+                "{label} is a password field; its text is never read."
+            );
+            return Ok(format!("{label} text:\n{}", full_text(&element)));
+        }
         let step = format!("{} {}", verb(action), target.label);
         self.show(&step, Some(&element));
         match action {
@@ -604,6 +612,10 @@ impl Desktop {
                     Err(_) => element.click()?,
                 },
             },
+            // Like Ctrl+click: keeps what is already selected, for picking several files.
+            "add_to_selection" => element
+                .get_pattern::<UISelectionItemPattern>()?
+                .add_to_selection()?,
             "expand" => element.get_pattern::<UIExpandCollapsePattern>()?.expand()?,
             "collapse" => element
                 .get_pattern::<UIExpandCollapsePattern>()?
@@ -1200,10 +1212,14 @@ impl Desktop {
             .strip_prefix('w')
             .and_then(|hex| isize::from_str_radix(hex, 16).ok())
         {
+            if !unsafe { IsWindow(Some(HWND(handle as *mut _))) }.as_bool() {
+                bail!("Window {query} has closed. Use windows to list the open ones.");
+            }
             return Ok(self.automation.element_from_handle(Handle::from(handle))?);
         }
         let wanted = query.to_lowercase();
         let windows = self.top_level()?;
+        let dialogs = self.dialogs(&windows);
         let title = |window: &UIElement| window.get_name().unwrap_or_default().to_lowercase();
         // An exact title or app name wins over a title that merely contains the query, so
         // "Cryzo" picks the Cryzo app, not a browser tab titled "Cryzo Desktop - App Review".
@@ -1213,13 +1229,35 @@ impl Desktop {
                     == wanted.trim_end_matches(".exe")
         });
         exact
+            .or_else(|| dialogs.iter().find(|dialog| title(dialog) == wanted))
             .or_else(|| {
                 windows
                     .iter()
                     .find(|window| title(window).contains(&wanted))
             })
+            .or_else(|| {
+                dialogs
+                    .iter()
+                    .find(|dialog| title(dialog).contains(&wanted))
+            })
             .cloned()
             .ok_or_else(|| anyhow!("No window matches {query:?}. Use windows to list them."))
+    }
+
+    /// Dialogs such as Open, Save As or a confirmation. UI Automation lists a window's owned
+    /// dialogs under that window rather than at the top level, so a lookup by title missed them.
+    fn dialogs(&self, windows: &[UIElement]) -> Vec<UIElement> {
+        windows
+            .iter()
+            .flat_map(|window| {
+                std::iter::successors(self.walker.get_first_child(window).ok(), |child| {
+                    self.walker.get_next_sibling(child).ok()
+                })
+            })
+            .filter(|child| {
+                child.get_control_type().ok() == Some(ControlType::Window) && hwnd(child) != 0
+            })
+            .collect()
     }
 
     fn blocked(&self, window: &UIElement) -> Result<()> {
@@ -1411,6 +1449,31 @@ fn send_input(events: &[INPUT]) -> Result<()> {
     Ok(())
 }
 
+/// An element's whole text, for documents and long fields whose snapshot value is cut at 80
+/// characters: the text pattern's document range, else its value, else its name.
+fn full_text(element: &UIElement) -> String {
+    const LIMIT: i32 = 20_000;
+    let text = element
+        .get_pattern::<UITextPattern>()
+        .and_then(|pattern| pattern.get_document_range())
+        .and_then(|range| range.get_text(LIMIT))
+        .ok()
+        .filter(|text| !text.is_empty())
+        .or_else(|| {
+            element
+                .get_pattern::<UIValuePattern>()
+                .and_then(|pattern| pattern.get_value())
+                .ok()
+        })
+        .unwrap_or_else(|| element.get_name().unwrap_or_default());
+    let note = if text.chars().count() >= LIMIT as usize {
+        "\n… (cut at 20,000 characters)"
+    } else {
+        ""
+    };
+    format!("{}{note}", text.replace('\r', ""))
+}
+
 /// How the overlay names an action, as in `Clicking button "Save"`.
 pub(crate) fn verb(action: &str) -> &str {
     match action {
@@ -1419,7 +1482,7 @@ pub(crate) fn verb(action: &str) -> &str {
         "right_click" => "Right-clicking",
         "type" => "Typing into",
         "toggle" => "Toggling",
-        "select" => "Selecting",
+        "select" | "add_to_selection" => "Selecting",
         "expand" => "Expanding",
         "collapse" => "Collapsing",
         "scroll_into_view" => "Scrolling to",
@@ -1514,7 +1577,16 @@ fn states(element: &UIElement, kind: ControlType, name: &str, password: bool) ->
             if password {
                 "value=hidden".to_string()
             } else {
-                format!("value={}", quote(&clip(&clean(&value), 80)))
+                // Line breaks stay visible as \n: squashed into spaces, a model retyping the
+                // text joined the lines of a document.
+                let lines = value
+                    .replace("\r\n", "\n")
+                    .replace('\r', "\n")
+                    .split('\n')
+                    .map(clean)
+                    .collect::<Vec<_>>()
+                    .join("\\n");
+                format!("value={}", quote(&clip(&lines, 80)))
             }
         })
         .into_iter()
