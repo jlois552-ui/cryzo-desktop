@@ -1,3 +1,4 @@
+import { useSessionSurface } from "@/session/surface"
 import {
   batch,
   ErrorBoundary,
@@ -75,6 +76,7 @@ function SessionScreenContent(props: {
   bindBackground: (tasks: () => readonly BackgroundTask[]) => void
   bindPrompt: (prompt: { quotable: () => boolean; focus: () => void; focused: () => boolean }) => void
 }) {
+  const embedded = !!useSessionSurface()
   const session = props.session
   const language = useLanguage()
   const attachment = usePluginAttachment()
@@ -141,7 +143,7 @@ function SessionScreenContent(props: {
     mobileCached: [],
   })
 
-  const sideVisible = createMemo(() => isDesktop() && screen.side.open())
+  const sideVisible = createMemo(() => !embedded && isDesktop() && screen.side.open())
 
   const location = {
     directory: () => session.data.info()?.location.directory,
@@ -180,7 +182,7 @@ function SessionScreenContent(props: {
       if (sideContent) sideContent.style.opacity = panelOpacity(closed)
 
       if (!chat) return
-      const open = chatOpenWidth()
+      const open = embedded ? "100%" : chatOpenWidth()
 
       if (closed === 1) {
         chat.style.width = "100%"
@@ -288,7 +290,7 @@ function SessionScreenContent(props: {
       return (
         <MessageTimeline
           active={active()}
-          hideHeader={!isDesktop()}
+          hideHeader={embedded || !isDesktop()}
           registerHeaderGap={registerHeaderGap}
           session={source}
           view={own()}
@@ -306,7 +308,7 @@ function SessionScreenContent(props: {
           onSelectionInteraction={timeline.view.selectionInteraction}
           pinned={timeline.view.pinned()}
           centered={screen.centered()}
-          reserveReviewToggle={!sideVisible()}
+          reserveReviewToggle={!embedded && !sideVisible()}
           setContentRef={timeline.view.setContentRef}
           bottomInset={timeline.inset()}
           setVisibleRef={timeline.view.setVisibleRef}
@@ -450,7 +452,7 @@ function SessionScreenContent(props: {
       <div class="flex-1 min-h-0 flex flex-col gap-2 px-[var(--shell-inline-inset,8px)] pb-[var(--shell-bottom-inset,8px)] pt-[var(--shell-top-inset,8px)]">
         <div ref={screen.panel.ref} data-pane-row class="relative flex-1 min-h-0 flex flex-col md:flex-row gap-2">
           {/* Keep the control outside panel animations. */}
-          <Show when={isDesktop() && messagesReady() && session.identity.params.id}>
+          <Show when={!embedded && isDesktop() && messagesReady() && session.identity.params.id}>
             <div
               class="absolute end-3 top-0 z-30 h-12 flex items-center"
               data-slot="session-review-toggle"
@@ -485,7 +487,7 @@ function SessionScreenContent(props: {
               <SessionHeaderDrag pane={chat} gap={headerGap()} />
             </Show>
 
-            <Show when={screen.panel.resizable()}>
+            <Show when={!embedded && screen.panel.resizable()}>
               <div onPointerDown={() => screen.size.start()}>
                 <ResizeHandle
                   class="-end-1"
@@ -502,7 +504,7 @@ function SessionScreenContent(props: {
             </Show>
           </div>
 
-          <Show when={sideMotion.present() || store.sideMounted}>
+          <Show when={!embedded && (sideMotion.present() || store.sideMounted)}>
             <div
               ref={sidePresence}
               data-slot="session-side-panel-presence"
@@ -540,7 +542,7 @@ function SessionScreenContent(props: {
         </div>
 
         {/* Hidden rather than unmounted while the user hides it, so its terminals keep their screens. */}
-        <Show when={isDesktop() && !!session.identity.params.id && bottomTabs()}>
+        <Show when={!embedded && isDesktop() && !!session.identity.params.id && bottomTabs()}>
           <div
             data-slot="session-bottom-pane"
             class="relative shrink-0 min-h-0"

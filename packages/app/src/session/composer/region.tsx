@@ -1,9 +1,9 @@
+import { useSessionNavigate } from "@/session/surface"
 import type { SessionUserActions } from "@opencode/session-ui/message"
 import { getFilename, sameDirectory } from "@opencode/util/path"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { isScrollKeyTarget, scrollKey, scrollKeyOwner } from "@opencode/ui/scroll-view"
 import { makeEventListener } from "@solid-primitives/event-listener"
-import { useNavigate } from "@solidjs/router"
 import { createEffect, createMemo, on, onCleanup, onMount, Show, type Accessor } from "solid-js"
 import { Composer } from "@/composer/composer"
 import { VoiceComposer } from "@/voice/composer"
@@ -38,6 +38,7 @@ import { SessionQueuePanel } from "./queue-panel"
 import { SessionActivityChips, type SessionActivityItem } from "./activity-chips"
 import { SessionComposerLane, useComposerLaneAlignment } from "./composer-lane"
 import { SessionTodoPill } from "./todo-pill"
+import { SessionComputerPill, usingComputer } from "./computer-pill"
 import { sessionTodos, todoFinished } from "./todos"
 import { useOpenSessionRoute } from "../session-identity-header"
 import { resolveSessionComposerSelection } from "./selection"
@@ -64,7 +65,7 @@ export function createActiveSessionRegion(input: {
   const language = useLanguage()
   const local = useLocal()
   const location = useWorkspaceLocation()
-  const navigate = useNavigate()
+  const navigate = useSessionNavigate()
   const platform = usePlatform()
   const prompt = useComposerState()
   const state = createSessionRequestModel()
@@ -467,6 +468,19 @@ export function ActiveSessionComposerRegion(props: {
     )
   }
 
+  // Interrupting the session aborts the running desktop action and any approval it waits on.
+  const stopComputer = () => {
+    const sessionID = props.session.identity.params.id
+
+    if (!sessionID) return
+    void server.api.session.interrupt({ sessionID }).catch((error) =>
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: errorMessage(error, language.t("common.requestFailed")),
+      }),
+    )
+  }
+
   const providers = useProviders(() => props.session.data.info()?.location.directory)
 
   const subagentModel = () => {
@@ -511,6 +525,9 @@ export function ActiveSessionComposerRegion(props: {
         <Show when={!missing() && !props.session.data.isChild()}>
           <SessionComposerLane>
             <SessionActivityChips subagents={subagents()} shells={shells()} onOpen={open} onStop={stop} />
+            <Show when={props.session.data.working() && usingComputer(props.session.history.messages())}>
+              <SessionComputerPill onStop={stopComputer} />
+            </Show>
             <Show when={todosVisible()}>
               <SessionTodoPill todos={todos()} />
             </Show>

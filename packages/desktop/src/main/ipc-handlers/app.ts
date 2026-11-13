@@ -68,6 +68,9 @@ export const appHandlers = AppRpcs.toLayer(
           })
         }),
       AppRelaunch: () => Effect.sync(lifecycle.relaunch),
+      // Computer use runs only in the Cryzo Tauri host.
+      AppGetComputerUse: () => Effect.succeed(null),
+      AppSetComputerUse: () => Effect.die(new Error("Computer use is not available in this host")),
     })
   }),
 )

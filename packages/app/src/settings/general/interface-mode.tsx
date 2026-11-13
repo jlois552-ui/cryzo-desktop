@@ -4,7 +4,6 @@ import { type TabLayout, useSettings } from "@/settings/model"
 import "./interface-mode.css"
 
 const modes = [
-  { id: "top", layout: "horizontal" },
   { id: "side", layout: "vertical" },
   { id: "inbox", layout: "inbox" },
 ] as const satisfies { id: string; layout: TabLayout }[]
@@ -34,9 +33,6 @@ export function InterfaceModeSetting() {
             />
             <div data-slot="interface-mode-preview" data-mode={mode.id} aria-hidden="true">
               <Switch>
-                <Match when={mode.id === "top"}>
-                  <TopTabsPreview />
-                </Match>
                 <Match when={mode.id === "side"}>
                   <SideTabsPreview />
                 </Match>
@@ -67,24 +63,6 @@ export function InterfaceModeSetting() {
 }
 
 // The modes differ only in where sessions are listed, so every preview shares one workspace.
-function TopTabsPreview() {
-  return (
-    <>
-      <div data-slot="preview-tabs">
-        <For each={[60, 44, 52]}>
-          {(width, index) => (
-            <span data-slot="preview-tab" data-active={index() === 0 ? "" : undefined}>
-              <i />
-              <span style={{ width: `${width}%` }} />
-            </span>
-          )}
-        </For>
-      </div>
-      <PreviewWorkspace />
-    </>
-  )
-}
-
 function SideTabsPreview() {
   return (
     <div data-slot="preview-body">

@@ -1,35 +1,39 @@
+import { useSessionSurface } from "@/session/surface"
+import { Composer } from "@/composer/composer"
 import { createPromptProjectController } from "@/new-session/project/selector"
 import { useNewSessionLocationDialog } from "@/new-session/location/dialog"
 import { useTabs, type DraftTab } from "@/shell/tabs/tabs"
 import { useLayout } from "@/shell/state/layout"
 import { useSearchParams } from "@solidjs/router"
-import { createEffect, createMemo, createResource, on, untrack } from "solid-js"
+import { createEffect, createMemo, createResource, on, untrack, Show } from "solid-js"
 import { createComposerModel } from "@/composer/model"
 import { useComposerCommands } from "@/composer/commands"
 import { createNewSessionComposerAdapter } from "./composer-adapter"
-import { NewSessionView } from "./view"
+import { NewSessionView, NewSessionLocation } from "./view"
+import { NewSessionBranch } from "./workspace/selector"
 import { createNewSessionWorkspaceController } from "./workspace/controller"
 import { useNewSessionCommands } from "./commands"
 import { createDraftMcpControls } from "./mcp"
 
 /** The draft-only Session page. Submitting promotes the draft into a real Session. */
 export default function NewSessionPage(props: { draftId: string }) {
+  const surface = useSessionSurface()
   const [search, setSearch] = useSearchParams<{ draftId?: string; prompt?: string }>()
   const tabs = useTabs()
   const layout = useLayout()
 
   const draftTab = createMemo(() =>
-    tabs.store.find((tab): tab is DraftTab => tab.type === "draft" && tab.draftID === search.draftId),
+    tabs.store.find((tab): tab is DraftTab => tab.type === "draft" && tab.draftID === props.draftId),
   )
 
   const workspace = createNewSessionWorkspaceController({
     selectedWorktree: () => draftTab()?.worktree,
     selectedBranch: () => draftTab()?.branch,
     setSelectedWorktree: (worktree) => {
-      if (search.draftId) tabs.updateDraft(search.draftId, { worktree })
+      tabs.updateDraft(props.draftId, { worktree })
     },
     setSelectedBranch: (branch) => {
-      if (search.draftId) tabs.updateDraft(search.draftId, { branch })
+      tabs.updateDraft(props.draftId, { branch })
     },
   })
 
@@ -74,7 +78,7 @@ export default function NewSessionPage(props: { draftId: string }) {
   createEffect(() => {
     if (!composer.ready()) return
     untrack(() => {
-      const text = search.prompt
+      const text = surface ? undefined : search.prompt
 
       if (!text) return
       composer.adapter.state.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
@@ -92,7 +96,25 @@ export default function NewSessionPage(props: { draftId: string }) {
     <div class="relative size-full overflow-hidden flex flex-col">
       {suspendUntilPromptReady()}
       <div class="flex-1 min-h-0 flex flex-col gap-2 px-[var(--shell-inline-inset,8px)] pb-[var(--shell-bottom-inset,8px)] pt-[var(--shell-top-inset,8px)]">
-        <NewSessionView composer={model} project={project} workspace={workspace} location={location} />
+        {surface ? (
+          <div class="flex min-h-0 flex-1 flex-col justify-end gap-2 p-3">
+            <Composer model={model} />
+            <Show when={project.selected()}>
+              {(selected) => (
+                <NewSessionLocation
+                  project={selected()}
+                  workspace={workspace.bar.visible() ? workspace.selection.value() : "main"}
+                  root={workspace.project.root()}
+                  branch={<NewSessionBranch workspace={workspace} onDone={model.restoreFocus} />}
+                  onboarding={false}
+                  onClick={() => location()}
+                />
+              )}
+            </Show>
+          </div>
+        ) : (
+          <NewSessionView composer={model} project={project} workspace={workspace} location={location} />
+        )}
       </div>
     </div>
   )

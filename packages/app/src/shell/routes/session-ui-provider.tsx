@@ -1,6 +1,7 @@
+import { useSessionNavigate } from "@/session/surface"
+import { useSessionParams, useSessionSurface } from "@/session/surface"
 import { DataProvider } from "@opencode/session-ui/context"
 import { MarkdownProvider, type ReadMarkdownImage } from "@opencode/session-ui/context/markdown"
-import { useNavigate, useParams } from "@solidjs/router"
 import { useQuery } from "@tanstack/solid-query"
 import { createMemo, onCleanup, type ParentProps } from "solid-js"
 import { useProviders } from "@/providers/catalog/providers"
@@ -22,8 +23,9 @@ export function SessionUIProvider(
     server: ServerConnection.Key
   }>,
 ) {
-  const navigate = useNavigate()
-  const params = useParams()
+  const navigate = useSessionNavigate()
+  const surface = useSessionSurface()
+  const params = useSessionParams()
   const data = useData()
   const serverSDK = useServerSDK()
   const tabs = useTabs()
@@ -64,6 +66,7 @@ export function SessionUIProvider(
     }
 
     data.session.remember(session)
+    if (surface) return navigate(href(session.id))
     tabs.select(tabs.addSessionTab({ server: props.server, sessionId: session.id }))
   }
 

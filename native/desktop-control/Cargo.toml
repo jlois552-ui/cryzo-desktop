@@ -1,0 +1,42 @@
+[package]
+name = "cryzo-desktop-control"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Text-first desktop control (Windows UI Automation) and the cryzo-desktop-mcp stdio server"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "cryzo-desktop-mcp"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+base64 = "0.22.1"
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+tungstenite = { version = "0.26", default-features = false, features = ["handshake"] }
+uiautomation = { version = "=0.25.1", default-features = false, features = ["input", "pattern"] }
+windows = { version = "0.62.2", features = [
+  "Foundation",
+  "Foundation_Collections",
+  "Graphics_Imaging",
+  "Media_Ocr",
+  "Security_Cryptography",
+  "Storage_Streams",
+  "Win32_Foundation",
+  "Win32_Graphics_Dwm",
+  "Win32_Graphics_Gdi",
+  "Win32_Storage_Xps",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Threading",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }

@@ -47,7 +47,7 @@ function ResolvedDraftRoute(props: { draft: DraftTab }) {
   )
 }
 
-function ResolvedDraftContent(props: { draft: DraftTab }) {
+export function ResolvedDraftContent(props: { draft: DraftTab }) {
   const server = useServer()
   const tabs = useTabs()
 

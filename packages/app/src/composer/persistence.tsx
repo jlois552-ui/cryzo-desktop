@@ -1,6 +1,7 @@
+import { useSessionParams, useSessionSurface } from "@/session/surface"
 import { base64Encode } from "@opencode/util/encode"
 import { createSimpleContext } from "@opencode/ui/context"
-import { useParams, useSearchParams } from "@solidjs/router"
+import { useSearchParams } from "@solidjs/router"
 import { createMemo, createResource, createRoot, getOwner, onCleanup } from "solid-js"
 import { requireServerKey } from "@/shell/routes/session"
 import { ServerConnection } from "@/runtime/server/registry"
@@ -56,7 +57,8 @@ export const { use: useComposerState, provider: ComposerPersistenceProvider } = 
   name: "ComposerState",
   gate: false,
   init: () => {
-    const params = useParams<{ serverKey?: string; id?: string }>()
+    const params = useSessionParams<{ serverKey?: string; id?: string }>()
+    const surface = useSessionSurface()
     const sdk = useWorkspaceLocation()
     const [search] = useSearchParams<{ draftId?: string }>()
     const serverSDK = useServerSDK()
@@ -87,7 +89,9 @@ export const { use: useComposerState, provider: ComposerPersistenceProvider } = 
       params.serverKey ? requireServerKey(params.serverKey) : ServerConnection.key(serverSDK.server)
 
     const scope = (): PromptScope =>
-      search.draftId ? { draftID: search.draftId } : { dir: base64Encode(sdk().directory), id: params.id }
+      (surface?.draftId() ?? search.draftId)
+        ? { draftID: (surface?.draftId() ?? search.draftId)! }
+        : { dir: base64Encode(sdk().directory), id: params.id }
 
     const load = (scope: PromptScope, target?: { server?: ServerConnection.Key; scope: ServerScope }) => {
       const current = selectPromptTab(tabs.store, scope, target?.server ?? serverKey())

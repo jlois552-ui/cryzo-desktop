@@ -1,4 +1,5 @@
 export const popularProviders = [
+  "nvidia",
   "opencode-go",
   "opencode",
   "anthropic",

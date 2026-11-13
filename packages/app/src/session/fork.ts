@@ -1,4 +1,4 @@
-import { useNavigate } from "@solidjs/router"
+import { useSessionNavigate } from "@/session/surface"
 import { base64Encode } from "@opencode/util/encode"
 import { useComposerState } from "@/composer/persistence"
 import { extractPromptContext, extractPromptFromMessage } from "@/composer/prompt"
@@ -14,7 +14,7 @@ import { useWorkspaceLocation } from "@/workspaces/location"
  * prompt back in its composer to edit and send. Resolves to whether the fork opened.
  */
 export function useSessionFork() {
-  const navigate = useNavigate()
+  const navigate = useSessionNavigate()
   const data = useData()
   const serverSDK = useServerSDK()
   const location = useWorkspaceLocation()

@@ -1,6 +1,6 @@
+import { useSessionParams } from "@/session/surface"
 import { createSimpleContext } from "@opencode/ui/context"
 import { base64Encode } from "@opencode/util/encode"
-import { useParams } from "@solidjs/router"
 import { batch, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Schema, SchemaGetter } from "effect"
@@ -81,7 +81,7 @@ const clone = (value: State | undefined) => {
 export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
   name: "Local",
   init: () => {
-    const params = useParams()
+    const params = useSessionParams()
     const sdk = useWorkspaceLocation()
     const data = useData()
     const serverSDK = useServerSDK()

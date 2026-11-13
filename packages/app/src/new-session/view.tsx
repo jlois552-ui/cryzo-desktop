@@ -273,7 +273,7 @@ function fitPath(value: string, width: number, font: string) {
 }
 
 /** The composer tray: combined location picker, Git context, and the session's directory. */
-function NewSessionLocation(props: {
+export function NewSessionLocation(props: {
   project: PromptProject
   /** "main", "create", or a worktree directory. */
   workspace: string

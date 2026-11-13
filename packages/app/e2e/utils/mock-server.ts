@@ -43,6 +43,7 @@ export type MockFileContent =
   | undefined
 
 export interface MockServerConfig {
+  market?: Record<string, unknown>
   server?: string
   // The machine name `/api/info` reports; omitted like a server that predates it.
   hostname?: string
@@ -387,6 +388,11 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
         headers: corsHeaders,
         json: Schema.encodeSync(MockUnauthorized)(new MockUnauthorized({ message: "Authentication required" })),
       })
+    }
+
+    if (url.pathname.startsWith("/api/market/") && config.market) {
+      const key = url.pathname.slice("/api/market/".length)
+      if (key in config.market) return route.fulfill({ headers: corsHeaders, json: { data: config.market[key] } })
     }
 
     const directory = url.searchParams.get("directory") ?? url.searchParams.get("location[directory]")

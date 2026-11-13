@@ -1,12 +1,10 @@
-import { createEffect, createMemo, createResource, Match, Show, Switch, untrack } from "solid-js"
+import { createEffect, createMemo, createResource, For, Match, Show, Switch, untrack } from "solid-js"
 import { createStore, unwrap } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { IconButton } from "@opencode/ui/icon-button"
 import { Icon } from "@opencode/ui/icon"
-import { Keybind } from "@opencode/ui/keybind"
-import { Tooltip } from "@opencode/ui/tooltip"
 
 import { LayoutRoute, useLayout } from "@/shell/state/layout"
 import { usePlatform } from "@/runtime/platform/platform"
@@ -34,6 +32,8 @@ import { RecentlyClosedTabsMenu } from "./recently-closed-tabs-menu"
 import { useSettingsDialog } from "@/settings/command"
 import { rootSession } from "@/shell/routes/session"
 import { TitlebarItems, useTitlebarItems } from "@/runtime/plugin/titlebar-items"
+import { sections as marketSections } from "@/market/sections"
+import { SidebarAccount } from "@/shell/sidebar-account"
 
 export const newTabCommand = { id: "tab.new", keybind: "mod+t,mod+n" }
 
@@ -417,100 +417,76 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
 
             const toggleHome = () => tabs.toggleHome({ home: layout.route().type === "home", current: currentTab() })
 
-            const homeButton = (vertical = false) => (
-              <Show
-                when={vertical}
-                fallback={
-                  <Tooltip
-                    placement="bottom"
-                    value={
-                      <>
-                        {language.t("home.title")}
-                        <Keybind keys={command.keybindParts("home.toggle")} variant="neutral" />
-                      </>
-                    }
-                    class="shrink-0"
-                  >
-                    <IconButton
-                      type="button"
-                      variant="ghost-muted"
-                      size="large"
-                      class="!w-9 shrink-0"
-                      icon={<Icon name="grid-plus" />}
-                      state={layout.route().type === "home" ? "pressed" : undefined}
-                      onClick={toggleHome}
-                      aria-label={language.t("home.title")}
-                      aria-pressed={layout.route().type === "home"}
-                    />
-                  </Tooltip>
-                }
+            const row =
+              "group flex h-7 w-full shrink-0 items-center gap-2 rounded-[6px] ps-1.5 pe-2 text-[13px] leading-4 text-v2-text-text-faint hover:text-v2-text-text-base data-[state=pressed]:text-v2-text-text-base"
+
+            const homeButton = () => (
+              <button
+                type="button"
+                data-titlebar-tab-action
+                data-action="vertical-tabs-home"
+                data-state={layout.route().type === "home" ? "pressed" : undefined}
+                class={row}
+                onClick={toggleHome}
+                aria-label={language.t("home.title")}
+                aria-pressed={layout.route().type === "home"}
               >
-                <button
-                  type="button"
-                  data-titlebar-tab-action
-                  data-action="vertical-tabs-home"
-                  data-state={layout.route().type === "home" ? "pressed" : undefined}
-                  class="group flex h-7 w-full shrink-0 items-center gap-1.5 rounded-[6px] ps-1.5 pe-2 text-[13px] leading-4 text-v2-text-text-faint hover:text-v2-text-text-base data-[state=pressed]:text-v2-text-text-base"
-                  onClick={toggleHome}
-                  aria-label={language.t("home.title")}
-                  aria-pressed={layout.route().type === "home"}
+                <Icon name="grid-plus" class="shrink-0" />
+                <span class="min-w-0 truncate">{language.t("home.title")}</span>
+                <span
+                  class="ms-auto hidden min-w-0 truncate text-v2-text-text-faint group-hover:block group-focus-visible:block"
+                  aria-hidden="true"
                 >
-                  <Icon name="grid-plus" class="shrink-0" />
-                  <span class="min-w-0 truncate">{language.t("home.title")}</span>
-                  <span
-                    class="ms-auto hidden min-w-0 truncate text-v2-text-text-faint group-hover:block group-focus-visible:block"
-                    aria-hidden="true"
-                  >
-                    <bdi dir="ltr">{command.keybind("home.toggle")}</bdi>
-                  </span>
-                </button>
-              </Show>
+                  <bdi dir="ltr">{command.keybind("home.toggle")}</bdi>
+                </span>
+              </button>
             )
 
-            const searchButton = (vertical = false) => (
-              <Show
-                when={vertical}
-                fallback={
-                  <Tooltip
-                    placement="bottom"
-                    value={
-                      <>
-                        {language.t("command.session.search")}
-                        <Keybind keys={command.keybindParts("sessions.search")} variant="neutral" />
-                      </>
-                    }
-                    class="shrink-0"
-                  >
-                    <IconButton
-                      type="button"
-                      variant="ghost-muted"
-                      size="large"
-                      class="!w-9 shrink-0"
-                      icon={<Icon name="magnifying-glass" />}
-                      onClick={() => command.trigger("sessions.search")}
-                      aria-label={language.t("command.session.search")}
-                    />
-                  </Tooltip>
-                }
-              >
+            // Marketing's pages open from the sidebar, as Wix lists them under Marketing.
+            const marketSection = () => new URLSearchParams(location.search).get("section") ?? "calendar"
+            const marketButton = () => (
+              <>
                 <button
                   type="button"
                   data-titlebar-tab-action
-                  data-action="vertical-tabs-search"
-                  class="group flex h-7 w-full shrink-0 items-center gap-1.5 rounded-[6px] ps-1.5 pe-2 text-[13px] leading-4 text-v2-text-text-faint hover:text-v2-text-text-base"
-                  onClick={() => command.trigger("sessions.search")}
+                  data-action="vertical-tabs-market"
+                  data-state={layout.route().type === "market" ? "pressed" : undefined}
+                  class={row}
+                  onClick={() => navigate("/market")}
+                  aria-pressed={layout.route().type === "market"}
                 >
-                  <Icon name="magnifying-glass" class="shrink-0" />
-                  <span class="min-w-0 truncate">{language.t("command.session.search")}</span>
-                  <span
-                    class="ms-auto hidden min-w-0 truncate text-v2-text-text-faint group-hover:block group-focus-visible:block"
-                    aria-hidden="true"
-                  >
-                    <bdi dir="ltr">{command.keybind("sessions.search")}</bdi>
-                  </span>
+                  <Icon name="window-analytics" class="shrink-0" />
+                  <span class="min-w-0 truncate">{language.t("market.title")}</span>
                 </button>
-              </Show>
+                <Show when={layout.route().type === "market"}>
+                  <div class="flex w-full flex-col gap-0.5 ps-6">
+                    <For each={marketSections}>
+                      {(section) => (
+                        <button
+                          type="button"
+                          data-action={`vertical-tabs-market-${section}`}
+                          data-state={marketSection() === section ? "pressed" : undefined}
+                          aria-current={marketSection() === section ? "page" : undefined}
+                          class="flex h-7 w-full items-center rounded-[6px] px-2 text-start text-[13px] leading-4 text-v2-text-text-faint hover:text-v2-text-text-base data-[state=pressed]:bg-v2-background-bg-layer-02 data-[state=pressed]:text-v2-text-text-base"
+                          onClick={() => navigate(`/market?section=${section}`)}
+                        >
+                          <span class="min-w-0 truncate">{language.t(`market.nav.${section}`)}</span>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </>
             )
+
+            command.register("titlebar-market", () => [
+              {
+                id: "market.open",
+                title: language.t("command.market.open"),
+                category: language.t("command.category.view"),
+                onSelect: () => navigate("/market"),
+              },
+            ])
 
             command.register("titlebar-home", () => [
               {
@@ -629,12 +605,6 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                 </Show>
                 <Show when={windows() && props.verticalTabs}>
                   <SidebarToggle />
-                </Show>
-                <Show when={!mobile() && !props.verticalTabs}>
-                  <div class="flex shrink-0 items-center gap-0.5">
-                    {homeButton()}
-                    {searchButton()}
-                  </div>
                 </Show>
 
                 <Show
@@ -773,36 +743,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                     </MobileDrawer>
                   }
                 >
-                  <Show
-                    when={props.verticalTabs}
-                    fallback={
-                      <>
-                        <TitlebarTabStrip
-                          tabs={tabsStore}
-                          currentTab={currentTab()}
-                          onNavigate={(tab, el) => {
-                            tabs.select(tab)
-                            el?.scrollIntoView({ behavior: "instant" })
-                          }}
-                          onClose={(tab) => {
-                            const index = tabsStore.findIndex((item) => tabKey(item) === tabKey(tab))
-
-                            if (index !== -1) tabsStoreActions.closeTab(index)
-                          }}
-                          onReorder={(keys) => tabsStoreActions.reorder(keys)}
-                        />
-                        <RecentlyClosedTabsMenu
-                          onNewTab={openNewTab}
-                          tooltip={
-                            <>
-                              {language.t("command.session.new")}
-                              <Keybind keys={command.keybindParts("tab.new")} variant="neutral" />
-                            </>
-                          }
-                        />
-                      </>
-                    }
-                  >
+                  <Show when={props.verticalTabs}>
                     {(vertical) => (
                       <Show when={vertical().mount} keyed>
                         {(mount) => (
@@ -839,7 +780,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                                   />
                                 </Show>
                                 <Show when={homeInSidebarHeader()} fallback={<div class="flex-1" />}>
-                                  <div class="min-w-0 flex-1">{homeButton(true)}</div>
+                                  <div class="min-w-0 flex-1">{homeButton()}</div>
                                 </Show>
                                 {/* Optically aligns the toggle's glyph with the selected session's end edge. */}
                                 <div class="-me-0.5 flex shrink-0">
@@ -847,16 +788,61 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                                 </div>
                               </div>
                             </Show>
-                            <div class="flex w-full shrink-0 flex-col gap-1">
-                              <Show when={!homeInSidebarHeader()}>{homeButton(true)}</Show>
-                              {searchButton(true)}
+                            {/* Cline's order: history and search, then new session and the app's places. */}
+                            <div class="flex h-8 w-full shrink-0 items-center gap-0.5">
+                              <IconButton
+                                variant="ghost-muted"
+                                icon={<Icon name="outline-arrow-left" />}
+                                aria-label={language.t("common.goBack")}
+                                title={language.t("common.goBack")}
+                                disabled={!backPath(history)}
+                                onClick={back}
+                              />
+                              <IconButton
+                                variant="ghost-muted"
+                                icon={<Icon name="outline-arrow-right" />}
+                                aria-label={language.t("common.goForward")}
+                                title={language.t("common.goForward")}
+                                disabled={!forwardPath(history)}
+                                onClick={forward}
+                              />
+                              <div class="flex-1" />
+                              <IconButton
+                                variant="ghost-muted"
+                                icon={<Icon name="magnifying-glass" />}
+                                aria-label={language.t("command.session.search")}
+                                title={`${language.t("command.session.search")} (${command.keybind("sessions.search")})`}
+                                onClick={() => command.trigger("sessions.search")}
+                              />
+                            </div>
+                            <div class="mt-1 flex w-full shrink-0 flex-col gap-1">
                               <RecentlyClosedTabsMenu
                                 vertical
                                 onNewTab={openNewTab}
                                 keybind={command.keybind("tab.new")}
                               />
+                              <Show when={!homeInSidebarHeader()}>{homeButton()}</Show>
+                              {marketButton()}
                             </div>
-                            <div class="h-4 w-full shrink-0" aria-hidden="true" />
+                            <div class="mt-4 flex h-7 w-full shrink-0 items-center gap-1 ps-1.5">
+                              <span class="min-w-0 flex-1 truncate text-[12px] font-medium leading-4 text-v2-text-text-faint">
+                                {language.t("sidebar.sessions")}
+                              </span>
+                              <IconButton
+                                variant="ghost-muted"
+                                size="small"
+                                icon={<Icon name="outline-sliders" />}
+                                aria-label={language.t("sidebar.sessions.group")}
+                                title={language.t("sidebar.sessions.group")}
+                                aria-pressed={settings.appearance.tabLayout() === "inbox"}
+                                state={settings.appearance.tabLayout() === "inbox" ? "pressed" : undefined}
+                                onClick={() =>
+                                  settings.appearance.setTabLayout(
+                                    settings.appearance.tabLayout() === "inbox" ? "vertical" : "inbox",
+                                  )
+                                }
+                              />
+                            </div>
                             <div class="flex min-h-0 flex-1 flex-col gap-1">
                               <Show
                                 when={settings.appearance.tabLayout() === "inbox"}
@@ -881,11 +867,15 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                                 <SidebarInbox />
                               </Show>
                             </div>
-                            <Show when={titlebarItems.ids().length > 0}>
-                              <div data-slot="vertical-tabs-footer" class="mt-2 flex w-full shrink-0 flex-col">
+                            <div
+                              data-slot="vertical-tabs-footer"
+                              class="mt-2 flex w-full shrink-0 flex-col gap-1 border-t border-v2-border-border-muted pt-2"
+                            >
+                              <Show when={titlebarItems.ids().length > 0}>
                                 <TitlebarItems items={titlebarItems} vertical />
-                              </div>
-                            </Show>
+                              </Show>
+                              <SidebarAccount />
+                            </div>
                           </Portal>
                         )}
                       </Show>

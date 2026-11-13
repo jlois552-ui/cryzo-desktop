@@ -20,6 +20,7 @@ const submitting = new WeakSet<object>()
 const switched = new Map<string, string>()
 
 type ComposerSubmission = {
+  extraContext?: string
   id: SessionMessage.ID
   mode: "normal" | "shell"
   prompt: Prompt
@@ -31,6 +32,7 @@ type ComposerSubmission = {
 }
 
 type ComposerSubmitInput = {
+  extraContext?: () => string
   adapter: ComposerAdapter
   mode: Accessor<"normal" | "shell">
   commands: Accessor<readonly { name: string }[] | undefined>
@@ -348,6 +350,7 @@ function readSubmission(
       : undefined
 
   return {
+    extraContext: mode === "normal" && !text.trimStart().startsWith("/") ? input.extraContext?.() : undefined,
     id: retryID ?? SessionMessage.ID.create(),
     mode,
     prompt,
@@ -633,13 +636,14 @@ async function buildSubmissionRequest(session: ComposerSession, value: ComposerS
     })),
   )
 
-  return buildPromptRequest({
+  const request = buildPromptRequest({
     prompt: value.prompt,
     context: value.context,
     images,
     text: value.text,
     sessionDirectory: session.directory,
   })
+  return value.extraContext ? { ...request, text: `${request.text}\n\n${value.extraContext}` } : request
 }
 
 function failSubmission(

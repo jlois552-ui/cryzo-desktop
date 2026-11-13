@@ -1,6 +1,8 @@
 import type { SessionMessageUser } from "@opencode/client/promise"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { createEffect, createMemo, onCleanup, onMount } from "solid-js"
+import { createStore } from "solid-js/store"
+import { useSessionSurface } from "./surface"
 import { messageIdFromHash } from "./message-id-from-hash"
 
 export const useSessionHashScroll = (input: {
@@ -27,8 +29,18 @@ export const useSessionHashScroll = (input: {
   let pendingKey = ""
   let clearing = false
 
-  const location = useLocation<{ reveal?: string }>()
+  const route = useLocation<{ reveal?: string }>()
+  const surface = useSessionSurface()
+  const [local, setLocal] = createStore({ hash: "", state: undefined as { reveal?: string } | undefined })
+  const location = surface ? local : route
   const navigate = useNavigate()
+  const navigateHash = (hash: string) => {
+    if (surface) {
+      setLocal("hash", hash)
+      return
+    }
+    navigate(route.pathname + route.search + hash, { replace: true })
+  }
 
   const frames = new Set<number>()
 
@@ -54,7 +66,7 @@ export const useSessionHashScroll = (input: {
 
     if (!location.hash) return
     clearing = true
-    navigate(location.pathname + location.search, { replace: true })
+    navigateHash("")
   }
 
   const updateHash = (id: string) => {
@@ -62,9 +74,7 @@ export const useSessionHashScroll = (input: {
 
     if (location.hash === hash) return
     clearing = false
-    navigate(location.pathname + location.search + hash, {
-      replace: true,
-    })
+    navigateHash(hash)
   }
 
   const scrollToElement = (el: HTMLElement, behavior: ScrollBehavior) => {

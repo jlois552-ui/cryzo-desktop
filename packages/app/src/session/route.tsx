@@ -1,6 +1,6 @@
+import { useSessionParams, useSessionSurface } from "@/session/surface"
 import { ErrorBoundary, createEffect, createMemo, Show, type ParentProps } from "solid-js"
 import { Title } from "@solidjs/meta"
-import { useParams } from "@solidjs/router"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { DataProvider } from "@opencode/session-ui/context"
@@ -33,7 +33,7 @@ import { SessionScreenView } from "./screen"
 import { PreparingComposer } from "./preparing-composer"
 
 export function TargetSessionRouteContent() {
-  const params = useParams<{ serverKey: string; id: string }>()
+  const params = useSessionParams<{ serverKey: string; id: string }>()
   const data = useData()
   const server = useServer()
   const tabs = useTabs()
@@ -42,7 +42,9 @@ export function TargetSessionRouteContent() {
   return (
     <>
       <MarkSessionViewed sessionID={() => params.id} />
-      <SessionDocumentTitle sessionID={() => params.id} />
+      <Show when={!useSessionSurface()}>
+        <SessionDocumentTitle sessionID={() => params.id} />
+      </Show>
       <ModelsProvider directory={directory()}>
         <TargetSessionSettingsCommand />
         <SessionRouteErrorBoundary sessionID={params.id} serverKey={requireServerKey(params.serverKey)}>
@@ -121,7 +123,7 @@ function SessionRouteErrorBoundary(props: ParentProps<{ sessionID?: string; serv
 }
 
 function ResolvedTargetSessionRoute() {
-  const params = useParams<{ id: string }>()
+  const params = useSessionParams<{ id: string }>()
   const server = useServer()
   const tabs = useTabs()
   const data = useData()

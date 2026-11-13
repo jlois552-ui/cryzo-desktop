@@ -1,5 +1,5 @@
+import { useSessionParams } from "@/session/surface"
 import { Component, createMemo, For, Show } from "solid-js"
-import { useParams } from "@solidjs/router"
 import { useData } from "@/runtime/server/current"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { Dialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
@@ -21,7 +21,7 @@ function formatTime(date: Date): string {
 }
 
 export const DialogFork: Component = () => {
-  const params = useParams()
+  const params = useSessionParams()
   const data = useData()
   const dialog = useDialog()
   const language = useLanguage()

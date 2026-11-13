@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { latestModels, uniqueModels } from "./models"
+import { isFreeModel, latestModels, uniqueModels } from "./models"
 
 const model = (provider: string, id: string, release_date: string, family?: string) => ({
   id,
@@ -52,4 +52,11 @@ test("uniqueModels keeps the first of each model in order", () => {
     { providerID: "b", modelID: "1" },
     { providerID: "a", modelID: "2" },
   ])
+})
+
+
+test("Cryzo Free is free to the user without classifying personal NVIDIA keys as sponsored", () => {
+  expect(isFreeModel({ provider: { id: "cryzo" }, cost: { input: 0 } })).toBe(true)
+  expect(isFreeModel({ provider: { id: "nvidia" }, cost: { input: 0 } })).toBe(false)
+  expect(isFreeModel({ provider: { id: "openrouter" } })).toBe(false)
 })

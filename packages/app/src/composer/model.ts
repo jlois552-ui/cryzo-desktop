@@ -1,3 +1,4 @@
+import { useSessionSurface } from "@/session/surface"
 import { ImagePreview } from "@opencode/ui/image-preview"
 import { useDialog } from "@opencode/ui/context/dialog"
 import type { ReferenceInfo } from "@opencode/client/promise"
@@ -19,6 +20,7 @@ import { useServerSDK } from "@/runtime/server/client"
 import { readLocalImage } from "@/runtime/server/image"
 import { showToast } from "@/shell/notifications/toast"
 import { formatServerError } from "@/runtime/server/errors"
+import { DialogConnectProvider, useProviderConnectController } from "@/providers/connect/dialog"
 import { Skill } from "@opencode/schema/skill"
 import { Session } from "@opencode/schema/session"
 import { abort } from "@opencode/util/abort"
@@ -303,7 +305,9 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
 
   const variants = createMemo(() => ["default", ...adapter.controls().model.selection.variant.list()])
 
+  const surface = useSessionSurface()
   const submission = createComposerSubmit({
+    extraContext: surface?.context,
     adapter,
     mode,
     commands: () => data.location.command.list({ directory: sdk().directory }),
@@ -328,14 +332,29 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
           description: language.t("prompt.toast.modelAgentRequired.description"),
         }),
       unqueueable: () => showToast({ title: language.t("prompt.toast.unqueueable.title") }),
-      failed: (kind, error) =>
+      failed: (kind, error) => {
+        // Cryzo Free models are offered before sign-in. The engine rejects the prompt before
+        // admission, so the draft stays in the composer while the user signs in.
+        if (kind === "prompt" && Predicate.hasProperty(error, "kind") && error.kind === "cryzo_sign_in") {
+          const connect = useProviderConnectController()
+          connect.select("cryzo")
+          void dialog.show(() =>
+            createComponent(DialogConnectProvider, {
+              directory: sdk().directory,
+              controller: connect,
+              standalone: true,
+            }),
+          )
+          return
+        }
         showToast({
           title: language.t(sendFailedTitle[kind]),
           description:
             kind === "command"
               ? formatServerError(error, language.t, language.t("common.requestFailed"))
               : composerErrorMessage(language, error),
-        }),
+        })
+      },
     },
     comments: {
       capture: historyComments,

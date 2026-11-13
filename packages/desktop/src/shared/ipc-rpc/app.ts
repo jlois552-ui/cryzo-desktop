@@ -60,6 +60,18 @@ export const AppSetNativeTranslations = Rpc.make("AppSetNativeTranslations", {
 
 export const AppRelaunch = Rpc.make("AppRelaunch")
 
+const ComputerUse = Schema.Struct({
+  enabled: Schema.Boolean,
+  approval: Schema.Literals(["always", "per_app", "never"]),
+  typeIntoPasswords: Schema.Boolean,
+  blockedApps: Schema.Array(Schema.String),
+})
+
+// Null where this host has no computer use.
+export const AppGetComputerUse = Rpc.make("AppGetComputerUse", { success: Schema.NullOr(ComputerUse) })
+
+export const AppSetComputerUse = Rpc.make("AppSetComputerUse", { payload: { settings: ComputerUse } })
+
 export const AppRpcs = RpcGroup.make(
   AppAwaitInitialization,
   AppReconnectService,
@@ -74,4 +86,6 @@ export const AppRpcs = RpcGroup.make(
   AppRecordFatalRendererError,
   AppSetNativeTranslations,
   AppRelaunch,
+  AppGetComputerUse,
+  AppSetComputerUse,
 )

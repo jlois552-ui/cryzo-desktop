@@ -1,3 +1,4 @@
+import type { ComputerUseSettings } from "@opencode/app/desktop"
 import type { DesktopMenuAction, DesktopZoomLevel } from "@opencode/app/desktop-menu"
 import type { DesktopNativeBundle } from "@opencode/app/i18n/desktop-native"
 import type { WindowBootstrap } from "../shared/window-bootstrap"
@@ -73,4 +74,6 @@ export type ElectronAPI = {
   setForceFocus(enabled: boolean): Promise<void>
   recordFatalRendererError(error: FatalRendererError): Promise<void>
   setNativeTranslations(bundle: DesktopNativeBundle): Promise<void>
+  getComputerUse(): Promise<ComputerUseSettings | null>
+  setComputerUse(settings: ComputerUseSettings): Promise<void>
 }

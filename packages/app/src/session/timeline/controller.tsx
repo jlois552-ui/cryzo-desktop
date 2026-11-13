@@ -1,7 +1,7 @@
+import { useSessionNavigate, useSessionSurface } from "@/session/surface"
 import type { SessionMessageInfo } from "@opencode/client/promise"
 import { DialogFooter, DialogHeader, DialogTitleGroup, Dialog } from "@opencode/ui/dialog"
 import { Button } from "@opencode/ui/button"
-import { useNavigate } from "@solidjs/router"
 import { createEffect, createMemo, on } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Option, Predicate, Schema } from "effect"
@@ -57,7 +57,8 @@ export type TimelineSessionSource = {
 }
 
 export function createTimelineController(input: { session: TimelineSessionSource }) {
-  const navigate = useNavigate()
+  const navigate = useSessionNavigate()
+  const surface = useSessionSurface()
   const sdk = useWorkspaceLocation()
   const serverSDK = useServerSDK()
   const server = useServer()
@@ -229,7 +230,7 @@ export function createTimelineController(input: { session: TimelineSessionSource
 
     if (next) return navigate(href(next))
 
-    return tabs.newDraft({ server: server.key, directory: sdk().directory })
+    return surface ? surface.newChat() : tabs.newDraft({ server: server.key, directory: sdk().directory })
   }
 
   const exportSession = async (id: string) => {

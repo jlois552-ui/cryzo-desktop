@@ -1356,3 +1356,51 @@ async function emptySidePanel(page: Page) {
 
   return { beta, alphaTab: page.locator(`[data-titlebar-tab-slot]:has(a[href="${sessionHref(alpha.id)}"])`) }
 }
+
+test("Marketing keeps its calendar visible while shared chats and composer drafts move through the agent panel", async ({
+  page,
+}) => {
+  const prompts: { sessionID: string; body: Record<string, unknown> }[] = []
+  await mockWorkspace(page, {
+    name: "MarketingPanel",
+    sessions: [{ id: "ses_market_shared", title: "Shared coding conversation" }],
+    onPrompt: (input) => prompts.push(input),
+    market: { accounts: { accounts: [], groups: [] }, providers: [], posts: [], media: [], analytics: [] },
+  })
+  await page.goto("/market")
+  const navigation = page.getByRole("navigation", { name: "Marketing", exact: true })
+  await expect(navigation.getByRole("button")).toHaveText(["Calendar", "Analytics", "Media"])
+  await page.getByRole("button", { name: "Agent", exact: true }).click()
+  const panel = page.getByRole("region", { name: "Agent", exact: true })
+  await expect(panel).toBeVisible({ timeout: 30_000 })
+  const editor = panel.locator('[data-component="composer-editor"]')
+  await expect(editor).toBeEditable()
+  await editor.fill("Keep this marketing draft")
+  await panel.getByRole("button", { name: "Close", exact: true }).click()
+  await page.getByRole("button", { name: "Agent", exact: true }).click()
+  await expect(editor).toHaveText("Keep this marketing draft")
+  await panel.getByRole("button", { name: "Chat history", exact: true }).click()
+  await panel.getByRole("button", { name: /Shared coding conversation/ }).click()
+  await expect(panel.locator('[data-component="composer-editor"]')).toBeEditable()
+  await expect(page).toHaveURL(/\/market$/)
+  await expect(navigation.getByRole("button", { name: "Calendar", exact: true })).toHaveAttribute(
+    "aria-current",
+    "page",
+  )
+  await navigation.getByRole("button", { name: "Analytics", exact: true }).click()
+  await expect(panel.locator('[data-component="composer-editor"]')).toBeEditable()
+  await expect(page).toHaveURL(/section=analytics/)
+  await panel.getByRole("button", { name: "Close", exact: true }).click()
+  await page.getByRole("button", { name: "Agent", exact: true }).click()
+  await expect(panel).toContainText("Shared coding conversation")
+  await panel.getByRole("button", { name: "New session", exact: true }).click()
+  await expect(editor).toBeEditable()
+  await editor.fill("Summarize my marketing calendar")
+  await editor.press("Enter")
+  await expect.poll(() => prompts.length).toBe(1)
+  expect(JSON.stringify(prompts[0].body)).toContain("Marketing context:")
+  await expect(page).toHaveURL(/\/market\?section=analytics$/)
+  await expect(editor).toBeEditable()
+  await panel.getByRole("button", { name: "Chat history", exact: true }).click()
+  await expect(panel.getByRole("button", { name: /^New session C:\/OpenCode\// })).toBeVisible()
+})

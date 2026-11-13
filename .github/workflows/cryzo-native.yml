@@ -1,0 +1,73 @@
+name: Cryzo native
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cryzo-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Formatting
+        working-directory: native
+        run: cargo fmt --all --check
+      - name: Engine lint
+        working-directory: native
+        run: cargo clippy --locked -p cryzo-engine --all-targets -- -D warnings
+      - name: Engine contracts
+        working-directory: native
+        run: cargo test --locked -p cryzo-engine
+
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Install frontend
+        run: bun install --frozen-lockfile --filter '@cryzo/desktop' --filter '@opencode/app' --ignore-scripts
+      - name: Frontend types
+        working-directory: packages/desktop-tauri
+        run: bun run typecheck:tsc
+      - name: Frontend bundle
+        working-directory: packages/desktop-tauri
+        run: bun run build:ui
+      - name: Native host compilation (no public release)
+        working-directory: native
+        run: cargo check --locked -p cryzo-desktop --target ${{ matrix.target }}

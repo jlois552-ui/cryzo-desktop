@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/anomalyco/opencode",
+  "commit": "caebbcc0807e630629725f320f35a09aa4a427be",
+  "catalog_sha256": "5d5740c70071aa628d1efe317f6885faf1f20b32a9fcb502553f57cce15cf9f1",
+  "providers": 230,
+  "models": 8787,
+  "release_gate": "Every baseline provider's authentication, transport, tool calls, cancellation and recovery must pass before public alpha."
+}

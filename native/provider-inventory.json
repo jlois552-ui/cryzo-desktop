@@ -1,0 +1,2695 @@
+[
+  {
+    "id": "302ai",
+    "name": "302.AI",
+    "models": 125,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "abacus",
+    "name": "Abacus",
+    "models": 108,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "abliteration-ai",
+    "name": "abliteration.ai",
+    "models": 3,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "above",
+    "name": "above.dev",
+    "models": 10,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "agentrouter",
+    "name": "AgentRouter",
+    "models": 5,
+    "protocols": [
+      "chat-completions",
+      "messages"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "agnes",
+    "name": "Agnes AI",
+    "models": 4,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "ai-router",
+    "name": "AI-ROUTER",
+    "models": 5,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "ai21",
+    "name": "AI21 Labs",
+    "models": 2,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "aiand",
+    "name": "ai&",
+    "models": 10,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "aihubmix",
+    "name": "AIHubMix",
+    "models": 154,
+    "protocols": [
+      "chat-completions",
+      "images"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "aimlapi",
+    "name": "AI/ML API",
+    "models": 172,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "ainetcafe",
+    "name": "ainetcafe",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "aixy",
+    "name": "Aixy",
+    "models": 13,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "aki-io",
+    "name": "AKI.IO",
+    "models": 7,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "alibaba",
+    "name": "Alibaba",
+    "models": 63,
+    "protocols": [
+      "chat-completions",
+      "images",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "alibaba-cn",
+    "name": "Alibaba (China)",
+    "models": 87,
+    "protocols": [
+      "chat-completions",
+      "images",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "alibaba-coding-plan",
+    "name": "Alibaba Coding Plan",
+    "models": 10,
+    "protocols": [
+      "chat-completions",
+      "messages"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "alibaba-coding-plan-cn",
+    "name": "Alibaba Coding Plan (China)",
+    "models": 10,
+    "protocols": [
+      "chat-completions",
+      "messages"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "alibaba-token-plan",
+    "name": "Alibaba Token Plan",
+    "models": 27,
+    "protocols": [
+      "chat-completions",
+      "images",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "alibaba-token-plan-cn",
+    "name": "Alibaba Token Plan (China)",
+    "models": 27,
+    "protocols": [
+      "chat-completions",
+      "images",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "amazon-bedrock",
+    "name": "Amazon Bedrock",
+    "models": 200,
+    "protocols": [
+      "chat-completions",
+      "converse",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "ambient",
+    "name": "Ambient",
+    "models": 10,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "amd",
+    "name": "AMD",
+    "models": 14,
+    "protocols": [
+      "chat-completions",
+      "systemone"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "anthropic",
+    "name": "Anthropic",
+    "models": 17,
+    "protocols": [
+      "chat-completions",
+      "messages"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "anyapi",
+    "name": "AnyAPI",
+    "models": 30,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "arcee",
+    "name": "Arcee",
+    "models": 11,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "atomic-chat",
+    "name": "Atomic Chat",
+    "models": 5,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "auriko",
+    "name": "Auriko",
+    "models": 15,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "azure",
+    "name": "Azure",
+    "models": 90,
+    "protocols": [
+      "chat-completions",
+      "images",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "bailing",
+    "name": "Bailing",
+    "models": 2,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "baseten",
+    "name": "Baseten",
+    "models": 16,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "systemone"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "bee",
+    "name": "Bee by HEOSSI",
+    "models": 6,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "berget",
+    "name": "Berget.AI",
+    "models": 6,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "blueclaw",
+    "name": "Blue Claw",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "bothub",
+    "name": "Bothub",
+    "models": 8,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "boundless",
+    "name": "Boundless",
+    "models": 20,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "cerebras",
+    "name": "Cerebras",
+    "models": 2,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "chutes",
+    "name": "Chutes",
+    "models": 17,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "clarifai",
+    "name": "Clarifai",
+    "models": 12,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "claudinio",
+    "name": "Claudinio",
+    "models": 2,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "cline-pass",
+    "name": "ClinePass",
+    "models": 18,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "cloudferro-sherlock",
+    "name": "CloudFerro Sherlock",
+    "models": 5,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "cloudflare-ai-gateway",
+    "name": "Cloudflare AI Gateway",
+    "models": 115,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses",
+      "workers-ai-run"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "cloudflare-workers-ai",
+    "name": "Cloudflare Workers AI",
+    "models": 40,
+    "protocols": [
+      "chat-completions",
+      "responses",
+      "workers-ai-run"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "cohere",
+    "name": "Cohere",
+    "models": 17,
+    "protocols": [
+      "chat-completions",
+      "cohere-chat"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "commandcode",
+    "name": "CommandCode",
+    "models": 72,
+    "protocols": [
+      "chat-completions",
+      "messages"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "coralbricks",
+    "name": "CoralBricks",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "cortecs",
+    "name": "Cortecs",
+    "models": 107,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "crossmodel",
+    "name": "CrossModel",
+    "models": 68,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "crusoe",
+    "name": "Crusoe",
+    "models": 11,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "daoxe",
+    "name": "DaoXE",
+    "models": 9,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "databricks",
+    "name": "Databricks",
+    "models": 31,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "deepinfra",
+    "name": "Deep Infra",
+    "models": 77,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "models": 4,
+    "protocols": [
+      "chat-completions",
+      "messages"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "digitalocean",
+    "name": "DigitalOcean",
+    "models": 73,
+    "protocols": [
+      "chat-completions",
+      "images",
+      "messages",
+      "responses",
+      "systemone"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "dinference",
+    "name": "DInference",
+    "models": 6,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "drun",
+    "name": "D.Run (China)",
+    "models": 3,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "ebcloud",
+    "name": "EBCloud",
+    "models": 4,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "echo",
+    "name": "Echo",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "edenai",
+    "name": "Eden AI",
+    "models": 370,
+    "protocols": [
+      "chat-completions",
+      "images"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "empiriolabs",
+    "name": "EmpirioLabs AI",
+    "models": 63,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "engy",
+    "name": "engy",
+    "models": 9,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "evroc",
+    "name": "evroc",
+    "models": 9,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "fastrouter",
+    "name": "FastRouter",
+    "models": 34,
+    "protocols": [
+      "chat-completions",
+      "images"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "fireworks-ai",
+    "name": "Fireworks AI",
+    "models": 29,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "freemodel",
+    "name": "FreeModel",
+    "models": 10,
+    "protocols": [
+      "chat-completions",
+      "messages"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "friendli",
+    "name": "Friendli",
+    "models": 5,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "frogbot",
+    "name": "FrogBot",
+    "models": 26,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "github-copilot",
+    "name": "GitHub Copilot",
+    "models": 36,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "gitlab",
+    "name": "GitLab Duo",
+    "models": 31,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "gmicloud",
+    "name": "GMI Cloud",
+    "models": 17,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "google",
+    "name": "Google",
+    "models": 30,
+    "protocols": [
+      "chat-completions",
+      "generate-content",
+      "images",
+      "interactions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "google-vertex",
+    "name": "Vertex",
+    "models": 58,
+    "protocols": [
+      "chat-completions",
+      "generate-content",
+      "images",
+      "interactions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "greenpt",
+    "name": "GreenPT",
+    "models": 39,
+    "protocols": [
+      "chat-completions",
+      "systemone"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "groq",
+    "name": "Groq",
+    "models": 10,
+    "protocols": [
+      "chat-completions",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "helicone",
+    "name": "Helicone",
+    "models": 90,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "hetzner",
+    "name": "Hetzner",
+    "models": 2,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "hpc-ai",
+    "name": "HPC-AI",
+    "models": 9,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "huggingface",
+    "name": "Hugging Face",
+    "models": 80,
+    "protocols": [
+      "chat-completions",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "hyper",
+    "name": "Charm Hyper",
+    "models": 23,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "impossibl",
+    "name": "Impossibl",
+    "models": 76,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "inception",
+    "name": "Inception",
+    "models": 5,
+    "protocols": [
+      "chat-completions",
+      "systemone"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "inceptron",
+    "name": "Inceptron",
+    "models": 6,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "inco",
+    "name": "Inco",
+    "models": 7,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "infer",
+    "name": "Infer by Flow7",
+    "models": 2,
+    "protocols": [
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "inference",
+    "name": "Inference",
+    "models": 8,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "inferx",
+    "name": "InferX",
+    "models": 11,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "infomaniak",
+    "name": "Infomaniak",
+    "models": 8,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "io-net",
+    "name": "IO.NET",
+    "models": 17,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "iteracompute",
+    "name": "IteraCompute",
+    "models": 10,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "jalapeno",
+    "name": "Jalapeno Cloud",
+    "models": 17,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "jiekou",
+    "name": "Jiekou.AI",
+    "models": 61,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "kenari",
+    "name": "Kenari",
+    "models": 62,
+    "protocols": [
+      "chat-completions",
+      "images"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "kilo",
+    "name": "Kilo Gateway",
+    "models": 395,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "kimi-code-plan-cn",
+    "name": "Kimi For Coding (kimi.com)",
+    "models": 6,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "kimi-code-plan-global",
+    "name": "Kimi For Coding (kimi.ai)",
+    "models": 6,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "klokintegration",
+    "name": "klokintegration.se",
+    "models": 3,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "kosmik",
+    "name": "Kosmik Compute",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "kuae-cloud-coding-plan",
+    "name": "KUAE Cloud Coding Plan",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "lilac",
+    "name": "Lilac",
+    "models": 4,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "liquid",
+    "name": "Liquid Inference",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "llmgateway",
+    "name": "DevPass (LLM Gateway)",
+    "models": 206,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "llmgateway-providers",
+    "name": "LLM Gateway",
+    "models": 430,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "llmtech",
+    "name": "LLM Tech",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "llmtr",
+    "name": "LLMTR",
+    "models": 32,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "lmstudio",
+    "name": "LMStudio",
+    "models": 3,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "longcat",
+    "name": "LongCat",
+    "models": 2,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "lowrouter",
+    "name": "LowRouter",
+    "models": 32,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "lucidquery",
+    "name": "LucidQuery",
+    "models": 4,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "lynkr",
+    "name": "Lynkr",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "meganova",
+    "name": "Meganova",
+    "models": 19,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "melious",
+    "name": "Melious",
+    "models": 15,
+    "protocols": [
+      "chat-completions",
+      "systemone"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "merge-gateway",
+    "name": "Merge Gateway",
+    "models": 199,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "meta",
+    "name": "Meta",
+    "models": 6,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "minimax",
+    "name": "MiniMax (minimax.io)",
+    "models": 8,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "minimax-cn",
+    "name": "MiniMax (minimax.cn)",
+    "models": 8,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "minimax-cn-coding-plan",
+    "name": "MiniMax Token Plan (minimax.cn)",
+    "models": 9,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "minimax-coding-plan",
+    "name": "MiniMax Token Plan (minimax.io)",
+    "models": 9,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "mistral",
+    "name": "Mistral",
+    "models": 34,
+    "protocols": [
+      "chat-completions",
+      "fim",
+      "moderations",
+      "ocr"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "mixlayer",
+    "name": "Mixlayer",
+    "models": 5,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "moark",
+    "name": "Moark",
+    "models": 10,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "modal",
+    "name": "Modal",
+    "models": 8,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "model-oracle-ai",
+    "name": "Model Oracle AI",
+    "models": 15,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "modelis",
+    "name": "Modelis",
+    "models": 9,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "modelscope",
+    "name": "ModelScope",
+    "models": 7,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "moonshotai",
+    "name": "Moonshot AI",
+    "models": 6,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "moonshotai-cn",
+    "name": "Moonshot AI (China)",
+    "models": 6,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "morph",
+    "name": "Morph",
+    "models": 11,
+    "protocols": [
+      "chat-completions",
+      "messages"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "munito",
+    "name": "Munito AI",
+    "models": 5,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "munito-eu",
+    "name": "Munito AI (EU)",
+    "models": 4,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "nan",
+    "name": "NaN",
+    "models": 8,
+    "protocols": [
+      "chat-completions",
+      "images"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "nano-gpt",
+    "name": "NanoGPT",
+    "models": 654,
+    "protocols": [
+      "chat-completions",
+      "systemone"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "nearai",
+    "name": "NEAR AI Cloud",
+    "models": 56,
+    "protocols": [
+      "chat-completions",
+      "images",
+      "systemone"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "nebius",
+    "name": "Nebius Token Factory",
+    "models": 25,
+    "protocols": [
+      "chat-completions",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "neon",
+    "name": "Neon",
+    "models": 58,
+    "protocols": [
+      "chat-completions",
+      "generate-content",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "neosmith",
+    "name": "NeoSmith",
+    "models": 4,
+    "protocols": [
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "neuralwatt",
+    "name": "Neuralwatt",
+    "models": 23,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "nova",
+    "name": "Nova",
+    "models": 2,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "novita-ai",
+    "name": "Novita AI",
+    "models": 85,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "nvidia",
+    "name": "Nvidia",
+    "models": 46,
+    "protocols": [
+      "chat-completions",
+      "images"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "oci",
+    "name": "OCI Generative AI",
+    "models": 9,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "ofox",
+    "name": "Ofox",
+    "models": 148,
+    "protocols": [
+      "chat-completions",
+      "generate-content",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "ollama-cloud",
+    "name": "Ollama Cloud",
+    "models": 24,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses",
+      "systemone"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "openai",
+    "name": "OpenAI",
+    "models": 57,
+    "protocols": [
+      "chat-completions",
+      "decisions",
+      "images",
+      "moderations",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "opencode",
+    "name": "OpenCode",
+    "models": 132,
+    "protocols": [
+      "chat-completions",
+      "generate-content",
+      "messages",
+      "responses",
+      "systemone"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "opencode-go",
+    "name": "OpenCode Go",
+    "models": 37,
+    "protocols": [
+      "chat-completions",
+      "generate-content",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "openreason",
+    "name": "OpenReason",
+    "models": 3,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "models": 469,
+    "protocols": [
+      "chat-completions",
+      "images",
+      "messages",
+      "responses",
+      "systemone"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "opper",
+    "name": "Opper",
+    "models": 55,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "orcarouter",
+    "name": "OrcaRouter",
+    "models": 117,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "ovhcloud",
+    "name": "OVHcloud AI Endpoints",
+    "models": 12,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "pareto",
+    "name": "Pareto Inference",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "pendra",
+    "name": "Pendra",
+    "models": 6,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "perplexity",
+    "name": "Perplexity",
+    "models": 4,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "perplexity-agent",
+    "name": "Perplexity Agent",
+    "models": 47,
+    "protocols": [
+      "responses",
+      "systemone"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "pioneer",
+    "name": "Pioneer",
+    "models": 25,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "poe",
+    "name": "Poe",
+    "models": 124,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "poolside",
+    "name": "Poolside",
+    "models": 3,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "prime",
+    "name": "Prime Inference",
+    "models": 70,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "privatemode-ai",
+    "name": "Privatemode AI",
+    "models": 8,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "qihang-ai",
+    "name": "QiHang",
+    "models": 9,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "qiniu-ai",
+    "name": "Qiniu",
+    "models": 86,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "qvac",
+    "name": "QVAC",
+    "models": 9,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "reflection",
+    "name": "Reflection",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "regolo-ai",
+    "name": "Regolo AI",
+    "models": 15,
+    "protocols": [
+      "chat-completions",
+      "images"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "requesty",
+    "name": "Requesty",
+    "models": 185,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "routing-run",
+    "name": "routing.run",
+    "models": 15,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "runinfra",
+    "name": "RunInfra",
+    "models": 8,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "sakana",
+    "name": "Sakana AI",
+    "models": 4,
+    "protocols": [
+      "chat-completions",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "salad-cloud",
+    "name": "SaladCloud AI Gateway",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "sambanova",
+    "name": "SambaNova",
+    "models": 6,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "sap-ai-core",
+    "name": "SAP AI Core",
+    "models": 46,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "sarvam",
+    "name": "Sarvam AI",
+    "models": 2,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "scaleway",
+    "name": "Scaleway",
+    "models": 14,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "scnet-token-plan",
+    "name": "SCNet Token Plan",
+    "models": 19,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "scx-ai",
+    "name": "SCX.ai",
+    "models": 4,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "sensenova",
+    "name": "SenseNova (China)",
+    "models": 6,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "siliconflow",
+    "name": "SiliconFlow",
+    "models": 57,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "siliconflow-cn",
+    "name": "SiliconFlow (China)",
+    "models": 40,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "snowflake-cortex",
+    "name": "Snowflake Cortex",
+    "models": 25,
+    "protocols": [
+      "chat-completions",
+      "messages"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "stackit",
+    "name": "STACKIT",
+    "models": 6,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "standardcompute",
+    "name": "Standard Compute",
+    "models": 40,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "stepfun",
+    "name": "StepFun (China)",
+    "models": 4,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "stepfun-ai",
+    "name": "StepFun (Global)",
+    "models": 4,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "stepfun-ai-step-plan",
+    "name": "StepFun Step Plan (Global)",
+    "models": 4,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "stepfun-step-plan",
+    "name": "StepFun Step Plan (China)",
+    "models": 5,
+    "protocols": [
+      "chat-completions",
+      "messages"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "subconscious",
+    "name": "Subconscious",
+    "models": 2,
+    "protocols": [
+      "messages"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "submodel",
+    "name": "submodel",
+    "models": 9,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "synthetic",
+    "name": "Synthetic",
+    "models": 12,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "tempr",
+    "name": "Tempr Gateway",
+    "models": 79,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "tencent-coding-plan",
+    "name": "Tencent Coding Plan (China)",
+    "models": 8,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "tencent-token-plan",
+    "name": "Tencent Token Plan",
+    "models": 2,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "tencent-tokenhub",
+    "name": "Tencent TokenHub",
+    "models": 3,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "tensorx",
+    "name": "TensorX",
+    "models": 25,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "the-grid-ai",
+    "name": "The Grid AI",
+    "models": 17,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "thinkingmachines",
+    "name": "Thinking Machines",
+    "models": 38,
+    "protocols": [
+      "messages"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "tinfoil",
+    "name": "Tinfoil",
+    "models": 8,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "togetherai",
+    "name": "Together AI",
+    "models": 32,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "tokengo",
+    "name": "TokenGo",
+    "models": 13,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "tokenrouter",
+    "name": "TokenRouter",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "trustedrouter",
+    "name": "TrustedRouter",
+    "models": 7,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "umans-ai",
+    "name": "Umans AI",
+    "models": 8,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "umans-ai-coding-plan",
+    "name": "Umans AI Coding Plan",
+    "models": 9,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "unorouter",
+    "name": "UnoRouter",
+    "models": 23,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "upstage",
+    "name": "Upstage",
+    "models": 5,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "vancine",
+    "name": "Vancine",
+    "models": 8,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "venice",
+    "name": "Venice AI",
+    "models": 129,
+    "protocols": [
+      "chat-completions",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "vercel",
+    "name": "Vercel AI Gateway",
+    "models": 321,
+    "protocols": [
+      "chat-completions",
+      "decisions",
+      "images",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "vispark",
+    "name": "Vispark",
+    "models": 3,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "vivgrid",
+    "name": "Vivgrid",
+    "models": 38,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses",
+      "systemone"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "volcengine",
+    "name": "Volcengine Ark",
+    "models": 16,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "volcengine-coding-plan",
+    "name": "Volcengine Ark Coding Plan",
+    "models": 10,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "vultr",
+    "name": "Vultr",
+    "models": 15,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "wafer.ai",
+    "name": "Wafer",
+    "models": 5,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "wallaby",
+    "name": "Wallaby",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "wandb",
+    "name": "CoreWeave",
+    "models": 23,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "watsonx",
+    "name": "watsonx.ai",
+    "models": 5,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "xai",
+    "name": "xAI",
+    "models": 11,
+    "protocols": [
+      "chat-completions",
+      "images",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "xiaomi",
+    "name": "Xiaomi",
+    "models": 6,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "xiaomi-token-plan-ams",
+    "name": "Xiaomi Token Plan (Europe)",
+    "models": 4,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "xiaomi-token-plan-cn",
+    "name": "Xiaomi Token Plan (China)",
+    "models": 4,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "xiaomi-token-plan-sgp",
+    "name": "Xiaomi Token Plan (Singapore)",
+    "models": 4,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "xpersona",
+    "name": "Xpersona",
+    "models": 13,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "zai",
+    "name": "Z.AI",
+    "models": 22,
+    "protocols": [
+      "chat-completions",
+      "images",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "zai-coding-plan",
+    "name": "Z.AI Coding Plan",
+    "models": 7,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "zeldoc",
+    "name": "Zeldoc",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "zenifra",
+    "name": "Zenifra",
+    "models": 1,
+    "protocols": [
+      "chat-completions"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "zenmux",
+    "name": "ZenMux",
+    "models": 108,
+    "protocols": [
+      "chat-completions",
+      "images",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "zhipuai",
+    "name": "Zhipu AI",
+    "models": 20,
+    "protocols": [
+      "chat-completions",
+      "images",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  },
+  {
+    "id": "zhipuai-coding-plan",
+    "name": "Zhipu AI Coding Plan",
+    "models": 4,
+    "protocols": [
+      "chat-completions",
+      "messages",
+      "responses"
+    ],
+    "auth_verified": false,
+    "transport_verified": false,
+    "tools_verified": false
+  }
+]

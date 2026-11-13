@@ -96,4 +96,6 @@ export const api: ElectronAPI = {
   setForceFocus: (enabled) => invoke("AppSetForceFocus", { enabled }),
   recordFatalRendererError: (error) => invoke("AppRecordFatalRendererError", { error }),
   setNativeTranslations: (bundle) => invoke("AppSetNativeTranslations", { value: bundle }),
+  getComputerUse: () => invoke("AppGetComputerUse").then(mutable),
+  setComputerUse: (settings) => invoke("AppSetComputerUse", { settings }),
 }
