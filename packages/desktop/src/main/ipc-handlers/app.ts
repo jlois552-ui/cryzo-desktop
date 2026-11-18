@@ -71,6 +71,12 @@ export const appHandlers = AppRpcs.toLayer(
       // Computer use runs only in the Cryzo Tauri host.
       AppGetComputerUse: () => Effect.succeed(null),
       AppSetComputerUse: () => Effect.die(new Error("Computer use is not available in this host")),
+      // So does remote control through the Cryzo relay.
+      AppGetRemoteControl: () => Effect.succeed(null),
+      AppSetRemoteControl: () => Effect.die(new Error("Remote control is not available in this host")),
+      AppPairRemoteDevice: () => Effect.die(new Error("Remote control is not available in this host")),
+      AppListRemoteDevices: () => Effect.succeed([]),
+      AppRevokeRemoteDevice: () => Effect.die(new Error("Remote control is not available in this host")),
     })
   }),
 )

@@ -72,6 +72,38 @@ export const AppGetComputerUse = Rpc.make("AppGetComputerUse", { success: Schema
 
 export const AppSetComputerUse = Rpc.make("AppSetComputerUse", { payload: { settings: ComputerUse } })
 
+const RemoteControl = Schema.Struct({
+  enabled: Schema.Boolean,
+  connected: Schema.Boolean,
+  clients: Schema.Number,
+  error: Schema.NullOr(Schema.String),
+})
+
+// Null where this host has no remote control.
+export const AppGetRemoteControl = Rpc.make("AppGetRemoteControl", { success: Schema.NullOr(RemoteControl) })
+
+export const AppSetRemoteControl = Rpc.make("AppSetRemoteControl", {
+  payload: { enabled: Schema.Boolean },
+  success: RemoteControl,
+})
+
+export const AppPairRemoteDevice = Rpc.make("AppPairRemoteDevice", {
+  success: Schema.Struct({ code: Schema.String, expiresAt: Schema.Number, url: Schema.NullOr(Schema.String) }),
+})
+
+export const AppListRemoteDevices = Rpc.make("AppListRemoteDevices", {
+  success: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      name: Schema.String,
+      createdAt: Schema.Number,
+      lastSeenAt: Schema.NullOr(Schema.Number),
+    }),
+  ),
+})
+
+export const AppRevokeRemoteDevice = Rpc.make("AppRevokeRemoteDevice", { payload: { id: Schema.String } })
+
 export const AppRpcs = RpcGroup.make(
   AppAwaitInitialization,
   AppReconnectService,
@@ -88,4 +120,9 @@ export const AppRpcs = RpcGroup.make(
   AppRelaunch,
   AppGetComputerUse,
   AppSetComputerUse,
+  AppGetRemoteControl,
+  AppSetRemoteControl,
+  AppPairRemoteDevice,
+  AppListRemoteDevices,
+  AppRevokeRemoteDevice,
 )

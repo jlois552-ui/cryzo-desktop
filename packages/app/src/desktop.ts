@@ -7,9 +7,14 @@ export { currentRoute, type LayoutRoute, useCurrentRoute } from "./shell/state/l
 export { loadLocaleDict, normalizeLocale, type Locale, useLanguage } from "./runtime/i18n/language"
 
 export {
+  type BrowserPane,
+  type BrowserPaneBounds,
   type ComputerUseSettings,
   type FatalRendererErrorLog,
   type Platform,
+  type RemoteControlStatus,
+  type RemoteDevice,
+  type RemotePairing,
   PlatformProvider,
 } from "./runtime/platform/platform"
 

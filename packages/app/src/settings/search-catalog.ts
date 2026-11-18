@@ -26,6 +26,12 @@ export const clientSettings: Entry<SettingsRootTab>[] = [
     keywords: "desktop control automation screen click type apps blocked",
     available: "desktop",
   },
+  {
+    tab: "remote",
+    label: "settings.tab.remote",
+    keywords: "phone mobile pair qr code browser away devices",
+    available: "desktop",
+  },
   { tab: "about", label: "settings.tab.about", keywords: "version license credits" },
   { tab: "experimental", label: "settings.tab.experimental", keywords: "experiments preview beta" },
   { tab: "general", label: "settings.general.row.language.title", target: "settings-language" },
@@ -116,6 +122,13 @@ export const clientSettings: Entry<SettingsRootTab>[] = [
     target: "settings-new-model-picker",
     description: "settings.experimental.row.newModelPicker.description",
     keywords: "model picker selector switcher redesign",
+  },
+  {
+    tab: "experimental",
+    label: "settings.experimental.row.showMarketing.title",
+    target: "settings-show-marketing",
+    description: "settings.experimental.row.showMarketing.description",
+    keywords: "marketing social posts calendar",
   },
   {
     tab: "appearance",

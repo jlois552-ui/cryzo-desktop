@@ -60,8 +60,15 @@ const FRAME_MS: u32 = 16;
 
 enum Signal {
     Step(String),
-    Point { step: String, rect: RECT },
+    Point {
+        step: String,
+        rect: RECT,
+    },
     Click,
+    /// The agent's turn ended: hide everything now.
+    Done,
+    /// A new turn after a Stop: the pill acts normally again.
+    Resume,
 }
 
 /// A handle to the overlay thread. Cloning it is cheap; every clone drives the same windows.
@@ -116,6 +123,14 @@ impl Overlay {
     /// A ripple under the agent cursor.
     pub(crate) fn click(&self) {
         self.send(Signal::Click);
+    }
+
+    pub(crate) fn done(&self) {
+        self.send(Signal::Done);
+    }
+
+    pub(crate) fn resume(&self) {
+        self.send(Signal::Resume);
     }
 
     fn send(&self, signal: Signal) {
@@ -447,6 +462,17 @@ impl State {
     }
 
     fn signal(&mut self, signal: Signal) {
+        // Neither ending a turn nor resuming shows the overlay.
+        if let Signal::Done = signal {
+            if self.shown.is_some() {
+                self.hide();
+            }
+            return;
+        }
+        if let Signal::Resume = signal {
+            PILL.with_borrow_mut(|pill| pill.stopped = false);
+            return;
+        }
         let now = Instant::now();
         self.last = now;
         if self.shown.is_none() {
@@ -486,6 +512,7 @@ impl State {
                 self.ripple = Some(now);
                 self.last_point = now;
             }
+            Signal::Done | Signal::Resume => {}
         }
     }
 
@@ -522,7 +549,7 @@ impl State {
         let now = Instant::now();
         if crate::uia::is_stopped() && !PILL.with_borrow(|pill| pill.stopped) {
             PILL.with_borrow_mut(|pill| pill.stopped = true);
-            self.label("Stopped. Cryzo won't act until desktop control restarts.");
+            self.label("Stopped. Cryzo won't act again until you send a new message.");
         }
         let quiet = now.duration_since(self.last);
         let fade_out = quiet

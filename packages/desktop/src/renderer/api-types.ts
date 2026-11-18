@@ -1,4 +1,4 @@
-import type { ComputerUseSettings } from "@opencode/app/desktop"
+import type { ComputerUseSettings, RemoteControlStatus, RemoteDevice, RemotePairing } from "@opencode/app/desktop"
 import type { DesktopMenuAction, DesktopZoomLevel } from "@opencode/app/desktop-menu"
 import type { DesktopNativeBundle } from "@opencode/app/i18n/desktop-native"
 import type { WindowBootstrap } from "../shared/window-bootstrap"
@@ -76,4 +76,9 @@ export type ElectronAPI = {
   setNativeTranslations(bundle: DesktopNativeBundle): Promise<void>
   getComputerUse(): Promise<ComputerUseSettings | null>
   setComputerUse(settings: ComputerUseSettings): Promise<void>
+  getRemoteControl(): Promise<RemoteControlStatus | null>
+  setRemoteControl(enabled: boolean): Promise<RemoteControlStatus>
+  pairRemoteDevice(): Promise<RemotePairing>
+  listRemoteDevices(): Promise<RemoteDevice[]>
+  revokeRemoteDevice(id: string): Promise<void>
 }

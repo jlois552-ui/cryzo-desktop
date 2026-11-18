@@ -1,4 +1,4 @@
-import { Route, useParams } from "@solidjs/router"
+import { Navigate, Route, useParams } from "@solidjs/router"
 import { createMemo, lazy, Show, Suspense, type ParentProps } from "solid-js"
 import { Home } from "@/home/route"
 import { ServerProvider } from "@/runtime/server/current"
@@ -7,6 +7,7 @@ import { ServerConnection, useServers } from "@/runtime/server/registry"
 import { SessionPanelFrame, SessionRouteFrame } from "@/session/session-frame"
 import { LayoutProvider } from "@/shell/state/layout"
 import { SettingsSurfaceProvider } from "@/settings/surface"
+import { useSettings } from "@/settings/model"
 import Shell from "@/shell/shell"
 import { requireServerKey } from "./session"
 import { PluginAttachment } from "@/runtime/plugin/root"
@@ -56,7 +57,7 @@ export function AppRoutes() {
     <Route component={AppLayout}>
       <Route path="/" component={Home} />
       <Route path="/settings" component={SettingsScreen} />
-      <Route path="/market" component={MarketRoute} />
+      <Route path="/market" component={MarketGate} />
       <Route
         path="/server/:serverKey/session/:id"
         component={() => (
@@ -78,6 +79,17 @@ export function AppRoutes() {
       <Route path="/new-session" component={DraftRoute} />
       {ComponentsLab && <Route path="/components" component={ComponentsLab} />}
     </Route>
+  )
+}
+
+// Marketing opens only when Settings > Experimental turns it on; otherwise a saved /market URL lands on Home.
+function MarketGate() {
+  const settings = useSettings()
+
+  return (
+    <Show when={settings.general.showMarketing()} fallback={<Navigate href="/" />}>
+      <MarketRoute />
+    </Show>
   )
 }
 

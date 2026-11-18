@@ -27,6 +27,10 @@ impl Desktop {
     pub fn app(&self, _command: &str, _args: &Value) -> Option<String> {
         None
     }
+
+    pub fn begin_turn(&mut self) {}
+
+    pub fn end_turn(&mut self) {}
 }
 
 pub fn start_stop_hotkey() {}

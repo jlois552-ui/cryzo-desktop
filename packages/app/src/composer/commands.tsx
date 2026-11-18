@@ -64,7 +64,21 @@ export const useComposerCommands = (input: { model?: ModelSelection } = {}) => {
     ))
   }
 
+  // ChatGPT's @Sites, as a slash command (in this composer `@` attaches context and `/` runs actions):
+  // a new project from the app starter, with a session ready to build what the user describes.
+  const buildApp = async () => {
+    const { DialogNewApp } = await import("@/shell/cloud/new-app-dialog")
+    void dialog.show(() => <DialogNewApp directory={workspace().directory} />)
+  }
+
   command.register("composer", () => [
+    agentCommand({
+      id: "app.build",
+      title: language.t("command.app.build"),
+      description: language.t("command.app.build.description"),
+      slash: "app",
+      onSelect: () => void buildApp(),
+    }),
     modelCommand({
       id: "model.choose",
       title: language.t("command.model.choose"),

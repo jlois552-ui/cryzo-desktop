@@ -97,4 +97,54 @@ export default defineSchema({
     .index("by_storage", ["storageId"]),
   marketAnalytics: defineTable({ user: v.string(), connectedAccountId: v.string(), days: v.number(), data: v.any(), updatedAt: v.number() })
     .index("by_user_account_days", ["user", "connectedAccountId", "days"]),
+
+  // Remote control. A host is one desktop install; a client is a phone or browser paired to it.
+  // Secrets are stored only as SHA-256 hashes; pairing codes are single use and expire after 5 minutes.
+  remoteHosts: defineTable({ user: v.string(), name: v.string(), secretHash: v.string(), createdAt: v.number(), lastSeenAt: v.optional(v.number()) }).index(
+    "by_user",
+    ["user"],
+  ),
+  remoteClients: defineTable({
+    user: v.string(),
+    host: v.id("remoteHosts"),
+    name: v.string(),
+    secretHash: v.string(),
+    createdAt: v.number(),
+    lastSeenAt: v.optional(v.number()),
+  }).index("by_host", ["host"]),
+  remotePairings: defineTable({ user: v.string(), host: v.id("remoteHosts"), codeHash: v.string(), expiresAt: v.number() })
+    .index("by_code", ["codeHash"])
+    .index("by_host", ["host"]),
+
+  // Cloud workspaces: one Vercel sandbox per user and project. The sandbox's agent token is
+  // returned once at start and never stored; only usage is kept, for the daily and monthly caps.
+  cloudWorkspaces: defineTable({
+    user: v.string(),
+    project: v.string(),
+    sandbox: v.string(),
+    status: v.union(v.literal("starting"), v.literal("running"), v.literal("stopped")),
+    url: v.optional(v.string()),
+    previews: v.optional(v.record(v.string(), v.string())),
+    startedAt: v.optional(v.number()),
+    lastActiveAt: v.optional(v.number()),
+    // Usage is counted up to this moment.
+    accountedAt: v.optional(v.number()),
+  })
+    .index("by_user_and_project", ["user", "project"])
+    .index("by_status", ["status"]),
+  cloudUsage: defineTable({ user: v.string(), day: v.string(), minutes: v.number() }).index("by_user_and_day", ["user", "day"]),
+  cloudBudget: defineTable({ month: v.string(), minutes: v.number() }).index("by_month", ["month"]),
+  // One row per published app; the address is unique across all users.
+  cloudApps: defineTable({
+    user: v.string(),
+    slug: v.string(),
+    script: v.string(),
+    database: v.optional(v.string()),
+    // Whether the app's BETTER_AUTH_SECRET has been set; its value is never stored here.
+    secret: v.boolean(),
+    url: v.optional(v.string()),
+    publishedAt: v.optional(v.number()),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_user", ["user"]),
 })

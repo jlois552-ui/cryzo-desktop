@@ -35,6 +35,7 @@ import { Persistence } from "@/runtime/persistence/schema"
 import { useSettings } from "@/settings/model"
 import type { NewSessionWorkspaceController } from "./workspace/controller"
 import { NewSessionBranch } from "./workspace/selector"
+import { CloudToggle } from "@/shell/cloud/toggle"
 import { NewSessionBrickBreaker } from "./brick-breaker"
 import { NewSessionPinBoard, type PinBoardHandle } from "./pin-board"
 import { NewSessionWordmark, type LodgerBall } from "./wordmark"
@@ -127,6 +128,7 @@ export function NewSessionView(props: {
                     />
                   )}
                 </Show>
+                <Show when={props.workspace.project.root()}>{(root) => <CloudToggle directory={root()} />}</Show>
               </div>
               <Show when={props.project.empty()}>
                 <PromptProjectAddButton controller={props.project} />

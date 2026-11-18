@@ -131,6 +131,8 @@ const generalSchema = Persistence.struct({
   newIcons: Schema.Boolean,
   // The "New model picker" design experiment, off until it ships.
   newModelPicker: Schema.Boolean,
+  // Marketing is hidden while Cryzo focuses on coding; its code and backend stay for the pending platform reviews.
+  showMarketing: Schema.Boolean,
   mobileTitlebarPosition: Schema.Literals(["top", "bottom"]),
   // Owned by the review plugin, which copies it out once; kept so settings rewrites cannot drop it first.
   mobileDiffWrap: Persistence.optional(Schema.Boolean),
@@ -301,6 +303,7 @@ export const defaultSettings: Settings = {
     timelineWidth: "comfortable",
     newIcons: false,
     newModelPicker: false,
+    showMarketing: false,
     mobileTitlebarPosition: "top",
     followUpBehavior: "steer",
   },
@@ -412,6 +415,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         newModelPicker: withFallback(() => store.general?.newModelPicker, defaultSettings.general.newModelPicker),
         setNewModelPicker(value: boolean) {
           setStore("general", "newModelPicker", value)
+        },
+        showMarketing: withFallback(() => store.general?.showMarketing, defaultSettings.general.showMarketing),
+        setShowMarketing(value: boolean) {
+          setStore("general", "showMarketing", value)
         },
         mobileTitlebarPosition: withFallback(
           () => store.general?.mobileTitlebarPosition,

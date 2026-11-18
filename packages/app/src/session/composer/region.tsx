@@ -21,6 +21,7 @@ import { useLocal } from "@/providers/models/selection"
 import { usePlatform } from "@/runtime/platform/platform"
 import { uuid } from "@/runtime/persistence/uuid"
 import { contextItemKey } from "@/composer/schema"
+import { browserNotes } from "@/shell/browser/notes"
 import type { QuoteSource } from "@/composer/quote-source"
 import { useWorkspaceLocation } from "@/workspaces/location"
 import { requireServerKey, sessionHref } from "@/shell/routes/session"
@@ -326,6 +327,20 @@ export function createActiveSessionRegion(input: {
     promptRef.focus()
     setCursorPosition(promptRef, prompt.cursor() ?? promptLength(prompt.current()))
   }
+
+  // Notes from the browser pane's annotate mode go to the session on screen, as review comments do.
+  createEffect(() => {
+    const pane = platform.browserPane
+    if (!pane || !input.visible() || input.session.data.isChild()) return
+    onCleanup(
+      pane.onNotes((raw) => {
+        const notes = browserNotes(raw, uuid)
+        if (!notes.length) return
+        notes.forEach((note) => prompt.context.add(note))
+        focusPrompt()
+      }),
+    )
+  })
 
   return {
     active,

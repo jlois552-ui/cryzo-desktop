@@ -34,6 +34,49 @@ export type ComputerUseSettings = {
   blockedApps: readonly string[]
 }
 
+/** Remote control: paired phones and browsers drive this computer's sessions through the Cryzo relay. */
+export type RemoteControlStatus = {
+  enabled: boolean
+  connected: boolean
+  /** Paired devices connected right now. */
+  clients: number
+  error: string | null
+}
+
+export type RemotePairing = {
+  /** Typed on the phone, e.g. "K7QF-2M9X"; single use, expires at `expiresAt` (ms). */
+  code: string
+  expiresAt: number
+  /** Opens the web client with the code filled in; null until the web client is deployed. */
+  url: string | null
+}
+
+export type RemoteDevice = {
+  id: string
+  name: string
+  createdAt: number
+  lastSeenAt: number | null
+}
+
+/** A rectangle in the window's CSS pixels. */
+export type BrowserPaneBounds = { x: number; y: number; width: number; height: number }
+
+/** The desktop's browser pane: a native webview drawn over the area the app reserves for it. */
+export type BrowserPane = {
+  show(bounds: BrowserPaneBounds, url?: string): Promise<void>
+  bounds(bounds: BrowserPaneBounds): Promise<void>
+  hide(): Promise<void>
+  navigate(url: string): Promise<void>
+  back(): Promise<void>
+  reload(): Promise<void>
+  /** Annotate mode: picks become notes; in batch mode they wait as numbered pins until `sendBatch`. */
+  annotate(enabled: boolean, batch: boolean): Promise<void>
+  sendBatch(): Promise<void>
+  onLoaded(callback: (url: string) => void): () => void
+  /** Raw notes from the page's picker; validate before use. */
+  onNotes(callback: (notes: readonly unknown[]) => void): () => void
+}
+
 export type FatalRendererErrorLog = {
   error: string
   url: string
@@ -122,6 +165,24 @@ type PlatformBase = {
 
   /** Save computer use settings; agents use them from their next action (desktop only) */
   setComputerUse?(settings: ComputerUseSettings): Promise<void>
+
+  /** Read remote control state; null where the host has no remote control (desktop only) */
+  getRemoteControl?(): Promise<RemoteControlStatus | null>
+
+  /** Turn remote control on or off; off removes every paired device (desktop only) */
+  setRemoteControl?(enabled: boolean): Promise<RemoteControlStatus>
+
+  /** A new single-use pairing code for a phone or browser (desktop only) */
+  pairRemoteDevice?(): Promise<RemotePairing>
+
+  /** Devices paired with this computer (desktop only) */
+  listRemoteDevices?(): Promise<RemoteDevice[]>
+
+  /** Remove a paired device; its open connection is dropped (desktop only) */
+  revokeRemoteDevice?(id: string): Promise<void>
+
+  /** The built-in browser pane (Cryzo desktop only) */
+  browserPane?: BrowserPane
 
   /** Run a desktop-only menu action from the app chrome */
   runDesktopMenuAction?(action: DesktopMenuAction): Promise<void> | void

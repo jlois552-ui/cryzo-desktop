@@ -162,9 +162,8 @@ impl Desktop {
                 "windows" | "snapshot" | "find" | "wait_for" | "ocr" | "screenshot" => {
                     overlay.step("Reading the screen")
                 }
-                "browser_snapshot" | "browser_find" | "browser_downloads" => {
-                    overlay.step("Reading the page")
-                }
+                "browser_snapshot" | "browser_find" | "browser_downloads" | "browser_tabs"
+                | "browser_capture" => overlay.step("Reading the page"),
                 _ => {}
             }
         }
@@ -436,8 +435,9 @@ impl Desktop {
         let hwnd = hwnd(&window);
         let first = self.read(&window, hwnd);
         // Chromium and WebView2 build their web accessibility tree only after the first UIA
-        // client asks, so a near-empty first read is usually just a cold tree.
-        let (lines, truncated) = if first.0.len() < 8 {
+        // client asks, so a near-empty first read, or a page document with nothing in it yet
+        // (Chrome's toolbar alone is more than a few lines), is usually just a cold tree.
+        let (lines, truncated) = if first.0.len() < 8 || cold_document(&first.0) {
             std::thread::sleep(Duration::from_millis(700));
             self.read(&window, hwnd)
         } else {
@@ -865,6 +865,16 @@ impl Desktop {
                     .join("\n"));
             }
             if Instant::now() >= deadline {
+                // Once, at the end: a virtualized list may hold the match out of view.
+                let found = self.search(&target, hwnd(&target), (text.to_lowercase(), None));
+                if !found.lines.is_empty() {
+                    return Ok(found
+                        .lines
+                        .into_iter()
+                        .map(|(_, line)| line)
+                        .collect::<Vec<_>>()
+                        .join("\n"));
+                }
                 bail!("{text:?} did not appear within {} ms", timeout.as_millis());
             }
             std::thread::sleep(Duration::from_millis(300));
@@ -1201,6 +1211,22 @@ impl Desktop {
         self.overlay.get().and_then(Option::as_ref)
     }
 
+    /// A new user turn: a Stop from the previous turn is cleared, because sending a new message
+    /// is the user letting Cryzo act again.
+    pub fn begin_turn(&mut self) {
+        STOPPED.store(false, Ordering::SeqCst);
+        if let Some(overlay) = self.running_overlay() {
+            overlay.resume();
+        }
+    }
+
+    /// The turn ended: the overlay goes away now instead of fading out on its own.
+    pub fn end_turn(&mut self) {
+        if let Some(overlay) = self.running_overlay() {
+            overlay.done();
+        }
+    }
+
     /// Resolves `w<hex handle>`, a title fragment or a process name; None means the foreground window.
     fn window(&self, query: Option<&str>) -> Result<UIElement> {
         let Some(query) = query.map(str::trim).filter(|query| !query.is_empty()) else {
@@ -1339,7 +1365,7 @@ pub(crate) fn is_stopped() -> bool {
 pub(crate) fn stopped() -> Result<()> {
     if STOPPED.load(Ordering::SeqCst) {
         bail!(
-            "The user stopped desktop control (the Stop button or Ctrl+Alt+Esc). Restart it to continue."
+            "The user stopped desktop control (the Stop button or Ctrl+Alt+Esc). Don't retry; it resumes when the user sends a new message."
         );
     }
     Ok(())
@@ -1659,6 +1685,19 @@ fn line_id(line: &str) -> Option<String> {
         .map(|(id, _)| id.to_string())
 }
 
+/// Whether a page document has nothing under it: Chromium has not built that page's tree yet.
+fn cold_document(lines: &[String]) -> bool {
+    let depth = |line: &String| line.len() - line.trim_start().len();
+    lines.iter().enumerate().any(|(index, line)| {
+        line.trim_start()
+            .split_once("] ")
+            .is_some_and(|(_, rest)| rest.starts_with("document "))
+            && lines
+                .get(index + 1)
+                .is_none_or(|next| depth(next) <= depth(line))
+    })
+}
+
 /// Whether a window shows UI Automation almost nothing beyond its title bar, as games, canvases,
 /// video and remote desktops do. Those windows are read by OCR automatically, so the agent never
 /// has to notice an empty tree and spend another call asking.
@@ -1843,7 +1882,29 @@ fn clip(text: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{changes, clean, quote, sparse};
+    use super::{changes, clean, cold_document, quote, sparse};
+
+    #[test]
+    fn a_page_document_with_nothing_in_it_is_cold() {
+        let lines = |items: &[&str]| {
+            items
+                .iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>()
+        };
+        // Chrome after a reload: toolbar lines, then the page document alone.
+        assert!(cold_document(&lines(&[
+            r#"  [e1] button "Back""#,
+            r#"  [e2] edit "Address and search bar" value="example.com""#,
+            r#"  [e3] document "Example""#,
+            r#"  [e4] button "Extensions""#,
+        ])));
+        assert!(!cold_document(&lines(&[
+            r#"  [e3] document "Example""#,
+            r#"    [e5] text "Example Domain""#,
+        ])));
+        assert!(!cold_document(&lines(&[r#"  [e1] button "Save""#])));
+    }
 
     #[test]
     fn sparse_ignores_title_bar_controls() {

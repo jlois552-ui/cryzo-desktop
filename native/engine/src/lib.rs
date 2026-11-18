@@ -1,5 +1,6 @@
 pub mod catalog;
 pub mod chatgpt;
+pub mod cloud;
 pub mod credentials;
 pub mod desktop_api;
 pub mod desktop_files;
@@ -10,8 +11,11 @@ pub mod market;
 pub mod native_sessions;
 pub mod provider;
 pub mod pty;
+pub mod publish;
+pub mod remote;
 pub mod service;
 pub mod session_store;
+pub mod starter;
 pub mod store;
 pub mod tools;
 pub mod wire;

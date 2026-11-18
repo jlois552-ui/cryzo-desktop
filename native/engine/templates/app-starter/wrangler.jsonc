@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "app",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Everything under /api goes to the Worker; every other path serves the React app.
+  "assets": { "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
+  // Cryzo gives the published app its own database. To deploy to your own Cloudflare account,
+  // run `npx wrangler d1 create <name>` and put the id it prints here.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "app",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

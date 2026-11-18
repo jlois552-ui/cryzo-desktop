@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Cryzo cloud workspaces (Cloudflare Sandboxes on the Workers Paid plan).
+  "name": "cryzo-cloud",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "containers": [
+    {
+      "class_name": "Workspace",
+      "scheduling_policy": "durable_object",
+      "images": { "workspace": { "dockerfile": "./Dockerfile" } }
+    }
+  ],
+  "durable_objects": { "bindings": [{ "name": "WORKSPACES", "class_name": "Workspace" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Workspace"] }],
+  // The app domain bought on Cloudflare; previews are served on *.preview.<APP_DOMAIN>.
+  // Add the routes once it exists: { "pattern": "*.preview.<APP_DOMAIN>/*", "zone_name": "<APP_DOMAIN>" }.
+  "vars": { "APP_DOMAIN": "cryzo.dev" },
+  // CLOUD_TICKET_KEY is a secret shared with the Convex gateway: `wrangler secret put CLOUD_TICKET_KEY`.
+}

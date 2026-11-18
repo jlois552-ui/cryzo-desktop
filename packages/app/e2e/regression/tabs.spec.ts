@@ -1366,6 +1366,7 @@ test("Marketing keeps its calendar visible while shared chats and composer draft
     sessions: [{ id: "ses_market_shared", title: "Shared coding conversation" }],
     onPrompt: (input) => prompts.push(input),
     market: { accounts: { accounts: [], groups: [] }, providers: [], posts: [], media: [], analytics: [] },
+    seed: { settings: { general: { showMarketing: true } } },
   })
   await page.goto("/market")
   const navigation = page.getByRole("navigation", { name: "Marketing", exact: true })

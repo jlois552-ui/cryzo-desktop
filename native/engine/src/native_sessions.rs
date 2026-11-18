@@ -103,6 +103,8 @@ impl Engine {
         }
         let engine = self.clone();
         tokio::spawn(async move {
+            // A new message lets desktop control act again after a Stop in the previous turn.
+            engine.desktop_turn(true).await;
             let mut outcome = engine
                 .run_session(&session, &resolved, cancel.clone())
                 .await;
@@ -135,8 +137,25 @@ impl Engine {
                 running.remove(&session);
                 break;
             }
+            engine.desktop_turn(false).await;
         });
         Ok(())
+    }
+
+    /// Tells desktop control a turn began or ended, only when it is already running: no turn
+    /// starts its UI Automation thread or overlay just to say so.
+    async fn desktop_turn(&self, begin: bool) {
+        let Some(Ok(thread)) = self.desktop.get().cloned() else {
+            return;
+        };
+        let _ = tokio::task::spawn_blocking(move || {
+            if begin {
+                thread.begin_turn()
+            } else {
+                thread.end_turn()
+            }
+        })
+        .await;
     }
     pub async fn run_session(
         &self,
@@ -160,6 +179,9 @@ impl Engine {
             && let Ok(instructions) = tokio::fs::read_to_string(path).await
         {
             system.push(json!({"role":"system","content":format!("Project instructions (within the accepted task):\n{instructions}")}));
+        }
+        if crate::cloud::project(std::path::Path::new(root)).is_some() {
+            system.push(json!({"role":"system","content":crate::cloud::INSTRUCTIONS}));
         }
         // Read once per run: desktop control stays off unless the user enabled it in its settings.
         let desktop = cfg!(windows)

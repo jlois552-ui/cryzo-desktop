@@ -15,6 +15,7 @@ import { experimentalSettingsAvailable, SettingsExperimental } from "./experimen
 import { SettingsKeybinds } from "./keybinds/keybinds"
 import { SettingsNotifications } from "./notifications/notifications"
 import { SettingsComputer } from "./computer/computer"
+import { SettingsRemote } from "./remote/remote"
 import { usePlatform } from "@/runtime/platform/platform"
 import { SettingsProviders } from "./providers/providers"
 import { SettingsModels } from "./models/models"
@@ -63,6 +64,8 @@ const serverPages = {
 } as const
 
 const computerTab = { value: "computer", icon: pageIcons.computer, label: "settings.tab.computer" } as const
+
+const remoteTab = { value: "remote", icon: pageIcons.remote, label: "settings.tab.remote" } as const
 
 const experimentalTab = [
   { value: "experimental", icon: pageIcons.experimental, label: "settings.tab.experimental" },
@@ -279,6 +282,7 @@ function RootSettings() {
         ...rootClientTabs.map((item) => ({ ...item, label: language.t(item.label) })),
         // Only hosts that can control the desktop offer the page.
         ...(platform.getComputerUse ? [{ ...computerTab, label: language.t(computerTab.label) }] : []),
+        ...(platform.getRemoteControl ? [{ ...remoteTab, label: language.t(remoteTab.label) }] : []),
         ...pluginTabs(),
       ],
     },
@@ -326,6 +330,9 @@ function RootSettings() {
       </Tabs.Content>
       <Tabs.Content value="computer" class="settings-panel">
         <SettingsComputer />
+      </Tabs.Content>
+      <Tabs.Content value="remote" class="settings-panel">
+        <SettingsRemote />
       </Tabs.Content>
       <PluginSettingsPages />
       <Tabs.Content value="experimental" class="settings-panel">

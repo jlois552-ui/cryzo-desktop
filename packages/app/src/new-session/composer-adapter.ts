@@ -2,7 +2,10 @@ import { useSessionSurface } from "@/session/surface"
 import { Predicate } from "effect"
 import { base64Encode } from "@opencode/util/encode"
 import { Session } from "@opencode/schema/session"
-import { startTransition } from "solid-js"
+import { onCleanup, startTransition } from "solid-js"
+import { usePlatform } from "@/runtime/platform/platform"
+import { uuid } from "@/runtime/persistence/uuid"
+import { browserNotes } from "@/shell/browser/notes"
 import type { NewSessionComposerAdapter } from "@/composer/adapter"
 import { useComposerState } from "@/composer/persistence"
 import { createComposerControls, createComposerModelSelection } from "@/composer/selection"
@@ -38,6 +41,9 @@ export function createNewSessionComposerAdapter(props: {
   const language = useLanguage()
   const model = createComposerModelSelection({ agent: () => local.agent.current() })
   const controls = createComposerControls({ model })
+  // Notes from the browser pane's annotate mode go to a new session's draft too.
+  const pane = usePlatform().browserPane
+  if (pane) onCleanup(pane.onNotes((raw) => browserNotes(raw, uuid).forEach((note) => prompt.context.add(note))))
 
   const adapter: NewSessionComposerAdapter = {
     kind: "new-session",

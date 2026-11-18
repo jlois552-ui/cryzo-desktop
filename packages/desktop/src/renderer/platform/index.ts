@@ -1,4 +1,4 @@
-import type { Platform } from "@opencode/app/desktop"
+import type { BrowserPane, Platform } from "@opencode/app/desktop"
 import type { ElectronAPI } from "../api-types"
 import { setPinchZoomEnabled, setZoomLevel, webviewZoom, zoomLevel } from "../window/zoom"
 import { windowFullscreen } from "../window/fullscreen"
@@ -50,6 +50,13 @@ export function createDesktopPlatform(api: ElectronAPI, windowState: DesktopWind
     },
     getComputerUse: () => api.getComputerUse(),
     setComputerUse: (settings) => api.setComputerUse(settings),
+    getRemoteControl: () => api.getRemoteControl(),
+    setRemoteControl: (enabled) => api.setRemoteControl(enabled),
+    pairRemoteDevice: () => api.pairRemoteDevice(),
+    listRemoteDevices: () => api.listRemoteDevices(),
+    revokeRemoteDevice: (id) => api.revokeRemoteDevice(id),
+    // Only the Cryzo Tauri host draws the pane; its bootstrap provides it before the renderer loads.
+    browserPane: (window as { cryzoBrowserPane?: BrowserPane }).cryzoBrowserPane,
     runDesktopMenuAction: createDesktopMenuAction(api),
     checkAppExists: async (appName) => {
       return api.checkAppExists(appName)

@@ -1,5 +1,5 @@
 //! Tauri host adapter for the unmodified upstream desktop renderer.
-use cryzo_engine::{desktop_storage::DesktopStorage, service::Engine};
+use cryzo_engine::{desktop_storage::DesktopStorage, remote, service::Engine};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -18,6 +18,10 @@ pub struct DesktopHost {
     zoom: Mutex<f64>,
     picked: Mutex<HashMap<String, Vec<std::path::PathBuf>>>,
     sockets: Mutex<HashMap<String, NativeSocket>>,
+    engine: Arc<Engine>,
+    router: axum::Router,
+    /// The outbound remote control link, while remote control is on.
+    remote: Mutex<Option<remote::Link>>,
 }
 
 impl DesktopHost {
@@ -28,13 +32,21 @@ impl DesktopHost {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let url = format!("http://{}", listener.local_addr()?);
         let token = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
-        let router = cryzo_engine::service::router(engine, token.clone());
+        let router = cryzo_engine::service::router(engine.clone(), token.clone());
+        let served = router.clone();
         tauri::async_runtime::spawn(async move {
-            if let Err(error) = axum::serve(listener, router).await {
+            if let Err(error) = axum::serve(listener, served).await {
                 eprintln!("native HTTP service stopped: {error}");
             }
         });
+        // Remote control stays on across restarts until the user turns it off.
+        let link = remote::saved().map(|credential| {
+            remote::Link::start(engine.clone(), router.clone(), token.clone(), credential)
+        });
         Ok(Self {
+            engine,
+            router,
+            remote: Mutex::new(link),
             url,
             token,
             client: reqwest::Client::builder()
@@ -71,6 +83,16 @@ impl DesktopHost {
             )
             .map(|_| ())
             .map_err(|e| e.to_string())
+    }
+
+    async fn remote_status(&self) -> Value {
+        let status = self.remote.lock().await.as_ref().map(remote::Link::status);
+        json!({
+            "enabled": status.is_some(),
+            "connected": status.as_ref().is_some_and(|value| value.connected),
+            "clients": status.as_ref().map_or(0, |value| value.clients),
+            "error": status.and_then(|value| value.error),
+        })
     }
 
     fn zoom_level(&self) -> Result<f64, String> {
@@ -280,6 +302,39 @@ pub async fn desktop_call(
             let enabled = payload["enabled"].as_bool().ok_or("invalid pinch setting")?;
             host.set_setting("pinch", if enabled {"true"} else {"false"})?;
             app.emit("cryzo:desktop", json!({"_tag":"WindowPinchZoomChanged","enabled":enabled})).map_err(|e| e.to_string())?;
+            Ok(Value::Null)
+        }
+        // Remote control: this computer dials out to the Cryzo relay; paired devices use the same API.
+        "AppGetRemoteControl" => Ok(host.remote_status().await),
+        "AppSetRemoteControl" => {
+            let enabled = payload["enabled"].as_bool().ok_or("invalid remote control setting")?;
+            let mut link = host.remote.lock().await;
+            if enabled && link.is_none() {
+                let name = std::env::var("COMPUTERNAME")
+                    .or_else(|_| std::env::var("HOSTNAME"))
+                    .unwrap_or_else(|_| "Computer".into());
+                let credential = remote::enable(&name).await.map_err(|e| format!("{e:#}"))?;
+                *link = Some(remote::Link::start(host.engine.clone(), host.router.clone(), host.token.clone(), credential));
+            }
+            if !enabled {
+                link.take();
+                if let Some(credential) = remote::saved() {
+                    remote::disable(&credential).await.map_err(|e| format!("{e:#}"))?;
+                }
+            }
+            drop(link);
+            Ok(host.remote_status().await)
+        }
+        "AppPairRemoteDevice" => {
+            let credential = remote::saved().ok_or("Turn on remote control first.")?;
+            remote::pair(&credential).await.map_err(|e| format!("{e:#}"))
+        }
+        "AppListRemoteDevices" => match remote::saved() {
+            Some(credential) => remote::clients(&credential).await.map_err(|e| format!("{e:#}")),
+            None => Ok(json!([])),
+        },
+        "AppRevokeRemoteDevice" => {
+            remote::revoke(&text("id")?).await.map_err(|e| format!("{e:#}"))?;
             Ok(Value::Null)
         }
         // Computer use (desktop control) lives in its own JSON file so the standalone MCP server

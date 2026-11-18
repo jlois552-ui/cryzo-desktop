@@ -26,6 +26,7 @@ import {
 import { createPanelMotion, guardClosingFocus, panelOpacity } from "@/shell/panel-motion"
 import { createSidebarPeek } from "@/shell/sidebar-peek"
 import { windowDragEnabled } from "@/session/header/drag-area"
+import { BrowserPanel, browserPanel } from "@/shell/browser/panel"
 
 // How far Home steps along a peek's header to clear the collapsed toggle: to the toggle's end, from the sidebar's 18px
 // start padding.
@@ -201,6 +202,20 @@ export default function Layout(props: ParentProps) {
       },
     },
   ])
+  // Only the Cryzo desktop host draws the browser pane.
+  command.register("browser", () =>
+    platform.browserPane
+      ? [
+          {
+            id: "browser.toggle",
+            title: language.t("browser.toggle"),
+            category: language.t("command.category.view"),
+            keybind: "mod+alt+b",
+            onSelect: () => browserPanel.toggle(),
+          },
+        ]
+      : [],
+  )
   const bottomTitlebar = () => mobile() && preferences.general.mobileTitlebarPosition() === "bottom"
   const dragInset = () => windowDragEnabled(platform) && !mobile()
 
@@ -305,6 +320,7 @@ export default function Layout(props: ParentProps) {
             <Suspense>{props.children}</Suspense>
           </PluginServerCover>
         </main>
+        <BrowserPanel />
         <CollapsedSidebarToggle />
       </div>
       <PluginSlot at="window.bottom" input={{}} />

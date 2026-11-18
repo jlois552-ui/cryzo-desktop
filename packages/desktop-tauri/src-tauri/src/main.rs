@@ -1,5 +1,6 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod browser;
 mod desktop;
 use desktop::{DesktopHost, desktop_call, native_bootstrap, native_fetch, native_interrupt};
 use desktop::{native_socket_close, native_socket_open, native_socket_send};
@@ -169,6 +170,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            browser::browser_pane,
             native_bootstrap,
             desktop_call,
             native_fetch,

@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Remote control relay: forwards a paired phone's or browser's requests to the user's desktop engine.
+  // Free Workers plan: SQLite-backed Durable Objects with WebSocket hibernation, on *.workers.dev.
+  "name": "cryzo-remote-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "durable_objects": { "bindings": [{ "name": "HOSTS", "class_name": "Host" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Host"] }],
+  // REMOTE_TICKET_KEY is a secret shared with the Convex gateway: `wrangler secret put REMOTE_TICKET_KEY`.
+}

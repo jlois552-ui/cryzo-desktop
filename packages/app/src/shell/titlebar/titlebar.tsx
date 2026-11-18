@@ -459,7 +459,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                   <span class="min-w-0 truncate">{language.t("market.title")}</span>
                 </button>
                 <Show when={layout.route().type === "market"}>
-                  <div class="flex w-full flex-col gap-0.5 ps-6">
+                  <nav class="flex w-full flex-col gap-0.5 ps-6" aria-label={language.t("market.title")}>
                     <For each={marketSections}>
                       {(section) => (
                         <button
@@ -474,19 +474,23 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                         </button>
                       )}
                     </For>
-                  </div>
+                  </nav>
                 </Show>
               </>
             )
 
-            command.register("titlebar-market", () => [
-              {
-                id: "market.open",
-                title: language.t("command.market.open"),
-                category: language.t("command.category.view"),
-                onSelect: () => navigate("/market"),
-              },
-            ])
+            command.register("titlebar-market", () =>
+              settings.general.showMarketing()
+                ? [
+                    {
+                      id: "market.open",
+                      title: language.t("command.market.open"),
+                      category: language.t("command.category.view"),
+                      onSelect: () => navigate("/market"),
+                    },
+                  ]
+                : [],
+            )
 
             command.register("titlebar-home", () => [
               {
@@ -822,7 +826,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                                 keybind={command.keybind("tab.new")}
                               />
                               <Show when={!homeInSidebarHeader()}>{homeButton()}</Show>
-                              {marketButton()}
+                              <Show when={settings.general.showMarketing()}>{marketButton()}</Show>
                             </div>
                             <div class="mt-4 flex h-7 w-full shrink-0 items-center gap-1 ps-1.5">
                               <span class="min-w-0 flex-1 truncate text-[12px] font-medium leading-4 text-v2-text-text-faint">

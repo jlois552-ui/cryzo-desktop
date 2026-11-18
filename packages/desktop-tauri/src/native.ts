@@ -1,6 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import type { ElectronNative } from "../../desktop/src/preload/types"
+import type { BrowserPane } from "@opencode/app/desktop"
 import { installNativeSockets } from "./native-socket"
 import { installNativeChrome } from "./native-chrome"
 
@@ -23,6 +24,9 @@ export async function initializeNativeDesktop() {
   const bootstrap = await invoke<Bootstrap>("native_bootstrap")
   const channel = new MessageChannel()
   window.cryzoPort = channel.port2
+  // The browser pane talks to its own Tauri command; the renderer platform picks it up from here.
+  const pane = createBrowserPane()
+  Object.assign(window, { cryzoBrowserPane: pane.api })
   // Keep the upstream renderer contract and route native operations through Tauri.
   // No Electron process, preload, or TypeScript coding engine is launched.
   window.electron = {
@@ -36,6 +40,7 @@ export async function initializeNativeDesktop() {
   const caption = installNativeChrome()
   await listen<DesktopEvent>("cryzo:desktop", ({ payload }) => {
     caption(payload)
+    pane.event(payload)
     if (events !== undefined) channel.port1.postMessage({ _tag: "Chunk", requestId: events, values: [payload] })
   })
   channel.port1.onmessage = ({ data }: MessageEvent<DesktopRequest>) => {
@@ -152,6 +157,37 @@ async function nativeFetch(request: Request): Promise<Response> {
         close()
       })
   })
+}
+
+function createBrowserPane() {
+  const loaded = new Set<(url: string) => void>()
+  const notes = new Set<(notes: readonly unknown[]) => void>()
+  const call = (tag: string, payload: object = {}) => invoke<void>("browser_pane", { tag, payload })
+  const api: BrowserPane = {
+    show: (bounds, url) => call("BrowserShow", url ? { ...bounds, url } : bounds),
+    bounds: (bounds) => call("BrowserBounds", bounds),
+    hide: () => call("BrowserHide"),
+    navigate: (url) => call("BrowserNavigate", { url }),
+    back: () => call("BrowserBack"),
+    reload: () => call("BrowserReload"),
+    annotate: (enabled, batch) => call("BrowserAnnotate", { enabled, batch }),
+    sendBatch: () => call("BrowserSendBatch"),
+    onLoaded: (callback) => {
+      loaded.add(callback)
+      return () => loaded.delete(callback)
+    },
+    onNotes: (callback) => {
+      notes.add(callback)
+      return () => notes.delete(callback)
+    },
+  }
+  return {
+    api,
+    event(payload: DesktopEvent) {
+      if (payload._tag === "BrowserLoaded" && typeof payload.url === "string") loaded.forEach((fn) => fn(payload.url as string))
+      if (payload._tag === "BrowserNotes" && Array.isArray(payload.notes)) notes.forEach((fn) => fn(payload.notes as unknown[]))
+    },
+  }
 }
 
 function nativeError(error: unknown) {

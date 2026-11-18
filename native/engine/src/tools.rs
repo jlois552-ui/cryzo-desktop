@@ -64,13 +64,16 @@ impl Operation {
     }
 }
 
-pub struct Workspace(PathBuf);
+/// A project folder. Files are always read and written here; a folder linked to Cryzo Cloud
+/// runs its commands in a cloud workspace (see `cloud.rs`).
+pub struct Workspace(PathBuf, Option<String>);
 
 impl Workspace {
     pub fn open(path: &Path) -> Result<Self> {
         let path = path.canonicalize().context("open workspace")?;
         ensure!(path.is_dir(), "workspace must be a directory");
-        Ok(Self(path))
+        let cloud = crate::cloud::project(&path);
+        Ok(Self(path, cloud))
     }
 
     /// Resolve existing ancestors too: lexical checks alone do not contain symlinks/junctions.
@@ -146,7 +149,10 @@ impl Workspace {
                 tokio::fs::write(path, content).await?;
                 Ok(json!({"written":true}))
             }
-            Operation::Shell { program, args } => self.process(program, args).await,
+            Operation::Shell { program, args } => match &self.1 {
+                Some(project) => crate::cloud::run(&self.0, project, program, args).await,
+                None => self.process(program, args).await,
+            },
             Operation::MarketChannels {}
             | Operation::MarketPosts { .. }
             | Operation::MarketPost { .. } => {

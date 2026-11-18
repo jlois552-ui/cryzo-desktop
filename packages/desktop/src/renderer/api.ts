@@ -98,4 +98,9 @@ export const api: ElectronAPI = {
   setNativeTranslations: (bundle) => invoke("AppSetNativeTranslations", { value: bundle }),
   getComputerUse: () => invoke("AppGetComputerUse").then(mutable),
   setComputerUse: (settings) => invoke("AppSetComputerUse", { settings }),
+  getRemoteControl: () => invoke("AppGetRemoteControl"),
+  setRemoteControl: (enabled) => invoke("AppSetRemoteControl", { enabled }),
+  pairRemoteDevice: () => invoke("AppPairRemoteDevice"),
+  listRemoteDevices: () => invoke("AppListRemoteDevices").then(mutable),
+  revokeRemoteDevice: (id) => invoke("AppRevokeRemoteDevice", { id }),
 }

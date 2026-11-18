@@ -50,6 +50,17 @@ export const SettingsExperimental: Component = () => {
                 />
               </div>
             </SettingsRow>
+            <SettingsRow
+              title={language.t("settings.experimental.row.showMarketing.title")}
+              description={language.t("settings.experimental.row.showMarketing.description")}
+            >
+              <div data-action="settings-show-marketing">
+                <Switch
+                  checked={settings.general.showMarketing()}
+                  onChange={(checked) => settings.general.setShowMarketing(checked)}
+                />
+              </div>
+            </SettingsRow>
           </SettingsList>
         </div>
       </div>

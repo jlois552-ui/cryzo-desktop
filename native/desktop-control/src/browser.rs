@@ -238,6 +238,35 @@ impl Browser {
             "browser_downloads" => {
                 self.wait_downloads(args.get("wait").and_then(Value::as_bool).unwrap_or(false))
             }
+            "browser_tabs" => self.tabs(),
+            "browser_tab" => {
+                stopped()?;
+                let target = self.target_for(required("id")?)?;
+                match required("action")? {
+                    "switch" => {
+                        self.switch(&target)?;
+                        let lines = self.read(max_lines)?;
+                        self.last = Some(lines.clone());
+                        Ok(format!("{}\n{}", self.header()?, lines.join("\n")))
+                    }
+                    "close" => {
+                        let pages = self.pages()?;
+                        ensure!(pages.len() > 1, "That is the only tab; open another first.");
+                        self.command(None, "Target.closeTarget", json!({"targetId":target}))?;
+                        if target == self.target {
+                            let next = pages
+                                .into_iter()
+                                .find(|page| *page != target)
+                                .context("no other tab")?;
+                            self.switch(&next)?;
+                        }
+                        self.known = self.pages()?.into_iter().collect();
+                        self.tabs()
+                    }
+                    other => bail!("browser_tab action must be switch or close, not {other:?}"),
+                }
+            }
+            "browser_capture" => self.capture(text("id")),
             _ => bail!("Unknown browser tool {command:?}"),
         }
     }
@@ -260,6 +289,7 @@ impl Browser {
         match command {
             "browser_open" => format!("open {} in the Cryzo browser", text("url")),
             "browser_key" => format!("press {:?} on {site}", text("keys")),
+            "browser_tab" => format!("{} browser tab {}", text("action"), text("id")),
             "browser_act" => {
                 let (role, name) = match self.nodes.get(text("id")) {
                     Some(node) => (node.role.clone(), node.name.clone()),
@@ -622,6 +652,110 @@ impl Browser {
         self.nodes.clear();
         self.last = None;
         Ok(())
+    }
+
+    /// Open tabs as `[t1a2b3c4d] "Title" url`, the driven one marked.
+    fn tabs(&mut self) -> Result<String> {
+        let infos = self.command(None, "Target.getTargets", json!({}))?["targetInfos"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        Ok(infos
+            .iter()
+            .filter(|info| info["type"] == "page")
+            .map(|info| {
+                let id = info["targetId"].as_str().unwrap_or_default();
+                format!(
+                    "[t{}] {}{} {}",
+                    id.get(..8).unwrap_or(id).to_lowercase(),
+                    if id == self.target { "*driving " } else { "" },
+                    quote(info["title"].as_str().unwrap_or_default()),
+                    info["url"].as_str().unwrap_or_default()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"))
+    }
+
+    /// The tab a short ID from `tabs` names.
+    fn target_for(&mut self, id: &str) -> Result<String> {
+        let prefix = id.trim().trim_start_matches('t').to_lowercase();
+        ensure!(
+            !prefix.is_empty(),
+            "browser_tab needs a tab ID like t1a2b3c4d"
+        );
+        let matches: Vec<_> = self
+            .pages()?
+            .into_iter()
+            .filter(|page| page.to_lowercase().starts_with(&prefix))
+            .collect();
+        ensure!(
+            matches.len() == 1,
+            "No single tab matches {id}; list them with browser_tabs."
+        );
+        Ok(matches[0].clone())
+    }
+
+    /// A PNG of the tab, or of one element, saved for the user as proof of what the agent saw.
+    fn capture(&mut self, id: Option<&str>) -> Result<String> {
+        let mut params = json!({"format":"png"});
+        let what = match id {
+            Some(id) => {
+                let node =
+                    self.nodes.get(id).cloned().with_context(|| {
+                        format!("No element {id}; take a browser_snapshot first.")
+                    })?;
+                let _ = self.send(
+                    "DOM.scrollIntoViewIfNeeded",
+                    json!({"backendNodeId":node.backend}),
+                );
+                let model = self.send("DOM.getBoxModel", json!({"backendNodeId":node.backend}))?;
+                let quad: Vec<f64> = model["model"]["border"]
+                    .as_array()
+                    .context("element has no box")?
+                    .iter()
+                    .filter_map(Value::as_f64)
+                    .collect();
+                ensure!(quad.len() == 8, "element has no box");
+                let (xs, ys): (Vec<f64>, Vec<f64>) =
+                    quad.chunks(2).map(|point| (point[0], point[1])).unzip();
+                let left = xs.iter().copied().fold(f64::INFINITY, f64::min);
+                let top = ys.iter().copied().fold(f64::INFINITY, f64::min);
+                let width = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max) - left;
+                let height = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max) - top;
+                ensure!(width >= 1.0 && height >= 1.0, "element is not visible");
+                // Box model quads are in the viewport; the clip is in the page.
+                let viewport =
+                    self.send("Page.getLayoutMetrics", json!({}))?["cssLayoutViewport"].clone();
+                params["clip"] = json!({
+                    "x": left + viewport["pageX"].as_f64().unwrap_or_default(),
+                    "y": top + viewport["pageY"].as_f64().unwrap_or_default(),
+                    "width": width, "height": height, "scale": 1
+                });
+                format!("{} {}", node.role, quote(&node.name))
+            }
+            None => "the visible page".to_string(),
+        };
+        let data = self.send("Page.captureScreenshot", params)?;
+        let bytes = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            data["data"].as_str().context("Chrome returned no image")?,
+        )?;
+        let directory = profile()?
+            .parent()
+            .context("no Cryzo data folder")?
+            .join("proof");
+        std::fs::create_dir_all(&directory)?;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let path = directory.join(format!("capture-{stamp}.png"));
+        std::fs::write(&path, bytes)?;
+        Ok(format!(
+            "Saved a screenshot of {what} to {}",
+            path.display()
+        ))
     }
 
     fn pages(&mut self) -> Result<Vec<String>> {
