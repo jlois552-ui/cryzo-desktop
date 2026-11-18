@@ -5,7 +5,7 @@
 import { v } from "convex/values"
 import { internal } from "../_generated/api"
 import { internalAction, type ActionCtx } from "../_generated/server"
-import { managedSecret, manifestProblem, scriptName, secretProblem, slugProblem, STATIC_MODULE, type Manifest } from "../lib/apps"
+import { bucketName, managedSecret, manifestProblem, scriptName, secretProblem, slugProblem, STATIC_MODULE, type Manifest } from "../lib/apps"
 
 const API = "https://api.cloudflare.com/client/v4"
 
@@ -34,10 +34,13 @@ async function cloudflare(path: string, init: RequestInit = {}) {
 
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body), headers: { "Content-Type": "application/json" } })
 
-type Begun = { jwt: string; buckets: string[][]; upload: string }
+type Begun = { jwt: string; buckets: string[][]; upload: string; warning?: string }
+
+const storage = v.object({ database: v.string(), files: v.optional(v.string()) })
 
 export const begin = internalAction({
-  args: { user: v.string(), slug: v.string(), manifest: v.any() },
+  // `storage` is checked by `readStorage` at the HTTP boundary.
+  args: { user: v.string(), slug: v.string(), manifest: v.any(), storage },
   handler: async (ctx, args): Promise<Begun> => {
     const problem = slugProblem(args.slug) ?? manifestProblem(args.manifest)
     if (problem) throw new Error(problem)
@@ -49,6 +52,18 @@ export const begin = internalAction({
       const created = await cloudflare("/d1/database", { method: "POST", ...json({ name: script }) })
       await ctx.runMutation(internal.apps.store.update, { user: args.user, slug: args.slug, database: String(created.uuid) })
     }
+    // A file bucket only when the app's settings ask for one, so plain apps don't need R2. If R2
+    // can't make one, the app still publishes without file storage and the next publish retries.
+    let warning: string | undefined
+    if (args.storage.files && !app.bucket) {
+      const created = await cloudflare("/r2/buckets", { method: "POST", ...json({ name: bucketName(args.slug) }) }).then(
+        () => true,
+        // Creating it again after a lost response is fine; the bucket is already there.
+        (error: unknown) => error instanceof Error && /already exists/i.test(error.message),
+      )
+      if (created) await ctx.runMutation(internal.apps.store.update, { user: args.user, slug: args.slug, bucket: bucketName(args.slug) })
+      else warning = "Published without file storage, which isn't available yet. File uploads in this app will say they aren't set up."
+    }
     const session = await cloudflare(`/workers/scripts/${script}/assets-upload-session`, {
       method: "POST",
       ...json({ manifest: args.manifest as Manifest }),
@@ -57,6 +72,7 @@ export const begin = internalAction({
       jwt: String(session.jwt),
       buckets: (session.buckets as string[][] | undefined) ?? [],
       upload: `${API}/accounts/${settings.account}/workers/assets/upload?base64=true`,
+      ...(warning && { warning }),
     }
   },
 })
@@ -77,6 +93,8 @@ export const finish = internalAction({
     // Checked by `readModules` and `readAssetRouting` at the HTTP boundary.
     modules: v.array(v.object({ name: v.string(), content: v.string() })),
     routing,
+    storage,
+    migrations: v.array(v.object({ name: v.string(), hash: v.string() })),
   },
   handler: async (ctx, args): Promise<{ url: string }> => {
     const settings = config()
@@ -97,7 +115,8 @@ export const finish = internalAction({
             assets: { jwt: args.jwt, config: args.routing },
             bindings: [
               { type: "assets", name: "ASSETS" },
-              { type: "d1", name: "DB", id: app.database },
+              { type: "d1", name: args.storage.database, id: app.database },
+              ...(app.bucket && args.storage.files ? [{ type: "r2_bucket", name: args.storage.files, bucket_name: app.bucket }] : []),
               { type: "plain_text", name: "APP_URL", text: url },
             ],
             // Secrets are set once below and must survive every later deploy.
@@ -123,7 +142,15 @@ export const finish = internalAction({
         ...json({ name: "BETTER_AUTH_SECRET", text: Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(""), type: "secret_text" }),
       })
     }
-    await ctx.runMutation(internal.apps.store.update, { user: args.user, slug: args.slug, secret: true, url, publishedAt: Date.now() })
+    // The migrations now run on the live database the first time the new code serves a request.
+    await ctx.runMutation(internal.apps.store.update, {
+      user: args.user,
+      slug: args.slug,
+      secret: true,
+      url,
+      publishedAt: Date.now(),
+      migrations: args.migrations,
+    })
     return { url }
   },
 })
@@ -137,6 +164,7 @@ export const unpublish = internalAction({
     // `force` also removes the app's custom domain.
     await cloudflare(`/workers/scripts/${app.script}?force=true`, { method: "DELETE" })
     if (app.database) await cloudflare(`/d1/database/${app.database}`, { method: "DELETE" })
+    if (app.bucket) await deleteBucket(app.bucket)
     await ctx.runMutation(internal.apps.store.remove, args)
   },
 })
@@ -184,5 +212,57 @@ export const deleteSecret = internalAction({
     if (problem) throw new Error(problem)
     const app = await published(ctx, args.user, args.slug)
     await cloudflare(`/workers/scripts/${app.script}/secrets/${args.name}`, { method: "DELETE" })
+  },
+})
+
+/** R2 deletes only empty buckets, so the app's files go first. */
+async function deleteBucket(name: string) {
+  for (;;) {
+    const page = await list(`/r2/buckets/${name}/objects?per_page=1000`)
+    if (page === undefined) return
+    const keys = page.map((object) => object.key)
+    if (keys.length === 0) break
+    for (let index = 0; index < keys.length; index += 20)
+      await Promise.all(
+        keys.slice(index, index + 20).map((key) => cloudflare(`/r2/buckets/${name}/objects/${encodeURIComponent(key)}`, { method: "DELETE" })),
+      )
+  }
+  await cloudflare(`/r2/buckets/${name}`, { method: "DELETE" })
+}
+
+/** A Cloudflare list result, or undefined when the parent is already gone. */
+async function list(path: string) {
+  const settings = config()
+  const response = await fetch(`${API}/accounts/${settings.account}${path}`, {
+    headers: { Authorization: `Bearer ${settings.token}` },
+    signal: AbortSignal.timeout(60_000),
+  })
+  if (response.status === 404) return undefined
+  const body = (await response.json().catch(() => null)) as { success?: boolean; result?: { key: string }[]; errors?: { message?: string }[] } | null
+  if (!response.ok || !body?.success) throw new Error(`Cloudflare refused the request: ${body?.errors?.[0]?.message ?? response.status}`)
+  return body.result ?? []
+}
+
+/**
+ * A download link for the live database as SQL. Cloudflare cancels an export that isn't polled,
+ * so this keeps asking until the file is ready; the link works for an hour.
+ */
+export const exportData = internalAction({
+  args: { user: v.string(), slug: v.string() },
+  handler: async (ctx, args): Promise<{ url: string; filename: string }> => {
+    const app = await published(ctx, args.user, args.slug)
+    if (!app.database) throw new Error("This app has no database yet.")
+    let bookmark: string | undefined
+    for (let attempt = 0; attempt < 240; attempt++) {
+      const result = (await cloudflare(`/d1/database/${app.database}/export`, {
+        method: "POST",
+        ...json({ output_format: "polling", ...(bookmark && { current_bookmark: bookmark }) }),
+      })) as { at_bookmark?: string; status?: string; error?: string; result?: { filename?: string; signed_url?: string } }
+      if (result.error) throw new Error(`Cloudflare couldn't export the data: ${result.error}`)
+      if (result.result?.signed_url) return { url: result.result.signed_url, filename: result.result.filename ?? `${args.slug}.sql` }
+      bookmark = result.at_bookmark ?? bookmark
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+    throw new Error("Exporting the data took too long. Try again.")
   },
 })

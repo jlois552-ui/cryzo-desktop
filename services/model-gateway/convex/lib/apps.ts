@@ -117,3 +117,29 @@ export function secretProblem(name: string, value?: string) {
   if (new TextEncoder().encode(value).length > MAX_SECRET_BYTES) return "Secrets can be at most 5 KB."
   return undefined
 }
+
+export type Migration = { name: string; hash: string }
+
+/** The migration files the desktop is about to publish: SQL file names with a SHA-256 hash. */
+export function readMigrations(value: unknown): Migration[] {
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value) || value.length > 1000) throw new Error("The app has too many migrations.")
+  return value.map((migration: unknown) => {
+    const candidate = (migration ?? {}) as Record<string, unknown>
+    if (typeof candidate.name !== "string" || !/^[\w.-]{1,200}\.sql$/.test(candidate.name)) throw new Error("A migration has an unusable name.")
+    if (typeof candidate.hash !== "string" || !/^[0-9a-f]{64}$/.test(candidate.hash)) throw new Error("A migration has an unusable hash.")
+    return { name: candidate.name, hash: candidate.hash }
+  })
+}
+
+export type Storage = { database: string; files?: string }
+
+/** Which bindings the app's code expects for its database and files, from its Wrangler settings. */
+export function readStorage(value: unknown): Storage {
+  const input = (value && typeof value === "object" ? value : {}) as Record<string, unknown>
+  const binding = (name: unknown) => (typeof name === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name) ? name : undefined)
+  const files = binding(input.files)
+  return { database: binding(input.database) ?? "DB", ...(files && { files }) }
+}
+
+export const bucketName = (slug: string) => `app-${slug}`

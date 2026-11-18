@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { convexTest } from "convex-test"
 import schema from "../convex/schema"
 import { internal } from "../convex/_generated/api"
-import { manifestProblem, readAssetRouting, readModules, secretProblem, slugProblem } from "../convex/lib/apps"
+import { manifestProblem, readAssetRouting, readMigrations, readModules, readStorage, secretProblem, slugProblem } from "../convex/lib/apps"
 
 const modules = {
   "../convex/apps/store.ts": () => import("../convex/apps/store"),
@@ -88,5 +88,21 @@ describe("app secrets", () => {
     expect(secretProblem("APP_URL")).toBeDefined()
     expect(secretProblem("TOKEN", "")).toBeDefined()
     expect(secretProblem("TOKEN", "x".repeat(5 * 1024 + 1))).toBeDefined()
+  })
+})
+
+describe("app storage", () => {
+  test("bindings come from the app's settings, with a database by default", () => {
+    expect(readStorage(undefined)).toEqual({ database: "DB" })
+    expect(readStorage({ database: "DATA", files: "FILES" })).toEqual({ database: "DATA", files: "FILES" })
+    expect(readStorage({ database: "bad name", files: "1X" })).toEqual({ database: "DB" })
+  })
+
+  test("migrations are SQL file names with SHA-256 hashes", () => {
+    const hash = "a".repeat(64)
+    expect(readMigrations([{ name: "0001_auth.sql", hash }])).toEqual([{ name: "0001_auth.sql", hash }])
+    expect(readMigrations(undefined)).toEqual([])
+    expect(() => readMigrations([{ name: "../0001.sql", hash }])).toThrow()
+    expect(() => readMigrations([{ name: "0001.sql", hash: "short" }])).toThrow()
   })
 })

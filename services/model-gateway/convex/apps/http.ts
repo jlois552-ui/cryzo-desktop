@@ -3,7 +3,7 @@ import type { HttpRouter } from "convex/server"
 import { internal } from "../_generated/api"
 import { httpAction, type ActionCtx } from "../_generated/server"
 import { account } from "../gateway"
-import { readAssetRouting, readModules } from "../lib/apps"
+import { readAssetRouting, readMigrations, readModules, readStorage } from "../lib/apps"
 
 const headers = { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" }
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers })
@@ -34,7 +34,12 @@ export function appRoutes(http: HttpRouter) {
     path: "/apps/publish/begin",
     method: "POST",
     handler: route((ctx, user, input) =>
-      ctx.runAction(internal.apps.cloudflare.begin, { user, slug: text(input.slug), manifest: input.manifest }),
+      ctx.runAction(internal.apps.cloudflare.begin, {
+        user,
+        slug: text(input.slug),
+        manifest: input.manifest,
+        storage: readStorage(input.storage),
+      }),
     ),
   })
   http.route({
@@ -47,8 +52,20 @@ export function appRoutes(http: HttpRouter) {
         jwt: text(input.jwt),
         modules: readModules(input.modules),
         routing: readAssetRouting(input.assets),
+        storage: readStorage(input.storage),
+        migrations: readMigrations(input.migrations),
       }),
     ),
+  })
+  http.route({
+    path: "/apps/migrations",
+    method: "POST",
+    handler: route(async (ctx, user, input) => (await ctx.runQuery(internal.apps.store.get, { user, slug: text(input.slug) }))?.migrations ?? []),
+  })
+  http.route({
+    path: "/apps/data/export",
+    method: "POST",
+    handler: route((ctx, user, input) => ctx.runAction(internal.apps.cloudflare.exportData, { user, slug: text(input.slug) })),
   })
   http.route({
     path: "/apps/secrets",

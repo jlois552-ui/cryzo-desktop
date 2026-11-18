@@ -29,6 +29,8 @@ export const update = internalMutation({
     user: v.string(),
     slug: v.string(),
     database: v.optional(v.string()),
+    bucket: v.optional(v.string()),
+    migrations: v.optional(v.array(v.object({ name: v.string(), hash: v.string() }))),
     secret: v.optional(v.boolean()),
     url: v.optional(v.string()),
     publishedAt: v.optional(v.number()),

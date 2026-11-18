@@ -1075,7 +1075,13 @@ export const dict = {
   "publish.apps": "Your published apps",
   "publish.unpublish": "Unpublish",
   "publish.unpublish.confirm": "Deletes the app and its data.",
-  "secrets.button": "Secrets",
+  "publish.manage": "Manage",
+  "publish.risky": "This publish deletes data on the live app:",
+  "publish.risky.confirm": "Publish anyway",
+  "publish.data": "Download data",
+  "publish.data.description":
+    "Saves the live database as a .sql file in your Downloads folder, to keep a copy or try real data in the local app. It contains your users' data.",
+  "publish.data.saved": "Saved to {{path}}",
   "secrets.description":
     "API keys and other private values the app reads from env, like GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET for Google sign-in. They go straight to the app's host and can't be viewed again, by you or the agent. Changes apply right away.",
   "secrets.name": "Name",

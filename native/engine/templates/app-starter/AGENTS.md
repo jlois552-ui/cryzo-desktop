@@ -17,6 +17,26 @@ A Cryzo app: a React site with a Cloudflare Worker behind it, a SQLite database 
 - `migrations/` holds numbered SQL files. They run automatically, once each, on the first request (locally and when published).
 - The notes feature (`/api/notes`, `Notes` in `App.tsx`, `0002_notes.sql`) is an example. Replace it with what the user asked for.
 
+## Adding file uploads
+
+Only add file storage when the app needs uploads (photos, documents, audio, video). Records belong in the database. When it does:
+
+1. Add `"r2_buckets": [{ "binding": "FILES", "bucket_name": "app" }]` to `wrangler.jsonc`, and `FILES?: R2Bucket` to `Env`. Cryzo creates the bucket on the next publish, and `npm run dev` simulates one locally.
+2. Serve files through Worker routes under `/api`, never from a public bucket. Check the session first, and store each user's files under a `${session.user.id}/` key prefix.
+3. If `env.FILES` is missing, answer 503 with a clear message. That happens when the host has no file storage yet.
+4. Limit upload size (for example 10 MB) and save the original file name and type with `put(key, file.stream(), { httpMetadata: { contentType }, customMetadata: { name } })`.
+5. When serving, show images inline (not SVG). Send every other file with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`, so an uploaded HTML file can never run on the app's address.
+6. If files need searching or sorting, keep their details (owner, name, size, key) in a database table too.
+
+## Local and live data
+
+`npm run dev` uses its own database (and file storage, if the app has uploads) on this computer, in `.wrangler/`. The published app has separate live ones. Nothing you run locally can read or change live data, so test freely.
+
+- To test with real data, ask the user to click **Download data** next to the app under **Publish**. It saves a `.sql` file to their Downloads folder. To load it locally, stop the dev server, delete `.wrangler/state`, run `npx wrangler d1 execute DB --local --file=<that file>`, and start `npm run dev` again. The file holds the app's users and their data, so never copy it into the project or publish it.
+- Live data changes only through migrations, and each publish is checked against the live database:
+  - Publishing is blocked if a migration that already ran live was edited or deleted.
+  - A new migration that drops a table or column, or deletes rows, needs the user's confirmation. Prefer adding columns and tables over removing them.
+
 ## Rules
 
 - **Changing the database:** add a new file such as `migrations/0003_tasks.sql` and the matching type in `db.ts`. Never edit or delete a migration that may have run; write a new one instead. Use SQLite syntax and end each statement with `;` at the end of a line.
@@ -28,11 +48,11 @@ A Cryzo app: a React site with a Cloudflare Worker behind it, a SQLite database 
 
 ## Publishing
 
-The user publishes with Cryzo's Publish button, which gives the app its own address on cryzo.dev, a database, `APP_URL` and `BETTER_AUTH_SECRET`. Make sure `npm run build` succeeds first.
+The user publishes with Cryzo's Publish button, which gives the app its own address on cryzo.dev, a database, a file bucket if `wrangler.jsonc` declares one, `APP_URL` and `BETTER_AUTH_SECRET`. Make sure `npm run build` succeeds first.
 
 ## Moving to the user's own setup
 
 When the user wants to run the app on their own accounts:
 
-1. **Their own Cloudflare account:** run `npx wrangler login`, then `npx wrangler d1 create <name>`, and put the printed id in `wrangler.jsonc`. Then run `npx wrangler secret put BETTER_AUTH_SECRET` (the user types a new random value), set `APP_URL` under `vars` and run `npm run deploy`. To keep the data, import an export of the Cryzo database with `npx wrangler d1 execute <name> --remote --file=<export.sql>`.
+1. **Their own Cloudflare account:** run `npx wrangler login`, then `npx wrangler d1 create <name>`, and put the printed id in `wrangler.jsonc`. If the app has uploads, run `npx wrangler r2 bucket create <name>` and put that name under `r2_buckets`. Then run `npx wrangler secret put BETTER_AUTH_SECRET` (the user types a new random value), set `APP_URL` under `vars` and run `npm run deploy`. To keep the data, import an export of the Cryzo database with `npx wrangler d1 execute <name> --remote --file=<export.sql>`.
 2. **Postgres (for example Neon or Supabase):** change `database()` in `db.ts` to Kysely's Postgres dialect, change `type: "sqlite"` to `"postgres"` in `auth.ts`, and convert the migrations to Postgres syntax.

@@ -92,6 +92,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/cryzo/publish", post(publish))
         .route("/api/cryzo/apps", get(apps))
         .route("/api/cryzo/apps/unpublish", post(unpublish))
+        .route("/api/cryzo/apps/data", post(download_data))
         .route("/api/cryzo/apps/secrets", post(secrets))
         .route("/api/cryzo/apps/secrets/set", post(set_secret))
         .route("/api/cryzo/apps/secrets/delete", post(delete_secret))
@@ -146,8 +147,147 @@ async fn publish(
         return Ok(Json(json!({"problems":problems})));
     }
     let slug = input["slug"].as_str().unwrap_or_default();
-    let url = deploy(&root, slug).await.map_err(invalid)?;
-    Ok(Json(json!({"problems":[],"url":url})))
+    // The local database (`npm run dev`) and the live one are separate. What reaches the live
+    // one is the migrations, so they are checked against what already ran there.
+    let local = migrations(&root).map_err(invalid)?;
+    let live: Vec<Value> =
+        serde_json::from_value(gateway("apps/migrations", json!({"slug":slug})).await?)
+            .unwrap_or_default();
+    let problems = migration_problems(&local, &live);
+    if !problems.is_empty() {
+        return Ok(Json(json!({"problems":problems})));
+    }
+    let risky = risky_migrations(&local, &live);
+    if !risky.is_empty() && input["confirm"] != true {
+        return Ok(Json(json!({"problems":[],"confirm":risky})));
+    }
+    let live = deploy(&root, slug, &local).await.map_err(invalid)?;
+    Ok(Json(
+        json!({"problems":[],"url":live["url"],"warning":live["warning"]}),
+    ))
+}
+
+struct Migration {
+    name: String,
+    hash: String,
+    risky: bool,
+}
+
+/// The project's `migrations/*.sql`, each with a SHA-256 of its contents.
+fn migrations(root: &Path) -> Result<Vec<Migration>> {
+    let Ok(entries) = std::fs::read_dir(root.join("migrations")) else {
+        return Ok(Vec::new());
+    };
+    let mut migrations = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if !path.is_file() || !name.ends_with(".sql") {
+            continue;
+        }
+        let sql = std::fs::read_to_string(&path)?;
+        migrations.push(Migration {
+            hash: format!("{:x}", Sha256::digest(sql.as_bytes())),
+            risky: deletes_data(&sql),
+            name,
+        });
+    }
+    migrations.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(migrations)
+}
+
+/// Migrations that already ran on the live database must stay exactly as they were: editing or
+/// deleting one leaves the live database different from what the code expects.
+fn migration_problems(local: &[Migration], live: &[Value]) -> Vec<Problem> {
+    live.iter()
+        .filter_map(|ran| {
+            let name = ran["name"].as_str()?;
+            let path = format!("migrations/{name}");
+            match local.iter().find(|migration| migration.name == name) {
+                None => Some(Problem {
+                    path,
+                    reason: "already ran on the live database: restore it, and add a new migration for any change",
+                }),
+                Some(migration) if ran["hash"].as_str() != Some(migration.hash.as_str()) => Some(Problem {
+                    path,
+                    reason: "changed after it ran on the live database: undo the edit, and add a new migration instead",
+                }),
+                Some(_) => None,
+            }
+        })
+        .collect()
+}
+
+/// New migrations that would delete live data, which the user confirms before publishing.
+fn risky_migrations(local: &[Migration], live: &[Value]) -> Vec<Problem> {
+    local
+        .iter()
+        .filter(|migration| {
+            migration.risky && !live.iter().any(|ran| ran["name"] == migration.name)
+        })
+        .map(|migration| Problem {
+            path: format!("migrations/{}", migration.name),
+            reason: "deletes tables, columns or rows on the live database",
+        })
+        .collect()
+}
+
+/// Whether SQL drops a table or column or deletes rows (comments aside).
+fn deletes_data(sql: &str) -> bool {
+    let words: Vec<String> = sql
+        .lines()
+        .map(|line| line.split("--").next().unwrap_or_default())
+        .flat_map(|line| line.split(|char: char| !(char.is_ascii_alphanumeric() || char == '_')))
+        .filter(|word| !word.is_empty())
+        .map(str::to_uppercase)
+        .collect();
+    words.windows(2).any(|pair| {
+        matches!(
+            (pair[0].as_str(), pair[1].as_str()),
+            ("DROP", "TABLE") | ("DROP", "COLUMN") | ("DELETE", "FROM")
+        )
+    })
+}
+
+/// Downloads the live database as SQL into the user's Downloads folder.
+async fn download_data(Json(input): Json<Value>) -> ApiResult {
+    let slug = input["slug"].as_str().unwrap_or_default();
+    let export = gateway("apps/data/export", json!({"slug":slug})).await?;
+    let link = export["url"]
+        .as_str()
+        .ok_or_else(|| invalid("the Cryzo cloud gave no download link"))?;
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .ok_or_else(|| invalid("no home folder"))?;
+    let folder = [home.join("Downloads"), home]
+        .into_iter()
+        .find(|folder| folder.is_dir())
+        .ok_or_else(|| invalid("no Downloads folder"))?;
+    // App addresses are lowercase letters, digits and hyphens; anything else never names a file.
+    let base: String = slug
+        .chars()
+        .filter(|char| char.is_ascii_lowercase() || char.is_ascii_digit() || *char == '-')
+        .collect();
+    let path = (1..1000)
+        .map(|n| match n {
+            1 => folder.join(format!("{base}-live-data.sql")),
+            n => folder.join(format!("{base}-live-data-{n}.sql")),
+        })
+        .find(|path| !path.exists())
+        .ok_or_else(|| invalid("too many downloads with this name"))?;
+    let response = reqwest::get(link).await.map_err(invalid)?;
+    if !response.status().is_success() {
+        return Err(invalid(format!(
+            "the download failed ({})",
+            response.status()
+        )));
+    }
+    let bytes = response.bytes().await.map_err(invalid)?;
+    std::fs::write(&path, bytes).map_err(invalid)?;
+    Ok(Json(json!({"path":path})))
 }
 
 async fn apps() -> ApiResult {
@@ -171,9 +311,10 @@ async fn unpublish(Json(input): Json<Value>) -> ApiResult {
     Ok(Json(json!({"ok":true})))
 }
 
-async fn deploy(root: &Path, slug: &str) -> Result<String> {
+async fn deploy(root: &Path, slug: &str, migrations: &[Migration]) -> Result<Value> {
     let account = remote::account()?;
     let output = output(root)?;
+    let server = worker(root, &output)?;
     let files = files(&output)?;
     let manifest: Map<String, Value> = files
         .iter()
@@ -183,7 +324,7 @@ async fn deploy(root: &Path, slug: &str) -> Result<String> {
         reqwest::Method::POST,
         "apps/publish/begin",
         Some(account.clone()),
-        json!({"slug":slug,"manifest":manifest}),
+        json!({"slug":slug,"manifest":manifest,"storage":server.storage}),
     )
     .await?;
     let upload = begun["upload"]
@@ -233,18 +374,22 @@ async fn deploy(root: &Path, slug: &str) -> Result<String> {
             token = done.to_owned();
         }
     }
-    let server = worker(root, &output)?;
+    let migrations: Vec<Value> = migrations
+        .iter()
+        .map(|migration| json!({"name":migration.name,"hash":migration.hash}))
+        .collect();
     let finished = remote::call(
         reqwest::Method::POST,
         "apps/publish/finish",
         Some(account),
-        json!({"slug":slug,"jwt":token,"modules":server.modules,"assets":server.assets}),
+        json!({"slug":slug,"jwt":token,"modules":server.modules,"assets":server.assets,"storage":server.storage,"migrations":migrations}),
     )
     .await?;
-    finished["url"]
+    let url = finished["url"]
         .as_str()
-        .map(str::to_owned)
-        .context("the Cryzo cloud did not return the app's address")
+        .context("the Cryzo cloud did not return the app's address")?;
+    // Something the app went live without, such as file storage, for the user to know about.
+    Ok(json!({"url":url,"warning":begun["warning"]}))
 }
 
 /// The folder to publish: the build output, or the project itself when it is a plain site.
@@ -268,6 +413,8 @@ struct Worker {
     modules: Vec<Value>,
     /// How static files and the Worker share requests, from the app's own Wrangler settings.
     assets: Map<String, Value>,
+    /// The binding names the code uses for its database and its file bucket, if it has one.
+    storage: Value,
 }
 
 /// The app's server code. The Cloudflare Vite plugin builds it into `dist/<name>/` next to the
@@ -286,6 +433,7 @@ fn worker(root: &Path, output: &Path) -> Result<Worker> {
             .unwrap_or_default();
         return Ok(Worker {
             modules,
+            storage: json!({"database":"DB"}),
             ..Worker::default()
         });
     };
@@ -320,7 +468,15 @@ fn worker(root: &Path, output: &Path) -> Result<Worker> {
         .into_iter()
         .filter_map(|key| Some((key.to_owned(), settings["assets"].get(key)?.clone())))
         .collect();
-    Ok(Worker { modules, assets })
+    let storage = json!({
+        "database": settings["d1_databases"][0]["binding"].as_str().unwrap_or("DB"),
+        "files": settings["r2_buckets"][0]["binding"],
+    });
+    Ok(Worker {
+        modules,
+        assets,
+        storage,
+    })
 }
 
 struct File {
@@ -549,7 +705,7 @@ mod tests {
         write("dist/client/.assetsignore", "wrangler.json");
         write(
             "dist/app/wrangler.json",
-            r#"{"main":"index.js","assets":{"not_found_handling":"single-page-application","run_worker_first":["/api/*"],"directory":"../client"}}"#,
+            r#"{"main":"index.js","assets":{"not_found_handling":"single-page-application","run_worker_first":["/api/*"],"directory":"../client"},"d1_databases":[{"binding":"DATA"}],"r2_buckets":[{"binding":"FILES"}]}"#,
         );
         write("dist/app/index.js", "import('./assets/a.js')");
         write("dist/app/index.js.map", "{}");
@@ -576,6 +732,60 @@ mod tests {
             Value::Object(server.assets),
             json!({"not_found_handling":"single-page-application","run_worker_first":["/api/*"]})
         );
+        assert_eq!(server.storage, json!({"database":"DATA","files":"FILES"}));
+    }
+
+    #[test]
+    fn live_migrations_must_stay_unchanged_and_deleting_data_needs_a_yes() {
+        let root = tempfile::tempdir().unwrap();
+        let write = |path: &str, text: &str| {
+            let target = root.path().join(path);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::write(target, text).unwrap();
+        };
+        write("migrations/0001_auth.sql", "create table user (id text);");
+        write("migrations/0002_notes.sql", "create table note (id text);");
+        write(
+            "migrations/0003_drop.sql",
+            "-- drop table note;\nALTER TABLE note DROP COLUMN text;",
+        );
+        write("migrations/README.md", "not a migration");
+        let local = migrations(root.path()).unwrap();
+        let names: Vec<_> = local
+            .iter()
+            .map(|migration| migration.name.as_str())
+            .collect();
+        assert_eq!(names, ["0001_auth.sql", "0002_notes.sql", "0003_drop.sql"]);
+        let hash = |name: &str| local.iter().find(|m| m.name == name).unwrap().hash.clone();
+
+        let live = [
+            json!({"name":"0001_auth.sql","hash":hash("0001_auth.sql")}),
+            json!({"name":"0002_notes.sql","hash":"0".repeat(64)}),
+            json!({"name":"0000_gone.sql","hash":"0".repeat(64)}),
+        ];
+        let problems: Vec<_> = migration_problems(&local, &live)
+            .into_iter()
+            .map(|p| p.path)
+            .collect();
+        assert_eq!(
+            problems,
+            ["migrations/0002_notes.sql", "migrations/0000_gone.sql"]
+        );
+
+        let risky: Vec<_> = risky_migrations(&local, &live[..1])
+            .into_iter()
+            .map(|p| p.path)
+            .collect();
+        assert_eq!(
+            risky,
+            ["migrations/0003_drop.sql"],
+            "only new migrations need a yes"
+        );
+        assert!(!deletes_data(
+            "create table dropped_items (id text); -- delete from x"
+        ));
+        assert!(deletes_data("DELETE\n FROM note WHERE 1"));
+        assert!(migrations(&root.path().join("missing")).unwrap().is_empty());
     }
 
     #[test]

@@ -140,6 +140,11 @@ export default defineSchema({
     slug: v.string(),
     script: v.string(),
     database: v.optional(v.string()),
+    // The app's R2 bucket, created when its Wrangler settings ask for one.
+    bucket: v.optional(v.string()),
+    // Migrations that have run on the live database, with a hash of each file, so a publish can
+    // refuse to ship an edited or deleted one.
+    migrations: v.optional(v.array(v.object({ name: v.string(), hash: v.string() }))),
     // Whether the app's BETTER_AUTH_SECRET has been set; its value is never stored here.
     secret: v.boolean(),
     url: v.optional(v.string()),
