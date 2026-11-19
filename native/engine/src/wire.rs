@@ -33,7 +33,12 @@ pub fn prepare(protocol: &str, mut request: Value) -> Result<(String, Value)> {
                 input.extend(native.iter().cloned());
             }
             let content = message["content"].as_str().unwrap_or("");
-            if !content.is_empty() {
+            let images = images(message);
+            if !images.is_empty() {
+                let mut parts = vec![json!({"type":"input_text","text":content})];
+                parts.extend(images.iter().map(|(mime, data)| json!({"type":"input_image","image_url":format!("data:{mime};base64,{data}")})));
+                input.push(json!({"role":message["role"],"content":parts}));
+            } else if !content.is_empty() {
                 input.push(json!({"role":message["role"],"content":content}));
             }
             if let Some(calls) = message["tool_calls"].as_array() {
@@ -85,6 +90,7 @@ pub fn prepare(protocol: &str, mut request: Value) -> Result<(String, Value)> {
             if let Some(text) = message["content"].as_str().filter(|t| !t.is_empty()) {
                 content.push(json!({"type":"text","text":text}));
             }
+            content.extend(images(message).iter().map(|(mime, data)| json!({"type":"image","source":{"type":"base64","media_type":mime,"data":data}})));
             if let Some(calls) = message["tool_calls"].as_array() {
                 for call in calls {
                     content.push(json!({"type":"tool_use","id":call["id"],"name":call["function"]["name"],"input":serde_json::from_str::<Value>(call["function"]["arguments"].as_str().context("tool arguments missing")?)?}));
@@ -156,6 +162,11 @@ pub fn prepare(protocol: &str, mut request: Value) -> Result<(String, Value)> {
             if let Some(text) = message["content"].as_str().filter(|t| !t.is_empty()) {
                 parts.push(json!({"text":text}));
             }
+            parts.extend(
+                images(message)
+                    .iter()
+                    .map(|(mime, data)| json!({"inlineData":{"mimeType":mime,"data":data}})),
+            );
             if let Some(calls) = message["tool_calls"].as_array() {
                 for call in calls {
                     names.insert(
@@ -250,6 +261,15 @@ fn chat_messages(messages: &[Value]) -> Vec<Value> {
             continue;
         }
         flush(&mut out, &mut pending);
+        let attached = images(&message);
+        if let Some(fields) = message.as_object_mut() {
+            fields.remove("cryzo_images");
+        }
+        if !attached.is_empty() {
+            let mut content = vec![json!({"type":"text","text":message["content"]})];
+            content.extend(attached.iter().map(|(mime, data)| json!({"type":"image_url","image_url":{"url":format!("data:{mime};base64,{data}")}})));
+            message["content"] = json!(content);
+        }
         out.push(message);
     }
     flush(&mut out, &mut pending);
@@ -539,6 +559,34 @@ mod tests {
         assert_eq!(
             response["parts"],
             json!([{"inlineData":{"mimeType":"image/jpeg","data":"QUJD"}}])
+        );
+    }
+
+    #[test]
+    fn a_user_message_carries_its_images_in_every_format() {
+        let request = json!({"model":"m","messages":[
+            {"role":"user","content":"what is this?","cryzo_images":["data:image/png;base64,QUJD"]},
+        ]});
+        let (_, chat) = prepare("chat-completions", request.clone()).unwrap();
+        assert_eq!(
+            chat["messages"][0]["content"],
+            json!([{"type":"text","text":"what is this?"},{"type":"image_url","image_url":{"url":"data:image/png;base64,QUJD"}}])
+        );
+        assert!(chat["messages"][0].get("cryzo_images").is_none());
+        let (_, responses) = prepare("responses", request.clone()).unwrap();
+        assert_eq!(
+            responses["input"][0]["content"][1],
+            json!({"type":"input_image","image_url":"data:image/png;base64,QUJD"})
+        );
+        let (_, messages) = prepare("messages", request.clone()).unwrap();
+        assert_eq!(
+            messages["messages"][0]["content"][1],
+            json!({"type":"image","source":{"type":"base64","media_type":"image/png","data":"QUJD"}})
+        );
+        let (_, gemini) = prepare("generate-content", request).unwrap();
+        assert_eq!(
+            gemini["contents"][0]["parts"][1],
+            json!({"inlineData":{"mimeType":"image/png","data":"QUJD"}})
         );
     }
 

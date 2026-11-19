@@ -54,7 +54,7 @@ pub enum Operation {
     /// The page tools work on the project's running preview in the browser pane.
     PageRead {},
     PageAct {
-        element: u32,
+        element: String,
         action: String,
         text: Option<String>,
     },

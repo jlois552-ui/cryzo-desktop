@@ -202,81 +202,102 @@ async fn evaluate(pane: &dyn PaneHost, expression: &str) -> Result<Value> {
     Ok(reply["result"]["value"].clone())
 }
 
-/// Numbers the visible controls (as `data-cryzo-n`) and returns the page's text and that list.
-const READ: &str = r#"(() => {
-  const shown = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none" };
-  document.querySelectorAll("[data-cryzo-n]").forEach((el) => el.removeAttribute("data-cryzo-n"));
-  const elements = [];
-  for (const el of document.querySelectorAll("a[href],button,input,textarea,select,summary,[role=button],[role=link],[role=checkbox],[role=tab],[contenteditable=true]")) {
-    if (elements.length >= 150 || !shown(el)) continue;
-    const n = elements.length + 1;
-    el.setAttribute("data-cryzo-n", String(n));
-    const label = (el.getAttribute("aria-label") || el.innerText || el.value || el.placeholder || el.title || "").trim().replace(/\s+/g, " ").slice(0, 80);
-    elements.push("[" + n + "] " + el.tagName.toLowerCase() + (el.type ? "(" + el.type + ")" : "") + " " + label);
-  }
-  const text = (document.body ? document.body.innerText : "").replace(/\n{3,}/g, "\n\n").slice(0, 6000);
-  return JSON.stringify({ title: document.title, url: location.href, text, elements });
-})()"#;
+/// Lines a page_read shows, as many as a desktop snapshot by default.
+const PAGE_LINES: usize = 250;
 
-/// The preview's text and its numbered controls, for page_act.
+/// The preview as its accessibility tree, the way browser agents read pages: one line per element
+/// that matters (`[e12] button "Sign in" focused`), with IDs page_act takes. Cryzo's Chrome tools
+/// read pages through the same code.
 pub async fn page_read(engine: &Engine, root: &Path) -> Result<String> {
     let pane = preview_page(engine, root).await?;
-    let page: Value = serde_json::from_str(evaluate(&*pane, READ).await?.as_str().unwrap_or("{}"))?;
-    let elements: Vec<&str> = page["elements"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect();
+    let tree = pane.cdp("Accessibility.getFullAXTree", json!({})).await?;
+    let (mut lines, _) = cryzo_desktop_control::ax::snapshot(
+        &tree,
+        &mut |backend| format!("e{backend}"),
+        PAGE_LINES,
+    )?;
+    if lines.len() >= PAGE_LINES {
+        lines.push("  … cut off at the line budget; scroll with page_act to read further".into());
+    }
+    let page = evaluate(&*pane, "[document.title, location.href]").await?;
     Ok(format!(
-        "{} ({})\n\nControls (use the number with page_act):\n{}\n\nText:\n{}",
-        page["title"].as_str().unwrap_or_default(),
-        page["url"].as_str().unwrap_or_default(),
-        elements.join("\n"),
-        page["text"].as_str().unwrap_or_default()
+        "{} ({})\n{}",
+        page[0].as_str().unwrap_or_default(),
+        page[1].as_str().unwrap_or_default(),
+        lines.join("\n")
     ))
 }
 
-/// Clicks, types into or presses a key on control `element` from page_read, with real input
-/// events, as a user would.
+/// Acts on element `element` (an ID from page_read) with real input events, as a user would:
+/// click it, type text into it, choose an option of a select, press a key on it, or scroll to it.
 pub async fn page_act(
     engine: &Engine,
     root: &Path,
-    element: u32,
+    element: &str,
     action: &str,
     text: Option<&str>,
 ) -> Result<String> {
     let pane = preview_page(engine, root).await?;
-    let found = evaluate(
-        &*pane,
-        &format!(
-            r#"(() => {{ const el = document.querySelector('[data-cryzo-n="{element}"]'); if (!el) return null; el.scrollIntoView({{ block: "center" }}); if ({focus}) {{ el.focus(); if (el.select) el.select(); }} const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }})()"#,
-            focus = action != "click"
-        ),
-    )
-    .await?;
-    let Some([x, y]) = found
-        .as_array()
-        .and_then(|point| Some([point.first()?.as_f64()?, point.get(1)?.as_f64()?]))
-    else {
-        bail!("control {element} isn't on the page any more; call page_read again");
+    let backend = element
+        .trim()
+        .trim_matches(['[', ']'])
+        .strip_prefix('e')
+        .and_then(|id| id.parse::<i64>().ok())
+        .context("element must be an ID from page_read, like e12")?;
+    let node = json!({"backendNodeId":backend});
+    pane.cdp("DOM.enable", json!({})).await?;
+    let object = pane
+        .cdp("DOM.resolveNode", node.clone())
+        .await
+        .ok()
+        .and_then(|reply| reply["object"]["objectId"].as_str().map(str::to_owned))
+        .with_context(|| format!("{element} isn't on the page any more; call page_read again"))?;
+    let call = |function: &'static str, arguments: Value| {
+        pane.cdp(
+            "Runtime.callFunctionOn",
+            json!({"objectId":object,"functionDeclaration":function,"arguments":arguments,"returnByValue":true}),
+        )
     };
+    let _ = pane.cdp("DOM.scrollIntoViewIfNeeded", node.clone()).await;
     match action {
-        "click" => {
-            for kind in ["mouseMoved", "mousePressed", "mouseReleased"] {
-                pane.cdp(
-                    "Input.dispatchMouseEvent",
-                    json!({"type":kind,"x":x,"y":y,"button":"left","clickCount":1}),
-                )
-                .await?;
+        "click" => match center(&*pane, &node).await {
+            Some((x, y)) => {
+                for kind in ["mouseMoved", "mousePressed", "mouseReleased"] {
+                    pane.cdp(
+                        "Input.dispatchMouseEvent",
+                        json!({"type":kind,"x":x,"y":y,"button":"left","clickCount":1}),
+                    )
+                    .await?;
+                }
             }
-        }
+            // Elements without a box (zero-sized, behind a menu) still take a DOM click.
+            None => {
+                call("function(){ this.click() }", json!([])).await?;
+            }
+        },
         "type" => {
-            pane.cdp(
-                "Input.insertText",
-                json!({"text":text.context("type needs text")?}),
+            let text = text.context("type needs text")?;
+            // Clear the field so the text replaces it, then insert it the way typing would, so
+            // page frameworks see normal input events.
+            call(
+                "function(){ this.focus(); if ('value' in this) { this.value = ''; this.dispatchEvent(new Event('input', {bubbles: true})) } else if (this.isContentEditable) { this.textContent = '' } }",
+                json!([]),
             )
             .await?;
+            pane.cdp("DOM.focus", node).await?;
+            pane.cdp("Input.insertText", json!({"text":text})).await?;
+        }
+        "select" => {
+            let text = text.context("select needs the option's text")?;
+            let picked = call(
+                "function(v){ const o = [...(this.options || [])].find(o => o.text.trim() === v || o.value === v); if (!o) return false; this.value = o.value; this.dispatchEvent(new Event('input', {bubbles: true})); this.dispatchEvent(new Event('change', {bubbles: true})); return true }",
+                json!([{"value":text}]),
+            )
+            .await?;
+            ensure!(
+                picked["result"]["value"] == json!(true),
+                "no option {text:?} in {element}"
+            );
         }
         "press" => {
             let key = text.unwrap_or("Enter");
@@ -285,8 +306,11 @@ pub async fn page_act(
                 "Tab" => (9, ""),
                 "Escape" => (27, ""),
                 "Backspace" => (8, ""),
-                _ => bail!("press supports Enter, Tab, Escape and Backspace"),
+                "ArrowDown" => (40, ""),
+                "ArrowUp" => (38, ""),
+                _ => bail!("press supports Enter, Tab, Escape, Backspace, ArrowDown and ArrowUp"),
             };
+            pane.cdp("DOM.focus", node).await?;
             for kind in ["keyDown", "keyUp"] {
                 let typed = if kind == "keyDown" { typed } else { "" };
                 pane.cdp(
@@ -296,7 +320,8 @@ pub async fn page_act(
                 .await?;
             }
         }
-        _ => bail!("action must be click, type or press"),
+        "scroll_into_view" => {}
+        _ => bail!("action must be click, type, select, press or scroll_into_view"),
     }
     tokio::time::sleep(Duration::from_millis(400)).await;
     let url = evaluate(&*pane, "location.href").await?;
@@ -304,6 +329,22 @@ pub async fn page_act(
         "Done. The page is at {}. Call page_read to see the result.",
         url.as_str().unwrap_or_default()
     ))
+}
+
+/// The middle of an element's content box in the page's CSS pixels, where a click lands.
+async fn center(pane: &dyn PaneHost, node: &Value) -> Option<(f64, f64)> {
+    let model = pane.cdp("DOM.getBoxModel", node.clone()).await.ok()?;
+    let quad = model["model"]["content"]
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_f64)
+        .collect::<Vec<_>>();
+    (quad.len() == 8).then(|| {
+        (
+            (quad[0] + quad[2] + quad[4] + quad[6]) / 4.0,
+            (quad[1] + quad[3] + quad[5] + quad[7]) / 4.0,
+        )
+    })
 }
 
 /// The preview as the user sees it, as tool content: a line of text and the picture as a

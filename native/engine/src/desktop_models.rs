@@ -52,11 +52,35 @@ pub fn model_info(provider: &str, model: &Model, enabled: bool) -> Value {
         .as_str()
         .and_then(crate::market::epoch_ms);
     json!({"id":model.id,"modelID":model.id,"providerID":provider,"name":model.name,"type":"chat","family":data["family"].as_str().unwrap_or(&model.id),
-        "capabilities":{"tools":data.pointer("/capabilities/tools/supported").and_then(Value::as_bool).unwrap_or(false),"input":data.pointer("/modalities/input").cloned().unwrap_or(json!(["text"])),"output":data.pointer("/modalities/output").cloned().unwrap_or(json!(["text"]))},
+        "capabilities":{"tools":data.pointer("/capabilities/tools/supported").and_then(Value::as_bool).unwrap_or(false),"input":modalities(data.pointer("/modalities/input")),"output":modalities(data.pointer("/modalities/output"))},
         "variants":variants,"time":{"released":released.unwrap_or(0)},"cost":cost,
         "status":"active","enabled":enabled,"limit":{"context":data.pointer("/limit/context").and_then(Value::as_u64).unwrap_or(200000),
             "output":data.pointer("/limit/output").and_then(Value::as_u64).unwrap_or(32000)}})
 }
+/// The catalog lists media types (`image/png`, `application/pdf`); clients take kinds (`image`,
+/// `pdf`), as the upstream server reports them.
+fn modalities(values: Option<&Value>) -> Value {
+    let Some(values) = values.and_then(Value::as_array) else {
+        return json!(["text"]);
+    };
+    let mut kinds = Vec::<String>::new();
+    // PDFs stay off until the native transport sends them; the composer then keeps them as paths.
+    for value in values
+        .iter()
+        .filter_map(Value::as_str)
+        .filter(|value| *value != "application/pdf")
+    {
+        let kind = match value.split('/').next().unwrap_or(value) {
+            kind @ ("text" | "image" | "audio" | "video") => kind,
+            _ => value,
+        };
+        if !kinds.iter().any(|known| known == kind) {
+            kinds.push(kind.to_owned());
+        }
+    }
+    json!(kinds)
+}
+
 pub fn variants(model: &Model) -> Vec<Value> {
     if let Some(efforts) = model
         .details

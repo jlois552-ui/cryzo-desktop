@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+pub(crate) use crate::ax::{invisible, quote};
 use anyhow::{Result, anyhow, bail, ensure};
 use uiautomation::{
     UIAutomation, UIElement, UITreeWalker,
@@ -1517,24 +1518,6 @@ pub(crate) fn verb(action: &str) -> &str {
         "focus" => "Focusing",
         _ => action,
     }
-}
-
-/// A name or value in quotes, escaped like a JSON string: backslashes, quotes and line breaks
-/// (as \n), nothing else. Debug formatting would turn every non-ASCII letter into a \u{…} escape
-/// the model then has to decode.
-pub(crate) fn quote(text: &str) -> String {
-    format!(
-        "\"{}\"",
-        text.replace('\\', "\\\\")
-            .replace('"', "\\\"")
-            .replace('\n', "\\n")
-    )
-}
-
-/// Zero-width and text-direction marks, which Windows puts around dates and numbers in some
-/// locales. They are invisible on screen and only confuse matching.
-pub(crate) fn invisible(c: char) -> bool {
-    matches!(c, '\u{200b}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
 }
 
 fn states(element: &UIElement, kind: ControlType, name: &str, password: bool) -> Vec<String> {

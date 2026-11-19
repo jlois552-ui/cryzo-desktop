@@ -142,12 +142,24 @@ function Panel(props: { pane: BrowserPane }) {
   }
 
   // A request from elsewhere in the app reuses a tab already on that origin, else opens one.
-  const openRequested = (url: string) => {
+  // A restored tab has no native page until it is shown, so it is created at the address; a shown
+  // tab navigates only once it is the pane's active page.
+  const openRequested = async (url: string) => {
     const origin = originOf(url)
     const same = origin ? state.tabs.find((tab) => originOf(tab.url) === origin) : undefined
     if (!same) return openTab(url)
-    if (same.id !== state.active) select(same.id)
-    void props.pane.navigate(url)
+    if (same.id !== state.active) {
+      closeInspector()
+      setState({ active: same.id, input: url })
+    }
+    if (!browserPanel.created.has(same.id)) {
+      setState("tabs", (tab) => tab.id === same.id, "url", url)
+      saveTabs()
+      return reveal({ ...same, url })
+    }
+    saveTabs()
+    await reveal(same)
+    await props.pane.navigate(url)
   }
 
   const go = (text: string) => {
@@ -186,7 +198,7 @@ function Panel(props: { pane: BrowserPane }) {
   onMount(() => {
     const request = browserPanel.request()
     if (!state.tabs.length) openTab(request?.url ?? readUrl())
-    else if (request) openRequested(request.url)
+    else if (request) void openRequested(request.url)
     else void reveal(active()!)
     // The page area also moves without resizing, as when the inspector opens beside it and widens the pane.
     const observer = new ResizeObserver(() => void props.pane.bounds(bounds()))
@@ -244,7 +256,7 @@ function Panel(props: { pane: BrowserPane }) {
     on(
       browserPanel.request,
       (request) => {
-        if (request) openRequested(request.url)
+        if (request) void openRequested(request.url)
       },
       { defer: true },
     ),

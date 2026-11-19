@@ -166,7 +166,7 @@ fn nvidia_variants_modalities_and_unknown_cost_remain_truthful() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|v| v == "image/png")
+            .any(|v| v == "image")
     );
     assert_eq!(
         model.apis[0].compatibility["reasoning_field"],

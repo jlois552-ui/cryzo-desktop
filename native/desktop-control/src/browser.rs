@@ -20,45 +20,15 @@ use tungstenite::{Message, WebSocket};
 use windows::Win32::Foundation::RECT;
 
 use crate::{
+    ax::{Element, quote},
     overlay::Overlay,
-    uia::{changes, invisible, quote, stopped, verb},
+    uia::{changes, stopped, verb},
 };
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const LOAD_LIMIT: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_millis(150);
 const QUIET: Duration = Duration::from_millis(400);
-
-/// Roles that are worth a line even without a name, because the agent can act on them.
-const INTERACTIVE: [&str; 15] = [
-    "link",
-    "button",
-    "textbox",
-    "searchbox",
-    "combobox",
-    "checkbox",
-    "radio",
-    "menuitem",
-    "tab",
-    "option",
-    "switch",
-    "slider",
-    "listbox",
-    "spinbutton",
-    "menuitemcheckbox",
-];
-
-/// Layout roles that never get a line of their own; their children still print.
-const LAYOUT: [&str; 8] = [
-    "generic",
-    "none",
-    "presentation",
-    "InlineTextBox",
-    "LineBreak",
-    "RootWebArea",
-    "paragraph",
-    "group",
-];
 
 pub struct Browser {
     socket: WebSocket<TcpStream>,
@@ -71,18 +41,11 @@ pub struct Browser {
     /// DOM backend node ID → short ID, so an element keeps its ID while the page lives.
     ids: HashMap<i64, String>,
     counter: usize,
-    nodes: HashMap<String, Node>,
+    nodes: HashMap<String, Element>,
     last: Option<Vec<String>>,
     downloads: Vec<Download>,
     /// Notes for the next result, such as a tab that opened.
     notes: Vec<String>,
-}
-
-#[derive(Clone)]
-struct Node {
-    backend: i64,
-    role: String,
-    name: String,
 }
 
 struct Download {
@@ -393,7 +356,7 @@ impl Browser {
 
     fn perform(
         &mut self,
-        node: &Node,
+        node: &Element,
         action: &str,
         value: Option<&str>,
         passwords: bool,
@@ -818,86 +781,25 @@ impl Browser {
     /// The page as indented lines, from Chrome's accessibility tree.
     fn read(&mut self, max_lines: usize) -> Result<Vec<String>> {
         let tree = self.send("Accessibility.getFullAXTree", json!({}))?;
-        let nodes = tree["nodes"].as_array().context("no accessibility tree")?;
-        let by_id = nodes
-            .iter()
-            .filter_map(|node| Some((node["nodeId"].as_str()?, node)))
-            .collect::<HashMap<_, _>>();
-        let root = nodes.first().context("empty page")?;
-        let mut lines = Vec::new();
-        let mut seen = HashMap::new();
-        self.visit(root, &by_id, 0, "", &mut lines, &mut seen, max_lines);
+        let (ids, counter) = (&mut self.ids, &mut self.counter);
+        let (mut lines, nodes) = crate::ax::snapshot(
+            &tree,
+            &mut |backend| {
+                ids.entry(backend)
+                    .or_insert_with(|| {
+                        *counter += 1;
+                        format!("b{counter}")
+                    })
+                    .clone()
+            },
+            max_lines,
+        )?;
         // Only the current page's elements, so find never offers one from a page already left.
-        self.nodes = seen;
+        self.nodes = nodes;
         if lines.len() >= max_lines {
             lines.push("  … cut off at the line budget; use browser_find to reach the rest".into());
         }
         Ok(lines)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn visit(
-        &mut self,
-        node: &Value,
-        by_id: &HashMap<&str, &Value>,
-        depth: usize,
-        parent_name: &str,
-        lines: &mut Vec<String>,
-        seen: &mut HashMap<String, Node>,
-        max_lines: usize,
-    ) {
-        if lines.len() >= max_lines {
-            return;
-        }
-        let role = node["role"]["value"].as_str().unwrap_or_default();
-        let name = clean(node["name"]["value"].as_str().unwrap_or_default());
-        let ignored = node["ignored"].as_bool().unwrap_or(false);
-        let states = states(node);
-        let interactive = INTERACTIVE.contains(&role);
-        let shown = !ignored
-            && !LAYOUT.contains(&role)
-            && (interactive || !name.is_empty() || !states.is_empty())
-            && !(role == "StaticText" && parent_name.contains(&name));
-        let (next, child_parent) = match (shown, node["backendDOMNodeId"].as_i64()) {
-            (true, Some(backend)) => {
-                let id = match self.ids.get(&backend) {
-                    Some(id) => id.clone(),
-                    None => {
-                        self.counter += 1;
-                        let id = format!("b{}", self.counter);
-                        self.ids.insert(backend, id.clone());
-                        id
-                    }
-                };
-                let role = if role == "StaticText" { "text" } else { role };
-                lines.push(
-                    [format!(
-                        "{}[{id}] {role} {}",
-                        "  ".repeat(depth + 1),
-                        quote(&name)
-                    )]
-                    .into_iter()
-                    .chain(states)
-                    .collect::<Vec<_>>()
-                    .join(" "),
-                );
-                seen.insert(
-                    id,
-                    Node {
-                        backend,
-                        role: role.to_string(),
-                        name: name.clone(),
-                    },
-                );
-                (depth + 1, name)
-            }
-            _ => (depth, parent_name.to_string()),
-        };
-        for child in node["childIds"].as_array().into_iter().flatten() {
-            if let Some(child) = child.as_str().and_then(|id| by_id.get(id)) {
-                self.visit(child, by_id, next, &child_parent, lines, seen, max_lines);
-            }
-        }
     }
 
     /// Where an element sits on the screen in physical pixels, from its box on the page and the
@@ -1108,36 +1010,6 @@ impl Download {
     }
 }
 
-fn states(node: &Value) -> Vec<String> {
-    let mut states = Vec::new();
-    if let Some(value) = node["value"]["value"]
-        .as_str()
-        .filter(|value| !value.is_empty())
-    {
-        states.push(format!("value={:?}", clip(value, 80)));
-    }
-    for property in node["properties"].as_array().into_iter().flatten() {
-        let name = property["name"].as_str().unwrap_or_default();
-        let value = &property["value"]["value"];
-        match (name, value) {
-            ("focused", Value::Bool(true)) => states.push("focused".into()),
-            ("disabled", Value::Bool(true)) => states.push("disabled".into()),
-            ("checked", Value::String(state)) if state == "true" => states.push("checked".into()),
-            ("checked", Value::String(state)) if state == "false" => {
-                states.push("unchecked".into())
-            }
-            ("expanded", Value::Bool(expanded)) => {
-                states.push(if *expanded { "expanded" } else { "collapsed" }.into())
-            }
-            ("selected", Value::Bool(true)) => states.push("selected".into()),
-            ("required", Value::Bool(true)) => states.push("required".into()),
-            _ => {}
-        }
-    }
-    states
-}
-
-/// Quotes page text without Rust's debug escapes, which mangle combining marks in many scripts.
 fn host(url: &str) -> &str {
     url.split("://")
         .nth(1)
@@ -1145,18 +1017,6 @@ fn host(url: &str) -> &str {
         .split(['/', '?', '#'])
         .next()
         .unwrap_or_default()
-}
-
-fn clean(text: &str) -> String {
-    let text = text.chars().filter(|c| !invisible(*c)).collect::<String>();
-    clip(&text.split_whitespace().collect::<Vec<_>>().join(" "), 120)
-}
-
-fn clip(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
-        return text.to_string();
-    }
-    format!("{}…", text.chars().take(max).collect::<String>())
 }
 
 fn profile() -> Result<PathBuf> {

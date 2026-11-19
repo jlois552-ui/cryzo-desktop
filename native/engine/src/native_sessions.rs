@@ -218,7 +218,7 @@ impl Engine {
             let mut conversation = system.clone();
             for message in state["messages"].as_array().unwrap() {
                 if message["type"] == "user" {
-                    conversation.push(json!({"role":"user","content":message["text"]}));
+                    conversation.push(user_turn(message, vision));
                 }
                 if message["type"] == "assistant" {
                     let text = message["content"]
@@ -700,7 +700,7 @@ impl Engine {
                 element,
                 action,
                 text,
-            } => crate::preview::page_act(self, root, *element, action, text.as_deref()).await?,
+            } => crate::preview::page_act(self, root, element, action, text.as_deref()).await?,
             Operation::PageErrors {} => crate::preview::page_errors(self, root).await?,
             Operation::PageScreenshot {} => {
                 return Ok(json!({ "parts": crate::preview::page_screenshot(self, root).await? }));
@@ -824,6 +824,115 @@ fn replayed_arguments(tool: &Value) -> String {
     input.to_string()
 }
 
+/// Attachments the composer sent (`{uri, name?, description?, mention?}`) as stored
+/// `Prompt.FileAttachment`s: images from data URLs, and text files from the session's folder,
+/// which reach the model inline.
+fn attachments(files: &Value, directory: Option<&std::path::Path>) -> Result<Vec<Value>> {
+    use base64::Engine as _;
+    let files = files.as_array().map(Vec::as_slice).unwrap_or_default();
+    ensure!(files.len() <= 20, "attach at most 20 files at once");
+    files
+        .iter()
+        .map(|file| {
+            let uri = file["uri"].as_str().context("attachment without a uri")?;
+            let (data, mime, source) = if let Some(inline) = uri.strip_prefix("data:") {
+                let (mime, data) = inline
+                    .split_once(";base64,")
+                    .context("attachments must be base64 data URLs or files")?;
+                ensure!(
+                    mime.starts_with("image/") || mime.starts_with("text/"),
+                    "Cryzo can attach images and text files"
+                );
+                ensure!(
+                    data.len() <= 14_000_000,
+                    "an attachment is larger than 10 MB"
+                );
+                base64::engine::general_purpose::STANDARD
+                    .decode(data)
+                    .context("an attachment's data is not valid base64")?;
+                (data.to_owned(), mime.to_owned(), json!({"type":"inline"}))
+            } else {
+                let path = url::Url::parse(uri)
+                    .ok()
+                    .filter(|url| url.scheme() == "file")
+                    .and_then(|url| url.to_file_path().ok())
+                    .context("attachments must be base64 data URLs or files")?;
+                let folder = directory
+                    .and_then(|folder| folder.canonicalize().ok())
+                    .context("the session has no folder")?;
+                let path = path
+                    .canonicalize()
+                    .with_context(|| format!("{} does not exist", path.display()))?;
+                ensure!(
+                    path.starts_with(&folder),
+                    "only files in the session's folder can be attached"
+                );
+                ensure!(
+                    std::fs::metadata(&path)?.len() <= 1_000_000,
+                    "{} is larger than 1 MB",
+                    path.display()
+                );
+                let bytes = std::fs::read(&path)?;
+                ensure!(
+                    std::str::from_utf8(&bytes).is_ok(),
+                    "{} is not a text file",
+                    path.display()
+                );
+                (
+                    base64::engine::general_purpose::STANDARD.encode(bytes),
+                    "text/plain".to_owned(),
+                    json!({"type":"uri","uri":uri}),
+                )
+            };
+            let mut attachment = json!({"data":data,"mime":mime,"source":source});
+            for field in ["name", "description", "mention"] {
+                if !file[field].is_null() {
+                    attachment[field] = file[field].clone();
+                }
+            }
+            Ok(attachment)
+        })
+        .collect()
+}
+
+/// A user message for the model: its text, with attached text files inline and attached images in
+/// `cryzo_images` for models that see them.
+fn user_turn(message: &Value, vision: bool) -> Value {
+    use base64::Engine as _;
+    let mut text = message["text"].as_str().unwrap_or_default().to_owned();
+    let mut images = Vec::new();
+    for file in message["files"].as_array().into_iter().flatten() {
+        let mime = file["mime"].as_str().unwrap_or_default();
+        let data = file["data"].as_str().unwrap_or_default();
+        let name = file["name"]
+            .as_str()
+            .or(file["source"]["uri"].as_str())
+            .unwrap_or("attachment");
+        if mime.starts_with("image/") {
+            if vision {
+                images.push(json!(format!("data:{mime};base64,{data}")));
+            } else {
+                text.push_str(&format!(
+                    "\n\n[The user attached the image {name}; this model can't see images.]"
+                ));
+            }
+            continue;
+        }
+        let contents = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .unwrap_or_default();
+        let uri = file["source"]["uri"].as_str().unwrap_or(name);
+        text.push_str(&format!("\n\n<file uri={uri:?}>\n{contents}\n</file>"));
+    }
+    let mut turn = json!({"role":"user","content":text});
+    if !images.is_empty() {
+        turn["cryzo_images"] = json!(images);
+    }
+    turn
+}
+
 /// A completed tool's content for the model: its text parts as plain text, with image file parts
 /// (data URLs) collected into `images`.
 fn tool_text(content: &Value, images: &mut Vec<Value>) -> String {
@@ -854,8 +963,9 @@ fn tool_text(content: &Value, images: &mut Vec<Value>) -> String {
 /// model can take a new one.
 fn keep_recent_images(conversation: &mut [Value], keep: usize) {
     let mut seen = 0;
+    // The user's own images stay; only tool screenshots age out.
     for message in conversation.iter_mut().rev() {
-        if message.get("cryzo_images").is_none() {
+        if message["role"] != "tool" || message.get("cryzo_images").is_none() {
             continue;
         }
         seen += 1;
@@ -917,14 +1027,14 @@ fn tool_definitions(plan: bool, desktop: bool, vision: bool) -> Value {
         ),
         (
             "page_read",
-            "Read the app's preview in Cryzo's browser pane: its text and numbered controls for page_act",
+            "Read the app's preview in Cryzo's browser pane as its accessibility tree: one line per element, with IDs like e12 for page_act",
             json!({}),
             vec![],
         ),
         (
             "page_act",
-            "Use control N from page_read in the preview like a user: click it, type text into it, or press a key (Enter, Tab, Escape, Backspace) on it",
-            json!({"element":{"type":"integer","minimum":1},"action":{"type":"string","enum":["click","type","press"]},"text":{"type":"string","description":"The text to type, or the key to press"}}),
+            "Use element ID from page_read in the preview like a user: click it, type text into it (replacing what is there), select an option by its text, press a key (Enter, Tab, Escape, Backspace, ArrowDown, ArrowUp) on it, or scroll it into view",
+            json!({"element":{"type":"string","description":"Element ID from page_read, like e12"},"action":{"type":"string","enum":["click","type","select","press","scroll_into_view"]},"text":{"type":"string","description":"The text to type, the option to select, or the key to press"}}),
             vec!["element", "action"],
         ),
         (
@@ -1207,14 +1317,6 @@ async fn prompt(
         .as_str()
         .filter(|text| !text.trim().is_empty() && text.len() <= 1_000_000)
         .ok_or_else(|| error("prompt is empty or too large"))?;
-    if input["files"]
-        .as_array()
-        .is_some_and(|files| !files.is_empty())
-    {
-        return Err(error(
-            "file attachments are not supported by this native transport yet",
-        ));
-    }
     let inbox = input["id"]
         .as_str()
         .map(str::to_owned)
@@ -1235,13 +1337,21 @@ async fn prompt(
         ));
     }
     // Metadata carries the composer's display text, so context appended for the model stays out of the bubble.
-    let payload = match input
+    let mut payload = match input
         .get("metadata")
         .filter(|metadata| metadata.is_object())
     {
         Some(metadata) => json!({"text":text,"metadata":metadata}),
         None => json!({"text":text}),
     };
+    let directory =
+        engine.store.desktop_state(&session).map_err(error)?["info"]["location"]["directory"]
+            .as_str()
+            .map(std::path::PathBuf::from);
+    let files = attachments(&input["files"], directory.as_deref()).map_err(error)?;
+    if !files.is_empty() {
+        payload["files"] = json!(files);
+    }
     let item = json!({"type":"user","payload":payload,"delivery":input["delivery"].as_str().unwrap_or("steer")});
     let event = engine
         .record(
@@ -1494,7 +1604,63 @@ async fn log_stream(
 mod tests {
     use serde_json::json;
 
-    use super::{keep_recent_images, replayed_arguments, tool_definitions, tool_text};
+    use super::{
+        attachments, keep_recent_images, replayed_arguments, tool_definitions, tool_text, user_turn,
+    };
+
+    #[test]
+    fn attachments_keep_images_and_read_text_files_from_the_session_folder() {
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(folder.path().join("notes.md"), "# Plan").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "no").unwrap();
+        let file = |path: &std::path::Path| url::Url::from_file_path(path).unwrap().to_string();
+        let stored = attachments(
+            &json!([
+                {"uri":"data:image/png;base64,QUJD","name":"shot.png"},
+                {"uri":file(&folder.path().join("notes.md")),"name":"notes.md"},
+            ]),
+            Some(folder.path()),
+        )
+        .unwrap();
+        assert_eq!(
+            stored[0],
+            json!({"data":"QUJD","mime":"image/png","source":{"type":"inline"},"name":"shot.png"})
+        );
+        assert_eq!(stored[1]["mime"], "text/plain");
+        assert_eq!(stored[1]["data"], "IyBQbGFu");
+        assert_eq!(stored[1]["source"]["type"], "uri");
+        for refused in [
+            json!([{"uri":file(&outside.path().join("secret.txt"))}]),
+            json!([{"uri":"data:application/zip;base64,QUJD"}]),
+            json!([{"uri":"data:image/png;base64,not base64!"}]),
+            json!([{"uri":"https://example.com/a.png"}]),
+        ] {
+            assert!(attachments(&refused, Some(folder.path())).is_err());
+        }
+    }
+
+    #[test]
+    fn a_user_turn_inlines_text_files_and_carries_images_for_vision_models() {
+        let message = json!({"text":"Look","files":[
+            {"data":"QUJD","mime":"image/png","source":{"type":"inline"},"name":"shot.png"},
+            {"data":"IyBQbGFu","mime":"text/plain","source":{"type":"uri","uri":"file:///p/notes.md"}},
+        ]});
+        let turn = user_turn(&message, true);
+        assert_eq!(
+            turn["content"],
+            "Look\n\n<file uri=\"file:///p/notes.md\">\n# Plan\n</file>"
+        );
+        assert_eq!(turn["cryzo_images"], json!(["data:image/png;base64,QUJD"]));
+        let blind = user_turn(&message, false);
+        assert!(blind.get("cryzo_images").is_none());
+        assert!(
+            blind["content"]
+                .as_str()
+                .unwrap()
+                .contains("can't see images")
+        );
+    }
 
     #[test]
     fn tool_content_reaches_the_model_as_text_with_images_apart() {
