@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { browserNotes, browserSelection, noteArea } from "./notes"
+import { browserNotes, browserSelection } from "./notes"
 
 let next = 0
 const id = () => `c${++next}`
@@ -94,17 +94,6 @@ describe("browser pane notes", () => {
     })
     expect(browserSelection({ element: { tag: "<img>" } })).toBeUndefined()
     expect(browserSelection("x")).toBeUndefined()
-  })
-
-  test("the screenshot area covers every note with room around it, within the visible page", () => {
-    const viewport = { width: 800, height: 600 }
-    expect(
-      noteArea([
-        { kind: "element", viewport, element: { tag: "a", rect: { x: 20, y: 30, width: 50, height: 20 } } },
-        { kind: "area", viewport, area: { rect: { x: 500, y: 400, width: 200, height: 180 } } },
-      ]),
-    ).toEqual({ viewport: { x: 0, y: 0, ...viewport }, rect: { x: 0, y: 0, width: 796, height: 600 } })
-    expect(noteArea([{ kind: "element", element: { tag: "a", rect: { x: 0, y: 0, width: 5, height: 5 } } }])).toBeUndefined()
   })
 
   test("malformed picks from the page are dropped", () => {

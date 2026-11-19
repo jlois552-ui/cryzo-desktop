@@ -85,8 +85,8 @@ fn devtools(
     Err("controlling the browser pane is only available on Windows for now".into())
 }
 
-/// The visible page as base64 PNG, taken while the picker still draws the marks a note points at.
-/// Notes still go out without it when the pane can't take one.
+/// The visible page as base64 PNG, which the renderer draws in the page's place while its address
+/// suggestions overlap the native page.
 async fn screenshot() -> Option<String> {
     let webview = pane()?;
     let (sender, answer) = tokio::sync::oneshot::channel();
@@ -224,18 +224,8 @@ fn create(
             }
             match message(url) {
                 Some(Message::Notes(sent)) => {
-                    let emitter = notes.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let screenshot = screenshot().await;
-                        if let Some(webview) = pane() {
-                            let _ = webview
-                                .eval("window.__cryzoPicker&&window.__cryzoPicker.captured()");
-                        }
-                        let _ = emitter.emit(
-                            "cryzo:desktop",
-                            json!({"_tag":"BrowserNotes","notes":sent,"screenshot":screenshot}),
-                        );
-                    });
+                    let _ =
+                        notes.emit("cryzo:desktop", json!({"_tag":"BrowserNotes","notes":sent}));
                 }
                 Some(Message::Selection(selection)) => {
                     let _ = notes.emit(

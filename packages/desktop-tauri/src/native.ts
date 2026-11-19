@@ -164,7 +164,7 @@ function createBrowserPane() {
   const loaded = new Set<(tab: string, url: string) => void>()
   const titles = new Set<(tab: string, title: string) => void>()
   const newTabs = new Set<(url: string) => void>()
-  const notes = new Set<(notes: readonly unknown[], screenshot?: string) => void>()
+  const notes = new Set<(notes: readonly unknown[]) => void>()
   const selections = new Set<(selection: unknown) => void>()
   const previews = new Set<(preview: { directory: string; url: string }) => void>()
   const call = (tag: string, payload: object = {}) => invoke<void>("browser_pane", { tag, payload })
@@ -218,8 +218,8 @@ function createBrowserPane() {
       }
       if (payload._tag === "BrowserSelection") selections.forEach((fn) => fn(payload.selection))
       if (payload._tag === "BrowserNotes" && Array.isArray(payload.notes)) {
-        const screenshot = typeof payload.screenshot === "string" ? payload.screenshot : undefined
-        notes.forEach((fn) => fn(payload.notes as unknown[], screenshot))
+        const sent = payload.notes
+        notes.forEach((fn) => fn(sent))
       }
       if (payload._tag === "BrowserOpen" && typeof payload.url === "string" && typeof payload.directory === "string") {
         const preview = { directory: payload.directory, url: payload.url }

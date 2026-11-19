@@ -116,42 +116,6 @@ export function browserSelection(raw: unknown): BrowserSelection | undefined {
   }
 }
 
-/**
- * Where on the page the notes point, padded for context and kept within the visible page, in the
- * page's CSS pixels; the screenshot sent with them is cropped to it.
- */
-export function noteArea(raw: readonly unknown[]) {
-  const records = raw.filter(isRecord)
-  const viewport = readRect({ x: 0, y: 0, ...(isRecord(records[0]?.viewport) ? records[0].viewport : {}) })
-  const rects = records.flatMap((value) => {
-    const holder = [value.element, value.area].find(isRecord)
-    const rect = holder && readRect(holder.rect)
-    return rect ? [rect] : []
-  })
-  if (!viewport || viewport.width < 1 || viewport.height < 1 || !rects.length) return
-  const pad = 96
-  const left = Math.max(0, Math.min(...rects.map((rect) => rect.x)) - pad)
-  const top = Math.max(0, Math.min(...rects.map((rect) => rect.y)) - pad)
-  const right = Math.min(viewport.width, Math.max(...rects.map((rect) => rect.x + rect.width)) + pad)
-  const bottom = Math.min(viewport.height, Math.max(...rects.map((rect) => rect.y + rect.height)) + pad)
-  if (right - left < 1 || bottom - top < 1) return
-  return { viewport, rect: { x: left, y: top, width: right - left, height: bottom - top } }
-}
-
-/** The host's base64 PNG of the page, cropped to `area`, as an image the composer can attach. */
-export async function annotationImage(screenshot: string, area: NonNullable<ReturnType<typeof noteArea>>) {
-  const bytes = Uint8Array.from(atob(screenshot), (char) => char.charCodeAt(0))
-  const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }))
-  // The screenshot is in device pixels; the notes are in CSS pixels.
-  const scale = bitmap.width / area.viewport.width
-  const canvas = new OffscreenCanvas(Math.round(area.rect.width * scale), Math.round(area.rect.height * scale))
-  const context = canvas.getContext("2d")
-  if (!context) return bitmap.close()
-  context.drawImage(bitmap, area.rect.x * scale, area.rect.y * scale, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height)
-  bitmap.close()
-  return new File([await canvas.convertToBlob({ type: "image/png" })], "annotation.png", { type: "image/png" })
-}
-
 function note(commentID: string, url: string, comment: string, label: string, icon: string, subject: string): NoteContextItem {
   return { type: "note", origin: "browser", commentID, label, icon, subject, comment, href: url }
 }

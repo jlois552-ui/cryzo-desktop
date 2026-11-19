@@ -89,7 +89,7 @@ export type BrowserPane = {
   resetEdit(): Promise<void>
   /** Undoes the previewed changes and stops editing. */
   cancelEdit(): Promise<void>
-  /** Sends the edited element as a note with its changes; the page reverts them after the screenshot. */
+  /** Sends the edited element as a note with its changes; the page then reverts them. */
   sendEdit(comment: string): Promise<void>
   /** A tab started loading a page; its title may change before the load finishes. */
   onLoading(callback: (tab: string) => void): () => void
@@ -97,8 +97,8 @@ export type BrowserPane = {
   onTitle(callback: (tab: string, title: string) => void): () => void
   /** A page asked for a new window, such as a target=_blank link; the app opens it as a tab. */
   onNewTab(callback: (url: string) => void): () => void
-  /** Raw notes from the page's picker, validate before use, with a base64 PNG of the page and its marks. */
-  onNotes(callback: (notes: readonly unknown[], screenshot?: string) => void): () => void
+  /** Raw notes from the page's picker, as text; validate before use. */
+  onNotes(callback: (notes: readonly unknown[]) => void): () => void
   /** The raw element the user chose to edit, validate before use. */
   onSelection(callback: (selection: unknown) => void): () => void
   /** The agent started a project's dev server and it answers at `url`. */

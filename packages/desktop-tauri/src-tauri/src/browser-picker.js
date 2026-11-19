@@ -2,9 +2,10 @@
 // highlights the element under the pointer with its tag and size; a click picks it and a drag picks
 // an area. Each pick gets a comment and is sent as a note to the Cryzo composer; in batch mode picks
 // become numbered pins and are sent together. Edit hands an element to Cryzo's inspector, which
-// previews style changes here and sends them with the note. Marks and edits stay until the host has
-// taken its screenshot and calls `captured`. Messages leave the page through a navigation to a
-// sentinel URL that the host reads and cancels; the page has no other channel to Cryzo.
+// previews style changes here and sends them with the note. Notes are text, as Claude's browser
+// reads pages; marks and previewed edits clear once a note is sent. Messages leave the page through
+// a navigation to a sentinel URL that the host reads and cancels; the page has no other channel to
+// Cryzo.
 ;(() => {
   if (window.top !== window || window.__cryzoPicker) return
   // Errors the page reports since it loaded, for the agent's page_errors (read through DevTools).
@@ -70,7 +71,14 @@
     const host = document.createElement("cryzo-picker")
     host.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483647"
     root = host.attachShadow({ mode: "closed" })
-    root.innerHTML = `<style>
+    // Built with DOM calls, not innerHTML: pages with Trusted Types (YouTube, Google) refuse markup strings.
+    const element = (tag, className, parent = root) => {
+      const node = tag === "svg" ? document.createElementNS(SVG, tag) : document.createElement(tag)
+      if (className) node.setAttribute("class", className)
+      parent.append(node)
+      return node
+    }
+    element("style").textContent = `
       .hl{position:fixed;border:2px solid #7c5cff;background:rgba(124,92,255,.12);border-radius:3px;pointer-events:none;display:none}
       .sel{position:fixed;border:2px solid #7c5cff;border-radius:3px;pointer-events:none;display:none}
       .tip{position:fixed;display:none;padding:2px 6px;border-radius:4px;background:#1d1b22;color:#fff;font:500 11px/16px ui-monospace,monospace;white-space:nowrap;pointer-events:none}
@@ -83,8 +91,15 @@
       .marks{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;overflow:visible}
       .marks rect{fill:rgba(124,92,255,.10);stroke:#7c5cff;stroke-width:2}
       .pin{position:fixed;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;background:#7c5cff;color:#fff;font:600 11px/20px system-ui;text-align:center;pointer-events:none}
-    </style><svg class="marks"></svg><div class="hl"></div><div class="sel"></div><div class="tip"></div><div class="area"></div><div class="pins"></div>
-    <form class="box"><input /><button type="button" class="edit"></button><button type="submit"></button></form>`
+    `
+    for (const name of ["marks:svg", "hl", "sel", "tip", "area", "pins"]) {
+      const [className, tag = "div"] = name.split(":")
+      element(tag, className)
+    }
+    const form = element("form", "box")
+    element("input", "", form)
+    element("button", "edit", form).type = "button"
+    element("button", "", form).type = "submit"
     highlight = root.querySelector(".hl")
     tip = root.querySelector(".tip")
     area = root.querySelector(".area")
@@ -266,12 +281,12 @@
     for (const node of [...marks.children, ...pins.children]) node.dataset.sent = ""
     for (const item of edits) item.sent = true
     location.href = SENTINEL + encodeURIComponent(JSON.stringify(notes))
-    // Hosts that take no screenshot never call `captured`.
-    setTimeout(finish, 5000)
+    // The marks stay a moment so the user sees what was sent.
+    setTimeout(finish, 600)
   }
 
-  // After the screenshot: sent marks go, and sent edits are undone so the page shows the app as its
-  // code draws it again, rather than hiding the agent's change behind leftover inline styles.
+  // Sent marks go, and sent edits are undone so the page shows the app as its code draws it again,
+  // rather than hiding the agent's change behind leftover inline styles.
   function finish() {
     for (const node of root.querySelectorAll("[data-sent]")) node.remove()
     for (const item of edits.filter((item) => item.sent)) revert(item)
@@ -369,8 +384,7 @@
     place(highlight, rect)
     // Like a DevTools hover: the element's tag, id or first class, and size.
     const name = node.tagName.toLowerCase() + (node.id ? "#" + node.id : node.classList[0] ? "." + node.classList[0] : "")
-    tip.innerHTML = ""
-    tip.append(name.slice(0, 60) + " ")
+    tip.replaceChildren(name.slice(0, 60) + " ")
     const size = document.createElement("b")
     size.textContent = `${Math.round(rect.width)}×${Math.round(rect.height)}`
     tip.append(size)
@@ -447,9 +461,6 @@
     },
     flush() {
       send(state.pending.splice(0))
-    },
-    captured() {
-      if (root) finish()
     },
     style,
     reset() {
