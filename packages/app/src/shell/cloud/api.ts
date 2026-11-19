@@ -17,6 +17,7 @@ export async function cloudRequest(input: {
     | "apps/new"
     | "apps/unpublish"
     | "apps/data"
+    | "transcribe"
     | "apps/secrets"
     | "apps/secrets/set"
     | "apps/secrets/delete"

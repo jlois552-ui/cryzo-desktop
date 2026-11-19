@@ -75,6 +75,8 @@ export type BrowserPane = {
   onLoaded(callback: (url: string) => void): () => void
   /** Raw notes from the page's picker; validate before use. */
   onNotes(callback: (notes: readonly unknown[]) => void): () => void
+  /** The agent started a project's dev server and it answers at `url`. */
+  onPreview(callback: (preview: { directory: string; url: string }) => void): () => void
 }
 
 export type FatalRendererErrorLog = {

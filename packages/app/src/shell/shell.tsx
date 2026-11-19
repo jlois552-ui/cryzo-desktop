@@ -1,4 +1,4 @@
-import { Show, startTransition, Suspense, type ParentProps } from "solid-js"
+import { onCleanup, Show, startTransition, Suspense, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { ResizeHandle } from "@opencode/ui/resize-handle"
@@ -216,6 +216,9 @@ export default function Layout(props: ParentProps) {
         ]
       : [],
   )
+  // A preview the agent started opens in the browser panel, as in ChatGPT Sites and Cursor.
+  const offPreview = platform.browserPane?.onPreview((preview) => browserPanel.openAt(preview.url))
+  onCleanup(() => offPreview?.())
   const bottomTitlebar = () => mobile() && preferences.general.mobileTitlebarPosition() === "bottom"
   const dragInset = () => windowDragEnabled(platform) && !mobile()
 

@@ -35,6 +35,10 @@ pub struct Engine {
     pub(crate) desktop: std::sync::OnceLock<Result<cryzo_desktop_control::DesktopThread, String>>,
     /// (session, app) pairs the user already approved under the "ask once per app" setting.
     pub(crate) desktop_apps: Mutex<std::collections::HashSet<(String, String)>>,
+    /// Dev servers the agent started to preview the app it's building.
+    pub previews: crate::preview::Previews,
+    /// The desktop app's browser pane, when there is one.
+    pub(crate) pane: std::sync::OnceLock<Arc<dyn crate::preview::PaneHost>>,
 }
 
 impl Engine {
@@ -63,9 +67,16 @@ impl Engine {
             permissions: Mutex::new(HashMap::new()),
             desktop: std::sync::OnceLock::new(),
             desktop_apps: Mutex::new(std::collections::HashSet::new()),
+            previews: crate::preview::Previews::default(),
+            pane: std::sync::OnceLock::new(),
             ptys: crate::pty::PtyManager::new(desktop_events.clone()),
             desktop_events,
         })
+    }
+
+    /// Lets previews open in the desktop app's browser pane.
+    pub fn install_pane(&self, pane: Arc<dyn crate::preview::PaneHost>) {
+        let _ = self.pane.set(pane);
     }
 
     pub async fn cancel(&self, session: &str) {

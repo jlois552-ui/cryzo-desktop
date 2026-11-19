@@ -162,6 +162,7 @@ async function nativeFetch(request: Request): Promise<Response> {
 function createBrowserPane() {
   const loaded = new Set<(url: string) => void>()
   const notes = new Set<(notes: readonly unknown[]) => void>()
+  const previews = new Set<(preview: { directory: string; url: string }) => void>()
   const call = (tag: string, payload: object = {}) => invoke<void>("browser_pane", { tag, payload })
   const api: BrowserPane = {
     show: (bounds, url) => call("BrowserShow", url ? { ...bounds, url } : bounds),
@@ -180,12 +181,20 @@ function createBrowserPane() {
       notes.add(callback)
       return () => notes.delete(callback)
     },
+    onPreview: (callback) => {
+      previews.add(callback)
+      return () => previews.delete(callback)
+    },
   }
   return {
     api,
     event(payload: DesktopEvent) {
       if (payload._tag === "BrowserLoaded" && typeof payload.url === "string") loaded.forEach((fn) => fn(payload.url as string))
       if (payload._tag === "BrowserNotes" && Array.isArray(payload.notes)) notes.forEach((fn) => fn(payload.notes as unknown[]))
+      if (payload._tag === "BrowserOpen" && typeof payload.url === "string" && typeof payload.directory === "string") {
+        const preview = { directory: payload.directory, url: payload.url }
+        previews.forEach((fn) => fn(preview))
+      }
     },
   }
 }

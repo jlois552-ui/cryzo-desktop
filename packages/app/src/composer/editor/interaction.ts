@@ -629,6 +629,11 @@ export function createComposerEditor(input: {
       input.onEditor?.(element)
     },
     restoreFocus,
+    // Dictated text goes in at the caret, like typing.
+    insertText(value: string) {
+      draft.addText(value)
+      restoreFocus()
+    },
     onInput(value: string, prompt?: ComposerPersistedState["prompt"], cursor?: number) {
       cancelFocus()
       resetCycle()

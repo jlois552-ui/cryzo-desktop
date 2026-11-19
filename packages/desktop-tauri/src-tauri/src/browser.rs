@@ -9,6 +9,82 @@ const LABEL: &str = "browser";
 const SENTINEL: &str = "cryzo-note.invalid";
 const PICKER: &str = include_str!("browser-picker.js");
 
+/// Lets the engine show a dev server it started: the renderer opens the pane at the URL.
+pub struct PreviewPane(pub tauri::AppHandle);
+
+impl cryzo_engine::preview::PaneHost for PreviewPane {
+    fn open(&self, directory: &std::path::Path, url: &str) {
+        let _ = self.0.emit(
+            "cryzo:desktop",
+            json!({"_tag":"BrowserOpen","directory":directory,"url":url}),
+        );
+    }
+
+    /// Runs on the pane's own WebView2 through `CallDevToolsProtocolMethod`, so it reaches only
+    /// that page: no debugging port is opened, and Cryzo's own interface stays out of reach.
+    fn cdp(&self, method: &str, params: Value) -> cryzo_engine::preview::Reply {
+        let (sender, answer) = tokio::sync::oneshot::channel::<Result<Value, String>>();
+        let started = match pane() {
+            Some(webview) => devtools(&webview, method.to_owned(), params.to_string(), sender),
+            None => Err("the browser pane isn't open".into()),
+        };
+        Box::pin(async move {
+            started.map_err(anyhow::Error::msg)?;
+            let reply = tokio::time::timeout(std::time::Duration::from_secs(20), answer)
+                .await
+                .map_err(|_| anyhow::anyhow!("the page didn't answer within 20 seconds"))?
+                .map_err(|_| anyhow::anyhow!("the browser pane closed"))?;
+            reply.map_err(anyhow::Error::msg)
+        })
+    }
+}
+
+#[cfg(windows)]
+fn devtools(
+    webview: &tauri::Webview,
+    method: String,
+    params: String,
+    sender: tokio::sync::oneshot::Sender<Result<Value, String>>,
+) -> Result<(), String> {
+    use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+    use windows::core::HSTRING;
+    // The completion handler takes the sender; if the call never starts, it is dropped and the
+    // caller hears that the pane closed.
+    webview
+        .with_webview(move |platform| {
+            let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
+                move |error, reply: String| {
+                    let result = error.map_err(|error| error.message()).and_then(|()| {
+                        serde_json::from_str(&reply).map_err(|error| error.to_string())
+                    });
+                    let _ = sender.send(result);
+                    Ok(())
+                },
+            ));
+            // SAFETY: COM calls on the pane's controller, on the thread Tauri runs this closure on.
+            unsafe {
+                if let Ok(core) = platform.controller().CoreWebView2() {
+                    let _ = core.CallDevToolsProtocolMethod(
+                        &HSTRING::from(method),
+                        &HSTRING::from(params),
+                        &handler,
+                    );
+                }
+            }
+        })
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(windows))]
+fn devtools(
+    _webview: &tauri::Webview,
+    _method: String,
+    _params: String,
+    _sender: tokio::sync::oneshot::Sender<Result<Value, String>>,
+) -> Result<(), String> {
+    Err("controlling the browser pane is only available on Windows for now".into())
+}
+
 /// The pane, kept from creation: looking a child webview up by label does not find it.
 static PANE: std::sync::Mutex<Option<tauri::Webview>> = std::sync::Mutex::new(None);
 

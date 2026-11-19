@@ -44,6 +44,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .merge(cloud)
         .merge(publish)
         .merge(crate::starter::router())
+        .merge(crate::voice::router())
 }
 
 pub(crate) fn directory(query: Option<&str>) -> anyhow::Result<PathBuf> {

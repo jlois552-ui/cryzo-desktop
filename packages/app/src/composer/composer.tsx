@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, createSignal } from "solid-js"
+import { Show, createEffect, createMemo, createSignal, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Button } from "@opencode/ui/button"
@@ -10,6 +10,7 @@ import { consoleModelGroup } from "@/providers/models/provider-group"
 import { consoleProviderName } from "@/providers/catalog/console"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { ComposerEditor } from "./editor/editor"
+import { ComposerMic } from "./mic"
 import { DialogSelectModel, ModelSelectorDrawer } from "@/providers/models/select-dialog"
 import { DialogSelectModelNext, ModelSelectorDrawerNext } from "@/providers/models/select-dialog-next"
 import { useSettings } from "@/settings/model"
@@ -26,6 +27,8 @@ export function Composer(props: {
   borderUnderlay?: boolean
   readOnly?: boolean
   suggestionBoundary?: () => HTMLElement | undefined
+  access?: JSX.Element
+  mic?: boolean
 }) {
   const dialog = useDialog()
   const command = useCommand()
@@ -59,6 +62,12 @@ export function Composer(props: {
         alternateKeybind={[formatKeybind("mod", language.t), "↵"]}
         exitShellKeybind={[formatKeybind("esc", language.t)]}
         suggestionBoundary={props.suggestionBoundary}
+        accessControl={props.access}
+        micControl={
+          props.mic ? (
+            <ComposerMic onText={(text) => props.model.insertText(text)} />
+          ) : undefined
+        }
         modelControl={
           <ComposerModelControl
             loading={props.model.model.loading}

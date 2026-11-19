@@ -274,6 +274,9 @@ pub async fn desktop_call(
         "AppConsumeInitialDeepLinks" => Ok(json!([])),
         "WindowThemeReady" | "WindowShow" => { window.show().map_err(|e| e.to_string())?; Ok(Value::Null) }
         "WindowGetFocused" => window.is_focused().map(|v| json!(v)).map_err(|e| e.to_string()),
+        // Windows asks the user itself (Settings → Privacy → Microphone); the app's webview is
+        // allowed in `main.rs`, so there is nothing more to request here.
+        "WindowRequestMicrophone" => Ok(json!(true)),
         "WindowGetFullscreen" => window.is_fullscreen().map(|v| json!(v)).map_err(|e| e.to_string()),
         "WindowSetFocus" => { window.set_focus().map_err(|e| e.to_string())?; Ok(Value::Null) }
         "MenuRunAction" => {

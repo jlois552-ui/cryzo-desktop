@@ -1,4 +1,5 @@
 import { useSessionNavigate } from "@/session/surface"
+import { FullAccessChip } from "@/composer/full-access"
 import type { SessionUserActions } from "@opencode/session-ui/message"
 import { getFilename, sameDirectory } from "@opencode/util/path"
 import { useDialog } from "@opencode/ui/context/dialog"
@@ -565,6 +566,8 @@ export function ActiveSessionComposerRegion(props: {
                   borderUnderlay
                   readOnly={props.model.queue.undoing()}
                   suggestionBoundary={props.suggestionBoundary}
+                  access={<FullAccessChip />}
+                  mic
                 />
               </VoiceComposer>
             </div>

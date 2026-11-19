@@ -5,6 +5,27 @@
 // host reads and cancels; the page has no other channel to Cryzo.
 ;(() => {
   if (window.top !== window || window.__cryzoPicker) return
+  // Errors the page reports since it loaded, for the agent's page_errors (read through DevTools).
+  const errors = (window.__cryzoErrors = [])
+  const record = (text) => {
+    if (errors.length < 50) errors.push(String(text).slice(0, 1000))
+  }
+  const errorText = (value) => {
+    if (value instanceof Error) return value.stack || value.message
+    if (typeof value === "string") return value
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
+  }
+  addEventListener("error", (event) => record(event.message + (event.filename ? ` (${event.filename}:${event.lineno})` : "")))
+  addEventListener("unhandledrejection", (event) => record("Unhandled rejection: " + errorText(event.reason)))
+  const consoleError = console.error
+  console.error = (...args) => {
+    record(args.map(errorText).join(" "))
+    return consoleError.apply(console, args)
+  }
   const SENTINEL = "https://cryzo-note.invalid/#"
   const state = { on: false, batch: false, pending: [], start: null, dragging: false, editing: false }
   let root, highlight, area, box, pins

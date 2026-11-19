@@ -76,6 +76,10 @@ export type ComposerEditorProps = {
   borderUnderlay?: boolean
   class?: string
   modelControl?: JSX.Element
+  /** Ask first / Full access, after the model controls. */
+  accessControl?: JSX.Element
+  /** Dictation, just before Send. */
+  micControl?: JSX.Element
   modelControlsVisible?: boolean
   attachKeybind?: string[]
   attachShortcut?: string
@@ -444,6 +448,7 @@ export function ComposerEditor(props: ComposerEditorProps) {
                   )}
                 </Show>
               </Show>
+              {props.accessControl}
             </div>
           </div>
           <div data-slot="composer-actions" class="flex shrink-0 items-center">
@@ -471,6 +476,7 @@ export function ComposerEditor(props: ComposerEditorProps) {
                 </span>
               </Button>
             </Show>
+            <Show when={state.mode === "normal"}>{props.micControl}</Show>
             <ComposerEditorSubmitButton
               mode={state.mode}
               stopping={view.submit.stopping()}

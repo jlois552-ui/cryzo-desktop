@@ -152,6 +152,16 @@ fn main() {
                 );
             }
         })
+        // The composer's mic needs the microphone. Only Cryzo's own interface gets it; pages in
+        // the browser pane keep WebView2's default and Windows' own microphone setting applies.
+        .on_permission_request(|webview, kind| {
+            use tauri::webview::{PermissionKind, PermissionResponse};
+            if webview.label() == "main" && matches!(kind, PermissionKind::Microphone) {
+                PermissionResponse::Allow
+            } else {
+                PermissionResponse::Default
+            }
+        })
         .setup(|app| {
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("main") {
@@ -162,6 +172,7 @@ fn main() {
                 .unwrap_or(app.path().app_data_dir()?);
             std::fs::create_dir_all(&directory)?;
             let engine = Arc::new(Engine::open(&directory.join("cryzo.sqlite"))?);
+            engine.install_pane(Arc::new(browser::PreviewPane(app.handle().clone())));
             app.manage(tauri::async_runtime::block_on(DesktopHost::start(
                 &directory,
                 engine.clone(),
@@ -189,6 +200,14 @@ fn main() {
             decide,
             save_credential
         ])
-        .run(tauri::generate_context!())
-        .expect("Cryzo native host failed");
+        .build(tauri::generate_context!())
+        .expect("Cryzo native host failed")
+        .run(|app, event| {
+            // Dev servers end with the app; their job objects also end them after a crash.
+            if let tauri::RunEvent::Exit = event
+                && let Some(engine) = app.try_state::<Arc<Engine>>()
+            {
+                engine.previews.stop_all();
+            }
+        });
 }

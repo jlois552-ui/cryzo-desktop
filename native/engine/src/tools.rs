@@ -42,18 +42,50 @@ pub enum Operation {
         command: String,
         args: Value,
     },
+    /// The project's dev server, shown in the browser pane. It runs in the session runner.
+    Preview {
+        program: String,
+        args: Vec<String>,
+    },
+    PreviewLogs {
+        lines: Option<usize>,
+    },
+    PreviewStop {},
+    /// The page tools work on the project's running preview in the browser pane.
+    PageRead {},
+    PageAct {
+        element: u32,
+        action: String,
+        text: Option<String>,
+    },
+    PageErrors {},
 }
 
 impl Operation {
     pub fn needs_approval(&self) -> bool {
         matches!(
             self,
-            Self::Write { .. } | Self::Shell { .. } | Self::MarketPost { schedule: true, .. }
+            Self::Write { .. }
+                | Self::Shell { .. }
+                | Self::Preview { .. }
+                | Self::MarketPost { schedule: true, .. }
         ) || matches!(self, Self::Desktop { command, .. } if cryzo_desktop_control::acts(command))
     }
 
     pub fn is_desktop(&self) -> bool {
         matches!(self, Self::Desktop { .. })
+    }
+
+    pub fn is_preview(&self) -> bool {
+        matches!(
+            self,
+            Self::Preview { .. }
+                | Self::PreviewLogs { .. }
+                | Self::PreviewStop {}
+                | Self::PageRead {}
+                | Self::PageAct { .. }
+                | Self::PageErrors {}
+        )
     }
 
     pub fn is_market(&self) -> bool {
@@ -159,6 +191,14 @@ impl Workspace {
                 anyhow::bail!("marketing tools run in the session runner")
             }
             Operation::Desktop { .. } => anyhow::bail!("desktop tools run in the session runner"),
+            Operation::Preview { .. }
+            | Operation::PreviewLogs { .. }
+            | Operation::PreviewStop {}
+            | Operation::PageRead {}
+            | Operation::PageAct { .. }
+            | Operation::PageErrors {} => {
+                anyhow::bail!("preview tools run in the session runner")
+            }
             Operation::Diff => {
                 self.process(
                     "git",
@@ -174,14 +214,13 @@ impl Workspace {
         }
     }
 
+    pub fn root(&self) -> &Path {
+        &self.0
+    }
+
     async fn process(&self, program: &str, args: &[String]) -> Result<Value> {
-        ensure!(!program.is_empty(), "program is required");
-        let mut command = Command::new(program);
-        #[cfg(windows)]
-        command.creation_flags(0x08000000);
+        let mut command = command(program, args, &self.0)?;
         command
-            .args(args)
-            .current_dir(&self.0)
             .kill_on_drop(true)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -201,6 +240,55 @@ impl Workspace {
     }
 }
 
+/// A command for `program` with `args` in the project folder, without a console window.
+/// On Windows a bare name is looked up on PATH with PATHEXT as a shell would (so `npm` finds
+/// `npm.cmd`), never in the project folder itself, so a file there can't stand in for a real
+/// program. Rust runs `.cmd`/`.bat` files through `cmd.exe` with safe escaping and refuses
+/// arguments it can't escape.
+pub(crate) fn command(program: &str, args: &[String], root: &Path) -> Result<Command> {
+    ensure!(!program.is_empty(), "program is required");
+    #[cfg(windows)]
+    let program = resolve(
+        program,
+        root,
+        &std::env::var_os("PATH").unwrap_or_default(),
+        &std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into()),
+    )
+    .with_context(|| format!("program not found: {program}"))?;
+    let mut command = Command::new(program);
+    command.args(args).current_dir(root);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+    Ok(command)
+}
+
+/// The file a Windows shell would run for `program`: a path (relative to the project) with a
+/// PATHEXT extension added when it has none, or the first match in the PATH folders.
+#[cfg(any(windows, test))]
+fn resolve(program: &str, root: &Path, path: &std::ffi::OsStr, pathext: &str) -> Option<PathBuf> {
+    let extensions: Vec<&str> = pathext
+        .split(';')
+        .filter(|extension| !extension.is_empty())
+        .collect();
+    let candidates = |base: PathBuf| -> Vec<PathBuf> {
+        if base.extension().is_some() {
+            return vec![base];
+        }
+        extensions
+            .iter()
+            .map(|extension| base.with_extension(extension.trim_start_matches('.')))
+            .collect()
+    };
+    if program.contains(['/', '\\']) {
+        return candidates(root.join(program))
+            .into_iter()
+            .find(|path| path.is_file());
+    }
+    std::env::split_paths(path)
+        .flat_map(|folder| candidates(folder.join(program)))
+        .find(|path| path.is_file())
+}
+
 async fn capture(reader: impl tokio::io::AsyncRead + Unpin) -> Result<Vec<u8>> {
     let mut output = Vec::new();
     reader.take(2_000_001).read_to_end(&mut output).await?;
@@ -210,8 +298,62 @@ async fn capture(reader: impl tokio::io::AsyncRead + Unpin) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::Operation;
+    use super::{Operation, resolve};
     use serde_json::json;
+
+    #[test]
+    fn bare_names_find_scripts_on_path_like_a_shell() {
+        let folder = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(folder.path().join("npm.cmd"), "@echo off").unwrap();
+        std::fs::write(folder.path().join("node.exe"), "").unwrap();
+        // A same-named file in the project never stands in for the real program.
+        std::fs::write(project.path().join("node.cmd"), "").unwrap();
+        std::fs::create_dir_all(project.path().join("bin")).unwrap();
+        std::fs::write(project.path().join("bin/tool.cmd"), "").unwrap();
+        let path = std::env::join_paths([folder.path()]).unwrap();
+        let ext = ".COM;.EXE;.BAT;.CMD";
+        let found = |program: &str| {
+            resolve(program, project.path(), &path, ext)
+                .map(|found| found.to_string_lossy().to_lowercase().replace('\\', "/"))
+        };
+        let expect = |path: std::path::PathBuf| {
+            Some(path.to_string_lossy().to_lowercase().replace('\\', "/"))
+        };
+        assert_eq!(found("npm"), expect(folder.path().join("npm.cmd")));
+        assert_eq!(found("node"), expect(folder.path().join("node.exe")));
+        assert_eq!(found("npm.cmd"), expect(folder.path().join("npm.cmd")));
+        assert_eq!(
+            found("bin/tool"),
+            expect(project.path().join("bin/tool.cmd"))
+        );
+        assert_eq!(found("missing"), None);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn batch_files_get_their_arguments_literally() {
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(
+            folder.path().join("greet.cmd"),
+            // %1 keeps the quotes Rust added, so `echo` prints the arguments without running them.
+            "@echo off\r\necho %1^|%2\r\n",
+        )
+        .unwrap();
+        let output = super::command(
+            "./greet",
+            &["big world".into(), "a&calc".into()],
+            folder.path(),
+        )
+        .unwrap()
+        .output()
+        .await
+        .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            r#""big world"|"a&calc""#
+        );
+    }
 
     #[test]
     fn desktop_actions_need_approval_and_reads_do_not() {
