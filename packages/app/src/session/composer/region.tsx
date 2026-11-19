@@ -22,7 +22,7 @@ import { useLocal } from "@/providers/models/selection"
 import { usePlatform } from "@/runtime/platform/platform"
 import { uuid } from "@/runtime/persistence/uuid"
 import { contextItemKey } from "@/composer/schema"
-import { browserNotes } from "@/shell/browser/notes"
+import { annotationImage, browserNotes, noteArea } from "@/shell/browser/notes"
 import type { QuoteSource } from "@/composer/quote-source"
 import { useWorkspaceLocation } from "@/workspaces/location"
 import { requireServerKey, sessionHref } from "@/shell/routes/session"
@@ -334,11 +334,18 @@ export function createActiveSessionRegion(input: {
     const pane = platform.browserPane
     if (!pane || !input.visible() || input.session.data.isChild()) return
     onCleanup(
-      pane.onNotes((raw) => {
+      pane.onNotes((raw, screenshot) => {
         const notes = browserNotes(raw, uuid)
         if (!notes.length) return
         notes.forEach((note) => prompt.context.add(note))
         focusPrompt()
+        // Like Cursor's Design Mode, the agent also sees the spot, with the marks drawn on it.
+        const area = noteArea(raw)
+        if (!screenshot || !area) return
+        void annotationImage(screenshot, area).then(
+          (file) => file && active()?.composer.addAttachments([file]),
+          () => undefined,
+        )
       }),
     )
   })

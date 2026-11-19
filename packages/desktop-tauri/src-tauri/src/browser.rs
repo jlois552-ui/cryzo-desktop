@@ -85,6 +85,26 @@ fn devtools(
     Err("controlling the browser pane is only available on Windows for now".into())
 }
 
+/// The visible page as base64 PNG, taken while the picker still draws the marks a note points at.
+/// Notes still go out without it when the pane can't take one.
+async fn screenshot() -> Option<String> {
+    let webview = pane()?;
+    let (sender, answer) = tokio::sync::oneshot::channel();
+    devtools(
+        &webview,
+        "Page.captureScreenshot".into(),
+        json!({"format":"png"}).to_string(),
+        sender,
+    )
+    .ok()?;
+    let reply = tokio::time::timeout(std::time::Duration::from_secs(5), answer)
+        .await
+        .ok()?
+        .ok()?
+        .ok()?;
+    reply["data"].as_str().map(str::to_owned)
+}
+
 /// The pane, kept from creation: looking a child webview up by label does not find it.
 static PANE: std::sync::Mutex<Option<tauri::Webview>> = std::sync::Mutex::new(None);
 
@@ -130,10 +150,18 @@ async fn show(app: &tauri::AppHandle, payload: &Value) -> Result<Value, String> 
                 return matches!(url.scheme(), "http" | "https" | "about");
             }
             if let Some(notes) = notes(url) {
-                let _ = emitter.emit(
-                    "cryzo:desktop",
-                    json!({"_tag":"BrowserNotes","notes":notes}),
-                );
+                let emitter = emitter.clone();
+                tauri::async_runtime::spawn(async move {
+                    let screenshot = screenshot().await;
+                    if let Some(webview) = pane() {
+                        let _ =
+                            webview.eval("window.__cryzoPicker&&window.__cryzoPicker.captured()");
+                    }
+                    let _ = emitter.emit(
+                        "cryzo:desktop",
+                        json!({"_tag":"BrowserNotes","notes":notes,"screenshot":screenshot}),
+                    );
+                });
             }
             false
         })
@@ -177,9 +205,10 @@ fn call(tag: &str, payload: &Value) -> Result<Value, String> {
         "BrowserAnnotate" => {
             let on = payload["enabled"].as_bool().unwrap_or(false);
             let batch = payload["batch"].as_bool().unwrap_or(false);
+            let draw = payload["draw"].as_bool().unwrap_or(false);
             webview
                 .eval(format!(
-                    "window.__cryzoPicker&&window.__cryzoPicker.set({on},{batch})"
+                    "window.__cryzoPicker&&window.__cryzoPicker.set({on},{batch},{draw})"
                 ))
                 .map_err(|e| e.to_string())?;
         }

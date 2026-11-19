@@ -69,12 +69,15 @@ export type BrowserPane = {
   navigate(url: string): Promise<void>
   back(): Promise<void>
   reload(): Promise<void>
-  /** Annotate mode: picks become notes; in batch mode they wait as numbered pins until `sendBatch`. */
-  annotate(enabled: boolean, batch: boolean): Promise<void>
+  /**
+   * Annotate mode: picks become notes; in batch mode they wait as numbered pins until `sendBatch`.
+   * In draw mode a drag sketches a freehand mark instead of picking.
+   */
+  annotate(enabled: boolean, batch: boolean, draw: boolean): Promise<void>
   sendBatch(): Promise<void>
   onLoaded(callback: (url: string) => void): () => void
-  /** Raw notes from the page's picker; validate before use. */
-  onNotes(callback: (notes: readonly unknown[]) => void): () => void
+  /** Raw notes from the page's picker, validate before use, with a base64 PNG of the page and its marks. */
+  onNotes(callback: (notes: readonly unknown[], screenshot?: string) => void): () => void
   /** The agent started a project's dev server and it answers at `url`. */
   onPreview(callback: (preview: { directory: string; url: string }) => void): () => void
 }

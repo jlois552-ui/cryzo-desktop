@@ -34,7 +34,7 @@ function Panel(props: { pane: BrowserPane }) {
   const language = useLanguage()
   const platform = usePlatform()
   const start = browserPanel.request() || readUrl()
-  const [state, setState] = createStore({ url: start, input: start, annotate: false, batch: false, width: 520 })
+  const [state, setState] = createStore({ url: start, input: start, annotate: false, batch: false, draw: false, width: 520 })
   let viewport: HTMLDivElement | undefined
   let address: HTMLInputElement | undefined
 
@@ -55,12 +55,12 @@ function Panel(props: { pane: BrowserPane }) {
       if (document.activeElement !== address) setState("input", url)
       saveUrl(url)
       // A new page starts without the picker switched on.
-      if (state.annotate) void props.pane.annotate(true, state.batch)
+      if (state.annotate) void props.pane.annotate(true, state.batch, state.draw)
     })
     onCleanup(() => {
       observer.disconnect()
       offLoaded()
-      void props.pane.annotate(false, false)
+      void props.pane.annotate(false, false, false)
       void props.pane.hide()
     })
   })
@@ -78,9 +78,9 @@ function Panel(props: { pane: BrowserPane }) {
     ),
   )
 
-  const annotate = (enabled: boolean, batch = state.batch) => {
-    setState({ annotate: enabled, batch })
-    void props.pane.annotate(enabled, batch)
+  const annotate = (enabled: boolean, batch = state.batch, draw = state.draw) => {
+    setState({ annotate: enabled, batch, draw })
+    void props.pane.annotate(enabled, batch, draw)
   }
 
   return (
@@ -145,6 +145,14 @@ function Panel(props: { pane: BrowserPane }) {
           onClick={() => annotate(!state.annotate)}
         />
         <Show when={state.annotate}>
+          <IconButton
+            icon={<Icon name="edit" />}
+            variant={state.draw ? "neutral" : "ghost-muted"}
+            size="small"
+            aria-pressed={state.draw}
+            aria-label={language.t("browser.draw")}
+            onClick={() => annotate(true, state.batch, !state.draw)}
+          />
           <IconButton
             icon={<Icon name={state.batch ? "checklist" : "bullet-list"} />}
             variant={state.batch ? "neutral" : "ghost-muted"}

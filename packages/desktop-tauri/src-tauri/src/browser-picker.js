@@ -1,7 +1,8 @@
 // Cryzo browser pane picker (injected into every top-level page of the pane). Annotate mode
-// highlights the element under the pointer; a click picks it, a drag picks an area. Each pick gets
-// a comment and is sent as a note to the Cryzo composer. In batch mode picks become numbered pins
-// and are sent together. Notes leave the page through a navigation to a sentinel URL that the
+// highlights the element under the pointer; a click picks it, a drag picks an area, and in draw
+// mode a drag sketches a freehand mark. Each pick gets a comment and is sent as a note to the
+// Cryzo composer. In batch mode picks become numbered pins and are sent together. Marks stay drawn
+// until the host has taken its screenshot and calls `captured`. Notes leave the page through a navigation to a sentinel URL that the
 // host reads and cancels; the page has no other channel to Cryzo.
 ;(() => {
   if (window.top !== window || window.__cryzoPicker) return
@@ -27,8 +28,9 @@
     return consoleError.apply(console, args)
   }
   const SENTINEL = "https://cryzo-note.invalid/#"
-  const state = { on: false, batch: false, pending: [], start: null, dragging: false, editing: false }
-  let root, highlight, area, box, pins
+  const SVG = "http://www.w3.org/2000/svg"
+  const state = { on: false, batch: false, draw: false, pending: [], start: null, dragging: false, editing: false, stroke: null }
+  let root, highlight, area, box, pins, marks
 
   function ui() {
     if (root) return
@@ -41,12 +43,16 @@
       .box{position:fixed;display:none;gap:6px;padding:6px;background:#1d1b22;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.3);pointer-events:auto;font:13px system-ui;color:#fff}
       .box input{width:240px;padding:6px 8px;border-radius:6px;border:1px solid #444;background:#2a2730;color:#fff;font:inherit}
       .box button{padding:6px 10px;border-radius:6px;border:0;background:#7c5cff;color:#fff;font:inherit;cursor:pointer}
+      .marks{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;overflow:visible}
+      .marks rect{fill:rgba(124,92,255,.10);stroke:#7c5cff;stroke-width:2}
+      .marks polyline{fill:none;stroke:#7c5cff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
       .pin{position:fixed;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;background:#7c5cff;color:#fff;font:600 11px/20px system-ui;text-align:center;pointer-events:none}
-    </style><div class="hl"></div><div class="area"></div><div class="pins"></div>
+    </style><svg class="marks"></svg><div class="hl"></div><div class="area"></div><div class="pins"></div>
     <form class="box"><input placeholder="Comment for the agent" /><button type="submit">Send</button></form>`
     highlight = root.querySelector(".hl")
     area = root.querySelector(".area")
     pins = root.querySelector(".pins")
+    marks = root.querySelector(".marks")
     box = root.querySelector(".box")
     box.addEventListener("submit", (event) => {
       event.preventDefault()
@@ -127,9 +133,12 @@
   }
 
   let draft = null
+  // The stroke being commented on; kept out of the note itself, which is sent as JSON.
+  let draftMark = null
 
-  function openBox(note, rect) {
+  function openBox(note, rect, mark = null) {
     draft = note
+    draftMark = mark
     state.editing = true
     box.style.display = "flex"
     box.style.left = Math.max(8, Math.min(rect.left, innerWidth - 320)) + "px"
@@ -140,18 +149,34 @@
     setTimeout(() => input.focus(), 0)
   }
 
-  function closeBox() {
+  // A cancelled pick leaves no mark behind; a committed one keeps it for the screenshot.
+  function closeBox(keep = false) {
+    if (!keep && draftMark) draftMark.remove()
     box.style.display = "none"
     area.style.display = "none"
     state.editing = false
     draft = null
+    draftMark = null
+  }
+
+  function outline(rect) {
+    const node = document.createElementNS(SVG, "rect")
+    for (const [name, value] of Object.entries(rect)) node.setAttribute(name, String(value))
+    marks.append(node)
   }
 
   function commit(comment) {
     if (!draft) return
-    const note = { ...draft, comment: comment.trim(), url: location.href, title: document.title.slice(0, 200) }
-    const rect = draft.element ? draft.element.rect : draft.area.rect
-    closeBox()
+    const note = {
+      ...draft,
+      comment: comment.trim(),
+      url: location.href,
+      title: document.title.slice(0, 200),
+      viewport: { width: innerWidth, height: innerHeight },
+    }
+    const rect = (draft.element || draft.area || draft.drawing).rect
+    if (!draft.drawing) outline(rect)
+    closeBox(true)
     if (!state.batch) return send([note])
     state.pending.push(note)
     const pin = document.createElement("div")
@@ -164,11 +189,27 @@
 
   function send(notes) {
     if (!notes.length) return
+    for (const node of [...marks.children, ...pins.children]) node.dataset.sent = ""
     location.href = SENTINEL + encodeURIComponent(JSON.stringify(notes))
+    // Hosts that take no screenshot never call `captured`.
+    setTimeout(clearSent, 5000)
+  }
+
+  function clearSent() {
+    for (const node of root.querySelectorAll("[data-sent]")) node.remove()
   }
 
   function onMove(event) {
     if (!state.on || state.editing) return
+    if (state.draw) {
+      const stroke = state.stroke
+      if (!stroke) return
+      const [x, y] = stroke.points[stroke.points.length - 1]
+      if (Math.hypot(event.clientX - x, event.clientY - y) < 2) return
+      stroke.points.push([event.clientX, event.clientY])
+      stroke.line.setAttribute("points", stroke.points.join(" "))
+      return
+    }
     if (state.start) {
       const dx = event.clientX - state.start.x
       const dy = event.clientY - state.start.y
@@ -195,12 +236,20 @@
     if (!state.on || state.editing || event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
+    if (state.draw) {
+      const line = document.createElementNS(SVG, "polyline")
+      marks.append(line)
+      state.stroke = { points: [[event.clientX, event.clientY]], line }
+      return
+    }
     state.start = { x: event.clientX, y: event.clientY }
     state.dragging = false
   }
 
   function onUp(event) {
-    if (!state.on || state.editing || !state.start) return
+    if (!state.on || state.editing) return
+    if (state.stroke) return finishStroke(event)
+    if (!state.start) return
     event.preventDefault()
     event.stopPropagation()
     const start = state.start
@@ -228,6 +277,25 @@
     openBox({ kind: "element", element: describe(node) }, node.getBoundingClientRect())
   }
 
+  function finishStroke(event) {
+    event.preventDefault()
+    event.stopPropagation()
+    const stroke = state.stroke
+    state.stroke = null
+    if (stroke.points.length < 3) return stroke.line.remove()
+    const xs = stroke.points.map((point) => point[0])
+    const ys = stroke.points.map((point) => point[1])
+    const rect = { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) }
+    const note = {
+      kind: "drawing",
+      drawing: {
+        rect: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.right - rect.left), height: Math.round(rect.bottom - rect.top) },
+        elements: inside(rect),
+      },
+    }
+    openBox(note, rect, stroke.line)
+  }
+
   // Clicks are swallowed in annotate mode so links and buttons do not act while picking.
   function onClick(event) {
     if (!state.on || state.editing) return
@@ -244,10 +312,12 @@
     window.addEventListener(type, handler, true)
 
   window.__cryzoPicker = {
-    set(on, batch) {
+    set(on, batch, draw) {
       ui()
       state.on = on
       state.batch = batch
+      state.draw = !!draw
+      highlight.style.display = "none"
       document.documentElement.style.cursor = on ? "crosshair" : ""
       if (!on) {
         highlight.style.display = "none"
@@ -255,9 +325,10 @@
       }
     },
     flush() {
-      const notes = state.pending.splice(0)
-      if (pins) pins.innerHTML = ""
-      send(notes)
+      send(state.pending.splice(0))
+    },
+    captured() {
+      if (root) clearSent()
     },
   }
 })()

@@ -1118,6 +1118,7 @@ export const dict = {
   "browser.address": "Address",
   "browser.annotate": "Annotate: point at the page to comment for the agent",
   "browser.batch": "Batch: collect several notes, then send them together",
+  "browser.draw": "Draw: sketch on the page, then comment for the agent",
   "browser.sendBatch": "Send notes",
   "browser.close": "Close browser",
   "remote.pair.title": "Pair with Cryzo",

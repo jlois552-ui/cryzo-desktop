@@ -161,7 +161,7 @@ async function nativeFetch(request: Request): Promise<Response> {
 
 function createBrowserPane() {
   const loaded = new Set<(url: string) => void>()
-  const notes = new Set<(notes: readonly unknown[]) => void>()
+  const notes = new Set<(notes: readonly unknown[], screenshot?: string) => void>()
   const previews = new Set<(preview: { directory: string; url: string }) => void>()
   const call = (tag: string, payload: object = {}) => invoke<void>("browser_pane", { tag, payload })
   const api: BrowserPane = {
@@ -171,7 +171,7 @@ function createBrowserPane() {
     navigate: (url) => call("BrowserNavigate", { url }),
     back: () => call("BrowserBack"),
     reload: () => call("BrowserReload"),
-    annotate: (enabled, batch) => call("BrowserAnnotate", { enabled, batch }),
+    annotate: (enabled, batch, draw) => call("BrowserAnnotate", { enabled, batch, draw }),
     sendBatch: () => call("BrowserSendBatch"),
     onLoaded: (callback) => {
       loaded.add(callback)
@@ -190,7 +190,10 @@ function createBrowserPane() {
     api,
     event(payload: DesktopEvent) {
       if (payload._tag === "BrowserLoaded" && typeof payload.url === "string") loaded.forEach((fn) => fn(payload.url as string))
-      if (payload._tag === "BrowserNotes" && Array.isArray(payload.notes)) notes.forEach((fn) => fn(payload.notes as unknown[]))
+      if (payload._tag === "BrowserNotes" && Array.isArray(payload.notes)) {
+        const screenshot = typeof payload.screenshot === "string" ? payload.screenshot : undefined
+        notes.forEach((fn) => fn(payload.notes as unknown[], screenshot))
+      }
       if (payload._tag === "BrowserOpen" && typeof payload.url === "string" && typeof payload.directory === "string") {
         const preview = { directory: payload.directory, url: payload.url }
         previews.forEach((fn) => fn(preview))

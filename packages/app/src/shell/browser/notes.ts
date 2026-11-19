@@ -27,29 +27,74 @@ export function browserNotes(raw: readonly unknown[], id: () => string): NoteCon
       if (!element) return []
       return [note(id(), url, comment, label(element), "select-element", elementSubject(element, url))]
     }
-    if (value.kind === "area" && isRecord(value.area)) {
-      const rect = readRect(value.area.rect)
-      if (!rect) return []
-      const inside = (Array.isArray(value.area.elements) ? value.area.elements : [])
-        .filter(isRecord)
-        .slice(0, 10)
-        .map((item) => readElement(item))
-        .filter((item): item is Element => item !== undefined)
-      const parts = inside.map((item) => label(item) + (item.selector ? ` (selector ${JSON.stringify(item.selector)})` : ""))
-      return [
-        note(
-          id(),
-          url,
-          comment,
-          `Area ${rect.width}×${rect.height}`,
-          "outline-globe",
-          `an area of the page at ${JSON.stringify(url)} at x ${rect.x}, y ${rect.y}, ${rect.width}×${rect.height} pixels` +
-            (parts.length ? `, containing ${parts.join("; ")}` : ""),
-        ),
-      ]
-    }
-    return []
+    const region = isRegion(value.kind) ? regions[value.kind] : undefined
+    const area = region && value[region.field]
+    if (!region || !isRecord(area)) return []
+    const rect = readRect(area.rect)
+    if (!rect) return []
+    const inside = (Array.isArray(area.elements) ? area.elements : [])
+      .filter(isRecord)
+      .slice(0, 10)
+      .map((item) => readElement(item))
+      .filter((item): item is Element => item !== undefined)
+    const parts = inside.map((item) => label(item) + (item.selector ? ` (selector ${JSON.stringify(item.selector)})` : ""))
+    return [
+      note(
+        id(),
+        url,
+        comment,
+        `${region.label} ${rect.width}×${rect.height}`,
+        region.icon,
+        `${region.subject} the page at ${JSON.stringify(url)} at x ${rect.x}, y ${rect.y}, ${rect.width}×${rect.height} pixels` +
+          (parts.length ? `, over ${parts.join("; ")}` : ""),
+      ),
+    ]
   })
+}
+
+const regions = {
+  area: { field: "area", label: "Area", icon: "outline-globe", subject: "an area of" },
+  drawing: { field: "drawing", label: "Drawing", icon: "edit", subject: "a mark the user drew on" },
+} as const
+
+function isRegion(kind: unknown): kind is keyof typeof regions {
+  return typeof kind === "string" && Object.hasOwn(regions, kind)
+}
+
+/**
+ * Where on the page the notes point, padded for context and kept within the visible page, in the
+ * page's CSS pixels; the screenshot sent with them is cropped to it.
+ */
+export function noteArea(raw: readonly unknown[]) {
+  const records = raw.filter(isRecord)
+  const viewport = readRect({ x: 0, y: 0, ...(isRecord(records[0]?.viewport) ? records[0].viewport : {}) })
+  const rects = records.flatMap((value) => {
+    const holder = [value.element, value.area, value.drawing].find(isRecord)
+    const rect = holder && readRect(holder.rect)
+    return rect ? [rect] : []
+  })
+  if (!viewport || viewport.width < 1 || viewport.height < 1 || !rects.length) return
+  const pad = 96
+  const left = Math.max(0, Math.min(...rects.map((rect) => rect.x)) - pad)
+  const top = Math.max(0, Math.min(...rects.map((rect) => rect.y)) - pad)
+  const right = Math.min(viewport.width, Math.max(...rects.map((rect) => rect.x + rect.width)) + pad)
+  const bottom = Math.min(viewport.height, Math.max(...rects.map((rect) => rect.y + rect.height)) + pad)
+  if (right - left < 1 || bottom - top < 1) return
+  return { viewport, rect: { x: left, y: top, width: right - left, height: bottom - top } }
+}
+
+/** The host's base64 PNG of the page, cropped to `area`, as an image the composer can attach. */
+export async function annotationImage(screenshot: string, area: NonNullable<ReturnType<typeof noteArea>>) {
+  const bytes = Uint8Array.from(atob(screenshot), (char) => char.charCodeAt(0))
+  const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }))
+  // The screenshot is in device pixels; the notes are in CSS pixels.
+  const scale = bitmap.width / area.viewport.width
+  const canvas = new OffscreenCanvas(Math.round(area.rect.width * scale), Math.round(area.rect.height * scale))
+  const context = canvas.getContext("2d")
+  if (!context) return bitmap.close()
+  context.drawImage(bitmap, area.rect.x * scale, area.rect.y * scale, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+  return new File([await canvas.convertToBlob({ type: "image/png" })], "annotation.png", { type: "image/png" })
 }
 
 function note(commentID: string, url: string, comment: string, label: string, icon: string, subject: string): NoteContextItem {

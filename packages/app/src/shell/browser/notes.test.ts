@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { browserNotes } from "./notes"
+import { browserNotes, noteArea } from "./notes"
 
 let next = 0
 const id = () => `c${++next}`
@@ -54,6 +54,34 @@ describe("browser pane notes", () => {
     expect(note!.subject).toContain('h1 "Hello" (selector "h1")')
   })
 
+  test("a drawing names the elements under the mark", () => {
+    const [note] = browserNotes(
+      [
+        {
+          kind: "drawing",
+          url: "http://localhost:5173/",
+          comment: "Move this up",
+          drawing: { rect: { x: 40, y: 50, width: 200, height: 90 }, elements: [{ tag: "img", selector: "#logo" }] },
+        },
+      ],
+      id,
+    )
+    expect(note).toMatchObject({ label: "Drawing 200×90", icon: "edit", comment: "Move this up" })
+    expect(note!.subject).toContain("a mark the user drew on the page")
+    expect(note!.subject).toContain('img (selector "#logo")')
+  })
+
+  test("the screenshot area covers every note with room around it, within the visible page", () => {
+    const viewport = { width: 800, height: 600 }
+    expect(
+      noteArea([
+        { kind: "element", viewport, element: { tag: "a", rect: { x: 20, y: 30, width: 50, height: 20 } } },
+        { kind: "drawing", viewport, drawing: { rect: { x: 500, y: 400, width: 200, height: 180 } } },
+      ]),
+    ).toEqual({ viewport: { x: 0, y: 0, ...viewport }, rect: { x: 0, y: 0, width: 796, height: 600 } })
+    expect(noteArea([{ kind: "element", element: { tag: "a", rect: { x: 0, y: 0, width: 5, height: 5 } } }])).toBeUndefined()
+  })
+
   test("malformed picks from the page are dropped", () => {
     expect(
       browserNotes(
@@ -64,6 +92,7 @@ describe("browser pane notes", () => {
           { kind: "element", element: { tag: "div" } },
           { kind: "area", url: "http://a/", area: { rect: { x: "1" } } },
           { kind: "other", url: "http://a/" },
+          { kind: "toString", url: "http://a/" },
         ],
         id,
       ),
