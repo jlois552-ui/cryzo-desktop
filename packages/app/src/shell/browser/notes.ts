@@ -2,6 +2,8 @@ import type { NoteContextItem } from "@/composer/schema"
 
 type Rect = { x: number; y: number; width: number; height: number }
 
+type Component = { framework: string; names: string[]; file?: string }
+
 type Element = {
   tag: string
   id?: string
@@ -10,6 +12,50 @@ type Element = {
   selector?: string
   text?: string
   rect?: Rect
+  component?: Component
+}
+
+type Change = { property: string; from: string; to: string }
+
+/** The CSS properties the inspector shows and the picker lets it change, in the order shown. */
+export const inspectorStyles = [
+  "color",
+  "background-color",
+  "opacity",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "line-height",
+  "letter-spacing",
+  "text-align",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "border-radius",
+  "border-top-width",
+  "border-top-color",
+  "display",
+  "width",
+  "height",
+  "flex-direction",
+  "gap",
+  "align-items",
+  "justify-content",
+] as const
+
+export type InspectorStyle = (typeof inspectorStyles)[number]
+
+/** The element the inspector edits, as the page's picker described it. */
+export type BrowserSelection = {
+  element: Element
+  styles: Partial<Record<InspectorStyle, string>>
+  /** Its text, when the element holds only text and the inspector may change it. */
+  text?: string
 }
 
 /**
@@ -25,11 +71,11 @@ export function browserNotes(raw: readonly unknown[], id: () => string): NoteCon
     if (value.kind === "element" && isRecord(value.element)) {
       const element = readElement(value.element)
       if (!element) return []
-      return [note(id(), url, comment, label(element), "select-element", elementSubject(element, url))]
+      const changes = readChanges(value.changes)
+      return [note(id(), url, comment, label(element), "select-element", elementSubject(element, url, changes))]
     }
-    const region = isRegion(value.kind) ? regions[value.kind] : undefined
-    const area = region && value[region.field]
-    if (!region || !isRecord(area)) return []
+    const area = value.kind === "area" && isRecord(value.area) ? value.area : undefined
+    if (!area) return []
     const rect = readRect(area.rect)
     if (!rect) return []
     const inside = (Array.isArray(area.elements) ? area.elements : [])
@@ -43,22 +89,31 @@ export function browserNotes(raw: readonly unknown[], id: () => string): NoteCon
         id(),
         url,
         comment,
-        `${region.label} ${rect.width}×${rect.height}`,
-        region.icon,
-        `${region.subject} the page at ${JSON.stringify(url)} at x ${rect.x}, y ${rect.y}, ${rect.width}×${rect.height} pixels` +
-          (parts.length ? `, over ${parts.join("; ")}` : ""),
+        `Area ${rect.width}×${rect.height}`,
+        "outline-globe",
+        `an area of the page at ${JSON.stringify(url)} at x ${rect.x}, y ${rect.y}, ${rect.width}×${rect.height} pixels` +
+          (parts.length ? `, containing ${parts.join("; ")}` : ""),
       ),
     ]
   })
 }
 
-const regions = {
-  area: { field: "area", label: "Area", icon: "outline-globe", subject: "an area of" },
-  drawing: { field: "drawing", label: "Drawing", icon: "edit", subject: "a mark the user drew on" },
-} as const
-
-function isRegion(kind: unknown): kind is keyof typeof regions {
-  return typeof kind === "string" && Object.hasOwn(regions, kind)
+/** The inspector's element from the picker's raw selection; undefined when anything essential is malformed. */
+export function browserSelection(raw: unknown): BrowserSelection | undefined {
+  if (!isRecord(raw) || !isRecord(raw.element)) return
+  const element = readElement(raw.element)
+  if (!element) return
+  const styles = isRecord(raw.styles) ? raw.styles : {}
+  return {
+    element,
+    styles: Object.fromEntries(
+      inspectorStyles.flatMap((name) => {
+        const value = styles[name]
+        return typeof value === "string" ? [[name, value.slice(0, 200)]] : []
+      }),
+    ),
+    text: typeof raw.text === "string" ? raw.text.slice(0, 500) : undefined,
+  }
 }
 
 /**
@@ -69,7 +124,7 @@ export function noteArea(raw: readonly unknown[]) {
   const records = raw.filter(isRecord)
   const viewport = readRect({ x: 0, y: 0, ...(isRecord(records[0]?.viewport) ? records[0].viewport : {}) })
   const rects = records.flatMap((value) => {
-    const holder = [value.element, value.area, value.drawing].find(isRecord)
+    const holder = [value.element, value.area].find(isRecord)
     const rect = holder && readRect(holder.rect)
     return rect ? [rect] : []
   })
@@ -106,7 +161,7 @@ function label(element: Element) {
   return words ? `${element.tag} ${JSON.stringify(words)}` : element.tag
 }
 
-function elementSubject(element: Element, url: string) {
+function elementSubject(element: Element, url: string, changes: Change[]) {
   const details = [
     `tag ${element.tag}`,
     element.id ? `id ${JSON.stringify(element.id)}` : undefined,
@@ -118,6 +173,12 @@ function elementSubject(element: Element, url: string) {
       : undefined,
     element.rect
       ? `at x ${element.rect.x}, y ${element.rect.y}, ${element.rect.width}×${element.rect.height} pixels`
+      : undefined,
+    element.component ? `rendered by ${componentText(element.component)}` : undefined,
+    changes.length
+      ? `requested changes, previewed by the user: ${changes
+          .map((change) => `${change.property} ${JSON.stringify(change.from)} → ${JSON.stringify(change.to)}`)
+          .join(", ")}`
       : undefined,
   ].filter((detail) => detail !== undefined)
   return `the ${JSON.stringify(label(element))} element on the page at ${JSON.stringify(url)} (${details.join("; ")})`
@@ -143,7 +204,42 @@ function readElement(value: Record<string, unknown>): Element | undefined {
     selector: text(value.selector, 1000),
     text: text(value.text, 200),
     rect: readRect(value.rect),
+    component: readComponent(value.component),
   }
+}
+
+function readComponent(value: unknown): Component | undefined {
+  if (!isRecord(value)) return
+  const framework = text(value.framework, 20)
+  if (!framework || !/^[a-z]+$/.test(framework)) return
+  const names = Array.isArray(value.names)
+    ? value.names
+        .filter((item): item is string => typeof item === "string")
+        .slice(0, 3)
+        .map((item) => item.slice(0, 80))
+    : []
+  const file = text(value.file, 500)
+  if (!names.length && !file) return
+  return { framework, names, file }
+}
+
+function componentText(component: Component) {
+  const names = component.names.length ? `${component.framework} component ${component.names.join(" in ")}` : component.framework
+  return component.file ? `${names} (${JSON.stringify(component.file)})` : names
+}
+
+/** The style and text changes the user previewed in the inspector; malformed entries are dropped. */
+function readChanges(value: unknown): Change[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter(isRecord)
+    .slice(0, 40)
+    .flatMap((item) => {
+      const property = text(item.property, 40)
+      if (!property || (property !== "text" && !(inspectorStyles as readonly string[]).includes(property))) return []
+      if (typeof item.from !== "string" || typeof item.to !== "string") return []
+      return [{ property, from: item.from.slice(0, 500), to: item.to.slice(0, 500) }]
+    })
 }
 
 function readRect(value: unknown): Rect | undefined {

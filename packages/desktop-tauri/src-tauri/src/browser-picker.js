@@ -1,9 +1,10 @@
-// Cryzo browser pane picker (injected into every top-level page of the pane). Annotate mode
-// highlights the element under the pointer; a click picks it, a drag picks an area, and in draw
-// mode a drag sketches a freehand mark. Each pick gets a comment and is sent as a note to the
-// Cryzo composer. In batch mode picks become numbered pins and are sent together. Marks stay drawn
-// until the host has taken its screenshot and calls `captured`. Notes leave the page through a navigation to a sentinel URL that the
-// host reads and cancels; the page has no other channel to Cryzo.
+// Cryzo browser pane picker (injected into every top-level page of the pane). Select mode
+// highlights the element under the pointer with its tag and size; a click picks it and a drag picks
+// an area. Each pick gets a comment and is sent as a note to the Cryzo composer; in batch mode picks
+// become numbered pins and are sent together. Edit hands an element to Cryzo's inspector, which
+// previews style changes here and sends them with the note. Marks and edits stay until the host has
+// taken its screenshot and calls `captured`. Messages leave the page through a navigation to a
+// sentinel URL that the host reads and cancels; the page has no other channel to Cryzo.
 ;(() => {
   if (window.top !== window || window.__cryzoPicker) return
   // Errors the page reports since it loaded, for the agent's page_errors (read through DevTools).
@@ -29,8 +30,40 @@
   }
   const SENTINEL = "https://cryzo-note.invalid/#"
   const SVG = "http://www.w3.org/2000/svg"
-  const state = { on: false, batch: false, draw: false, pending: [], start: null, dragging: false, editing: false, stroke: null }
-  let root, highlight, area, box, pins, marks
+  // The properties the inspector shows and may change; anything else it asks for is ignored.
+  const STYLES = [
+    "color",
+    "background-color",
+    "opacity",
+    "font-family",
+    "font-size",
+    "font-weight",
+    "line-height",
+    "letter-spacing",
+    "text-align",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "border-radius",
+    "border-top-width",
+    "border-top-color",
+    "display",
+    "width",
+    "height",
+    "flex-direction",
+    "gap",
+    "align-items",
+    "justify-content",
+  ]
+  const BORDER = { "border-top-width": "border-width", "border-top-color": "border-color" }
+  const state = { on: false, batch: false, pending: [], start: null, dragging: false, editing: false }
+  let labels = { comment: "Comment for the agent", send: "Send", add: "Add", edit: "Edit" }
+  let root, highlight, tip, area, box, pins, marks, selected
 
   function ui() {
     if (root) return
@@ -39,17 +72,21 @@
     root = host.attachShadow({ mode: "closed" })
     root.innerHTML = `<style>
       .hl{position:fixed;border:2px solid #7c5cff;background:rgba(124,92,255,.12);border-radius:3px;pointer-events:none;display:none}
+      .sel{position:fixed;border:2px solid #7c5cff;border-radius:3px;pointer-events:none;display:none}
+      .tip{position:fixed;display:none;padding:2px 6px;border-radius:4px;background:#1d1b22;color:#fff;font:500 11px/16px ui-monospace,monospace;white-space:nowrap;pointer-events:none}
+      .tip b{font-weight:500;color:#c4b5fd}
       .area{position:fixed;border:2px dashed #7c5cff;background:rgba(124,92,255,.08);pointer-events:none;display:none}
       .box{position:fixed;display:none;gap:6px;padding:6px;background:#1d1b22;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.3);pointer-events:auto;font:13px system-ui;color:#fff}
       .box input{width:240px;padding:6px 8px;border-radius:6px;border:1px solid #444;background:#2a2730;color:#fff;font:inherit}
       .box button{padding:6px 10px;border-radius:6px;border:0;background:#7c5cff;color:#fff;font:inherit;cursor:pointer}
+      .box button.edit{background:#2a2730;border:1px solid #444}
       .marks{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;overflow:visible}
       .marks rect{fill:rgba(124,92,255,.10);stroke:#7c5cff;stroke-width:2}
-      .marks polyline{fill:none;stroke:#7c5cff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
       .pin{position:fixed;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;background:#7c5cff;color:#fff;font:600 11px/20px system-ui;text-align:center;pointer-events:none}
-    </style><svg class="marks"></svg><div class="hl"></div><div class="area"></div><div class="pins"></div>
-    <form class="box"><input placeholder="Comment for the agent" /><button type="submit">Send</button></form>`
+    </style><svg class="marks"></svg><div class="hl"></div><div class="sel"></div><div class="tip"></div><div class="area"></div><div class="pins"></div>
+    <form class="box"><input /><button type="button" class="edit"></button><button type="submit"></button></form>`
     highlight = root.querySelector(".hl")
+    tip = root.querySelector(".tip")
     area = root.querySelector(".area")
     pins = root.querySelector(".pins")
     marks = root.querySelector(".marks")
@@ -58,6 +95,7 @@
       event.preventDefault()
       commit(box.querySelector("input").value)
     })
+    box.querySelector(".edit").addEventListener("click", edit)
     box.addEventListener("keydown", (event) => {
       if (event.key === "Escape") closeBox()
       event.stopPropagation()
@@ -113,6 +151,40 @@
       selector: selector(node),
       text: (node.innerText || node.textContent || "").replace(/\s+/g, " ").trim().slice(0, 200),
       rect: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) },
+      component: component(node),
+    }
+  }
+
+  // The framework component that rendered the element, from what dev builds leave on DOM nodes. The
+  // page owns these objects, so a getter that throws only means there is no answer.
+  function component(node) {
+    try {
+      for (let current = node, depth = 0; current && depth < 15; current = current.parentElement, depth++) {
+        const fiber = Object.keys(current).find((key) => key.startsWith("__reactFiber$"))
+        if (fiber) {
+          const names = []
+          for (let item = current[fiber]; item && names.length < 3; item = item.return) {
+            const type = item.type
+            const name = type && typeof type !== "string" ? type.displayName || type.name || type.render?.name : undefined
+            if (typeof name === "string" && /^[A-Z]/.test(name) && !names.includes(name)) names.push(name)
+          }
+          return names.length ? { framework: "react", names } : undefined
+        }
+        const vue = current.__vueParentComponent
+        if (vue) {
+          const names = []
+          for (let item = vue; item && names.length < 3; item = item.parent) {
+            const name = item.type?.__name || item.type?.name
+            if (typeof name === "string" && !names.includes(name)) names.push(name)
+          }
+          const file = vue.type?.__file
+          return { framework: "vue", names, file: typeof file === "string" ? file : undefined }
+        }
+        const file = current.__svelte_meta?.loc?.file
+        if (typeof file === "string") return { framework: "svelte", names: [], file }
+      }
+    } catch {
+      return undefined
     }
   }
 
@@ -133,30 +205,32 @@
   }
 
   let draft = null
-  // The stroke being commented on; kept out of the note itself, which is sent as JSON.
-  let draftMark = null
+  // The element the comment box is for; kept out of the note itself, which is sent as JSON.
+  let draftNode = null
 
-  function openBox(note, rect, mark = null) {
+  function openBox(note, rect, node = null) {
     draft = note
-    draftMark = mark
+    draftNode = node
     state.editing = true
-    box.style.display = "flex"
-    box.style.left = Math.max(8, Math.min(rect.left, innerWidth - 320)) + "px"
-    box.style.top = Math.min(rect.bottom + 8, innerHeight - 48) + "px"
     const input = box.querySelector("input")
     input.value = ""
-    box.querySelector("button").textContent = state.batch ? "Add" : "Send"
+    input.placeholder = labels.comment
+    const editButton = box.querySelector(".edit")
+    editButton.textContent = labels.edit
+    editButton.style.display = node ? "" : "none"
+    box.querySelector("[type=submit]").textContent = state.batch ? labels.add : labels.send
+    box.style.display = "flex"
+    box.style.left = Math.max(8, Math.min(rect.left, innerWidth - box.offsetWidth - 8)) + "px"
+    box.style.top = Math.min(rect.bottom + 8, innerHeight - box.offsetHeight - 8) + "px"
     setTimeout(() => input.focus(), 0)
   }
 
-  // A cancelled pick leaves no mark behind; a committed one keeps it for the screenshot.
-  function closeBox(keep = false) {
-    if (!keep && draftMark) draftMark.remove()
+  function closeBox() {
     box.style.display = "none"
     area.style.display = "none"
     state.editing = false
     draft = null
-    draftMark = null
+    draftNode = null
   }
 
   function outline(rect) {
@@ -174,9 +248,9 @@
       title: document.title.slice(0, 200),
       viewport: { width: innerWidth, height: innerHeight },
     }
-    const rect = (draft.element || draft.area || draft.drawing).rect
-    if (!draft.drawing) outline(rect)
-    closeBox(true)
+    const rect = (draft.element || draft.area).rect
+    outline(rect)
+    closeBox()
     if (!state.batch) return send([note])
     state.pending.push(note)
     const pin = document.createElement("div")
@@ -190,32 +264,90 @@
   function send(notes) {
     if (!notes.length) return
     for (const node of [...marks.children, ...pins.children]) node.dataset.sent = ""
+    for (const item of edits) item.sent = true
     location.href = SENTINEL + encodeURIComponent(JSON.stringify(notes))
     // Hosts that take no screenshot never call `captured`.
-    setTimeout(clearSent, 5000)
+    setTimeout(finish, 5000)
   }
 
-  function clearSent() {
+  // After the screenshot: sent marks go, and sent edits are undone so the page shows the app as its
+  // code draws it again, rather than hiding the agent's change behind leftover inline styles.
+  function finish() {
     for (const node of root.querySelectorAll("[data-sent]")) node.remove()
+    for (const item of edits.filter((item) => item.sent)) revert(item)
+    edits = edits.filter((item) => !item.sent)
+  }
+
+  // Edit: the selected element, its original inline styles and text, and the changes previewed so far.
+  let edits = []
+
+  function edit() {
+    const node = draftNode
+    if (!node) return
+    closeBox()
+    highlight.style.display = "none"
+    tip.style.display = "none"
+    selected = { node, saved: new Map(), changes: new Map(), sent: false }
+    edits.push(selected)
+    showSelection()
+    const computed = getComputedStyle(node)
+    const styles = Object.fromEntries(STYLES.map((name) => [name, computed.getPropertyValue(name).slice(0, 200)]))
+    const plain = Array.from(node.childNodes).every((child) => child.nodeType === 3)
+    const text = plain ? (node.textContent || "").slice(0, 500) : undefined
+    location.href = SENTINEL + encodeURIComponent(JSON.stringify({ selection: { element: describe(node), styles, text } }))
+  }
+
+  function showSelection() {
+    const sel = root.querySelector(".sel")
+    if (!selected || selected.sent) return (sel.style.display = "none")
+    sel.style.display = "block"
+    place(sel, selected.node.getBoundingClientRect())
+  }
+
+  function style(name, value) {
+    if (!selected || typeof value !== "string") return
+    const node = selected.node
+    if (name === "text") {
+      if (!selected.saved.has("text")) selected.saved.set("text", node.textContent)
+      node.textContent = value
+      selected.changes.set("text", { property: "text", from: selected.saved.get("text"), to: value })
+      return showSelection()
+    }
+    if (!STYLES.includes(name)) return
+    const property = BORDER[name] || name
+    if (!selected.saved.has(property)) {
+      selected.saved.set(property, [node.style.getPropertyValue(property), node.style.getPropertyPriority(property)])
+      const before = getComputedStyle(node).getPropertyValue(name)
+      selected.changes.set(name, { property: name, from: before, to: value })
+    }
+    node.style.setProperty(property, value, "important")
+    if (property === "border-width" && getComputedStyle(node).borderTopStyle === "none") {
+      if (!selected.saved.has("border-style")) selected.saved.set("border-style", [node.style.getPropertyValue("border-style"), node.style.getPropertyPriority("border-style")])
+      node.style.setProperty("border-style", "solid", "important")
+    }
+    selected.changes.get(name).to = value
+    showSelection()
+  }
+
+  function revert(item) {
+    for (const [property, saved] of item.saved) {
+      if (property === "text") item.node.textContent = saved
+      else if (saved[0]) item.node.style.setProperty(property, saved[0], saved[1])
+      else item.node.style.removeProperty(property)
+    }
+    item.saved.clear()
+    item.changes.clear()
   }
 
   function onMove(event) {
     if (!state.on || state.editing) return
-    if (state.draw) {
-      const stroke = state.stroke
-      if (!stroke) return
-      const [x, y] = stroke.points[stroke.points.length - 1]
-      if (Math.hypot(event.clientX - x, event.clientY - y) < 2) return
-      stroke.points.push([event.clientX, event.clientY])
-      stroke.line.setAttribute("points", stroke.points.join(" "))
-      return
-    }
     if (state.start) {
       const dx = event.clientX - state.start.x
       const dy = event.clientY - state.start.y
       if (!state.dragging && Math.hypot(dx, dy) > 6) state.dragging = true
       if (state.dragging) {
         highlight.style.display = "none"
+        tip.style.display = "none"
         area.style.display = "block"
         place(area, {
           left: Math.min(event.clientX, state.start.x),
@@ -227,33 +359,41 @@
       }
     }
     const node = target(event)
-    if (!node) return (highlight.style.display = "none")
+    if (!node) {
+      highlight.style.display = "none"
+      tip.style.display = "none"
+      return
+    }
+    const rect = node.getBoundingClientRect()
     highlight.style.display = "block"
-    place(highlight, node.getBoundingClientRect())
+    place(highlight, rect)
+    // Like a DevTools hover: the element's tag, id or first class, and size.
+    const name = node.tagName.toLowerCase() + (node.id ? "#" + node.id : node.classList[0] ? "." + node.classList[0] : "")
+    tip.innerHTML = ""
+    tip.append(name.slice(0, 60) + " ")
+    const size = document.createElement("b")
+    size.textContent = `${Math.round(rect.width)}×${Math.round(rect.height)}`
+    tip.append(size)
+    tip.style.display = "block"
+    tip.style.left = Math.max(4, Math.min(rect.left, innerWidth - tip.offsetWidth - 4)) + "px"
+    tip.style.top = (rect.top >= 24 ? rect.top - 22 : Math.min(rect.bottom + 4, innerHeight - 20)) + "px"
   }
 
   function onDown(event) {
     if (!state.on || state.editing || event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
-    if (state.draw) {
-      const line = document.createElementNS(SVG, "polyline")
-      marks.append(line)
-      state.stroke = { points: [[event.clientX, event.clientY]], line }
-      return
-    }
     state.start = { x: event.clientX, y: event.clientY }
     state.dragging = false
   }
 
   function onUp(event) {
-    if (!state.on || state.editing) return
-    if (state.stroke) return finishStroke(event)
-    if (!state.start) return
+    if (!state.on || state.editing || !state.start) return
     event.preventDefault()
     event.stopPropagation()
     const start = state.start
     state.start = null
+    tip.style.display = "none"
     if (state.dragging) {
       state.dragging = false
       const rect = {
@@ -274,29 +414,10 @@
     const node = target(event)
     if (!node) return
     highlight.style.display = "none"
-    openBox({ kind: "element", element: describe(node) }, node.getBoundingClientRect())
+    openBox({ kind: "element", element: describe(node) }, node.getBoundingClientRect(), node)
   }
 
-  function finishStroke(event) {
-    event.preventDefault()
-    event.stopPropagation()
-    const stroke = state.stroke
-    state.stroke = null
-    if (stroke.points.length < 3) return stroke.line.remove()
-    const xs = stroke.points.map((point) => point[0])
-    const ys = stroke.points.map((point) => point[1])
-    const rect = { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) }
-    const note = {
-      kind: "drawing",
-      drawing: {
-        rect: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.right - rect.left), height: Math.round(rect.bottom - rect.top) },
-        elements: inside(rect),
-      },
-    }
-    openBox(note, rect, stroke.line)
-  }
-
-  // Clicks are swallowed in annotate mode so links and buttons do not act while picking.
+  // Clicks are swallowed in select mode so links and buttons do not act while picking.
   function onClick(event) {
     if (!state.on || state.editing) return
     event.preventDefault()
@@ -310,25 +431,46 @@
     ["click", onClick],
   ])
     window.addEventListener(type, handler, true)
+  addEventListener("scroll", showSelection, true)
+  addEventListener("resize", showSelection)
 
   window.__cryzoPicker = {
-    set(on, batch, draw) {
+    set(on, batch, text) {
       ui()
       state.on = on
       state.batch = batch
-      state.draw = !!draw
+      if (text && typeof text === "object") labels = { ...labels, ...text }
       highlight.style.display = "none"
+      tip.style.display = "none"
       document.documentElement.style.cursor = on ? "crosshair" : ""
-      if (!on) {
-        highlight.style.display = "none"
-        closeBox()
-      }
+      if (!on) closeBox()
     },
     flush() {
       send(state.pending.splice(0))
     },
     captured() {
-      if (root) clearSent()
+      if (root) finish()
+    },
+    style,
+    reset() {
+      if (selected) revert(selected)
+      showSelection()
+    },
+    cancelEdit() {
+      if (!selected) return
+      revert(selected)
+      edits = edits.filter((item) => item !== selected)
+      selected = null
+      showSelection()
+    },
+    // Sends the edited element as a note: its details, the requested changes and the comment.
+    sendEdit(comment) {
+      if (!selected) return
+      const item = selected
+      selected = null
+      showSelection()
+      draft = { kind: "element", element: describe(item.node), changes: Array.from(item.changes.values()) }
+      commit(typeof comment === "string" ? comment : "")
     },
   }
 })()

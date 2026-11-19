@@ -213,6 +213,13 @@ export default function Layout(props: ParentProps) {
             keybind: "mod+alt+b",
             onSelect: () => browserPanel.toggle(),
           },
+          {
+            id: "browser.select",
+            title: language.t("browser.select"),
+            category: language.t("command.category.view"),
+            keybind: "mod+shift+c",
+            onSelect: () => browserPanel.toggleSelect(),
+          },
         ]
       : [],
   )

@@ -160,36 +160,63 @@ async function nativeFetch(request: Request): Promise<Response> {
 }
 
 function createBrowserPane() {
-  const loaded = new Set<(url: string) => void>()
+  const loading = new Set<(tab: string) => void>()
+  const loaded = new Set<(tab: string, url: string) => void>()
+  const titles = new Set<(tab: string, title: string) => void>()
+  const newTabs = new Set<(url: string) => void>()
   const notes = new Set<(notes: readonly unknown[], screenshot?: string) => void>()
+  const selections = new Set<(selection: unknown) => void>()
   const previews = new Set<(preview: { directory: string; url: string }) => void>()
   const call = (tag: string, payload: object = {}) => invoke<void>("browser_pane", { tag, payload })
+  const listen = <T>(set: Set<T>) => (callback: T) => {
+    set.add(callback)
+    return () => void set.delete(callback)
+  }
   const api: BrowserPane = {
-    show: (bounds, url) => call("BrowserShow", url ? { ...bounds, url } : bounds),
+    show: (tab, bounds, url) => call("BrowserShow", url ? { ...bounds, tab, url } : { ...bounds, tab }),
+    closeTab: (tab) => call("BrowserTabClose", { tab }),
     bounds: (bounds) => call("BrowserBounds", bounds),
     hide: () => call("BrowserHide"),
     navigate: (url) => call("BrowserNavigate", { url }),
     back: () => call("BrowserBack"),
+    forward: () => call("BrowserForward"),
     reload: () => call("BrowserReload"),
-    annotate: (enabled, batch, draw) => call("BrowserAnnotate", { enabled, batch, draw }),
+    still: () =>
+      invoke<{ screenshot?: unknown }>("browser_pane", { tag: "BrowserStill", payload: {} }).then((reply) =>
+        typeof reply?.screenshot === "string" ? reply.screenshot : undefined,
+      ),
+    annotate: (enabled, batch, labels) => call("BrowserAnnotate", { enabled, batch, labels }),
     sendBatch: () => call("BrowserSendBatch"),
-    onLoaded: (callback) => {
-      loaded.add(callback)
-      return () => loaded.delete(callback)
-    },
-    onNotes: (callback) => {
-      notes.add(callback)
-      return () => notes.delete(callback)
-    },
-    onPreview: (callback) => {
-      previews.add(callback)
-      return () => previews.delete(callback)
-    },
+    style: (property, value) => call("BrowserStyle", { property, value }),
+    resetEdit: () => call("BrowserEditReset"),
+    cancelEdit: () => call("BrowserEditCancel"),
+    sendEdit: (comment) => call("BrowserEditSend", { comment }),
+    onLoading: listen(loading),
+    onLoaded: listen(loaded),
+    onTitle: listen(titles),
+    onNewTab: listen(newTabs),
+    onNotes: listen(notes),
+    onSelection: listen(selections),
+    onPreview: listen(previews),
   }
   return {
     api,
     event(payload: DesktopEvent) {
-      if (payload._tag === "BrowserLoaded" && typeof payload.url === "string") loaded.forEach((fn) => fn(payload.url as string))
+      const tab = typeof payload.tab === "string" ? payload.tab : ""
+      if (payload._tag === "BrowserLoading") loading.forEach((fn) => fn(tab))
+      if (payload._tag === "BrowserLoaded" && typeof payload.url === "string") {
+        const url = payload.url
+        loaded.forEach((fn) => fn(tab, url))
+      }
+      if (payload._tag === "BrowserTitle" && typeof payload.title === "string") {
+        const title = payload.title
+        titles.forEach((fn) => fn(tab, title))
+      }
+      if (payload._tag === "BrowserNewTab" && typeof payload.url === "string") {
+        const url = payload.url
+        newTabs.forEach((fn) => fn(url))
+      }
+      if (payload._tag === "BrowserSelection") selections.forEach((fn) => fn(payload.selection))
       if (payload._tag === "BrowserNotes" && Array.isArray(payload.notes)) {
         const screenshot = typeof payload.screenshot === "string" ? payload.screenshot : undefined
         notes.forEach((fn) => fn(payload.notes as unknown[], screenshot))

@@ -61,23 +61,46 @@ export type RemoteDevice = {
 /** A rectangle in the window's CSS pixels. */
 export type BrowserPaneBounds = { x: number; y: number; width: number; height: number }
 
-/** The desktop's browser pane: a native webview drawn over the area the app reserves for it. */
+/** Words the page's picker shows, in the app's language. */
+export type BrowserPickerLabels = { comment: string; send: string; add: string; edit: string }
+
+/**
+ * The desktop's browser pane: one native webview per tab, drawn over the area the app reserves for
+ * it. Calls without a tab act on the tab shown last.
+ */
 export type BrowserPane = {
-  show(bounds: BrowserPaneBounds, url?: string): Promise<void>
+  /** Shows tab `tab`, creating it at `url` on first use or navigating it there, and hides the others. */
+  show(tab: string, bounds: BrowserPaneBounds, url?: string): Promise<void>
+  closeTab(tab: string): Promise<void>
   bounds(bounds: BrowserPaneBounds): Promise<void>
   hide(): Promise<void>
   navigate(url: string): Promise<void>
   back(): Promise<void>
+  forward(): Promise<void>
   reload(): Promise<void>
-  /**
-   * Annotate mode: picks become notes; in batch mode they wait as numbered pins until `sendBatch`.
-   * In draw mode a drag sketches a freehand mark instead of picking.
-   */
-  annotate(enabled: boolean, batch: boolean, draw: boolean): Promise<void>
+  /** A base64 PNG of the shown page, drawn in its place while a menu overlaps the native page. */
+  still(): Promise<string | undefined>
+  /** Select mode: picks become notes; in batch mode they wait as numbered pins until `sendBatch`. */
+  annotate(enabled: boolean, batch: boolean, labels: BrowserPickerLabels): Promise<void>
   sendBatch(): Promise<void>
-  onLoaded(callback: (url: string) => void): () => void
+  /** Previews a style (or `text`) change on the element being edited; the page ignores other properties. */
+  style(property: string, value: string): Promise<void>
+  /** Undoes every previewed change on the element being edited. */
+  resetEdit(): Promise<void>
+  /** Undoes the previewed changes and stops editing. */
+  cancelEdit(): Promise<void>
+  /** Sends the edited element as a note with its changes; the page reverts them after the screenshot. */
+  sendEdit(comment: string): Promise<void>
+  /** A tab started loading a page; its title may change before the load finishes. */
+  onLoading(callback: (tab: string) => void): () => void
+  onLoaded(callback: (tab: string, url: string) => void): () => void
+  onTitle(callback: (tab: string, title: string) => void): () => void
+  /** A page asked for a new window, such as a target=_blank link; the app opens it as a tab. */
+  onNewTab(callback: (url: string) => void): () => void
   /** Raw notes from the page's picker, validate before use, with a base64 PNG of the page and its marks. */
   onNotes(callback: (notes: readonly unknown[], screenshot?: string) => void): () => void
+  /** The raw element the user chose to edit, validate before use. */
+  onSelection(callback: (selection: unknown) => void): () => void
   /** The agent started a project's dev server and it answers at `url`. */
   onPreview(callback: (preview: { directory: string; url: string }) => void): () => void
 }
