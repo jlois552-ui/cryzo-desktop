@@ -5,6 +5,7 @@ import { marketRoutes } from "./market/http"
 import { remoteRoutes } from "./remote/http"
 import { cloudRoutes } from "./cloud/http"
 import { appRoutes } from "./apps/http"
+import { voiceRoutes } from "./voice/http"
 
 const http = httpRouter()
 authComponent.registerRoutes(http, createAuth)
@@ -16,4 +17,5 @@ marketRoutes(http)
 remoteRoutes(http)
 cloudRoutes(http)
 appRoutes(http)
+voiceRoutes(http)
 export default http

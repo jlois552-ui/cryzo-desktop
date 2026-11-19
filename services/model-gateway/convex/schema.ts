@@ -133,6 +133,8 @@ export default defineSchema({
     .index("by_user_and_project", ["user", "project"])
     .index("by_status", ["status"]),
   cloudUsage: defineTable({ user: v.string(), day: v.string(), minutes: v.number() }).index("by_user_and_day", ["user", "day"]),
+  // Dictation seconds per user per day (UTC), for the daily allowance.
+  voiceUsage: defineTable({ user: v.string(), day: v.string(), seconds: v.number() }).index("by_user_and_day", ["user", "day"]),
   cloudBudget: defineTable({ month: v.string(), minutes: v.number() }).index("by_month", ["month"]),
   // One row per published app; the address is unique across all users.
   cloudApps: defineTable({

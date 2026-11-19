@@ -34,12 +34,16 @@ import type * as lib_providers_tiktok from "../lib/providers/tiktok.js";
 import type * as lib_providers_x from "../lib/providers/x.js";
 import type * as lib_providers_youtube from "../lib/providers/youtube.js";
 import type * as lib_ticket from "../lib/ticket.js";
+import type * as lib_voice from "../lib/voice.js";
 import type * as market_http from "../market/http.js";
 import type * as market_store from "../market/store.js";
 import type * as market_worker from "../market/worker.js";
 import type * as quota from "../quota.js";
 import type * as remote_http from "../remote/http.js";
 import type * as remote_store from "../remote/store.js";
+import type * as voice_http from "../voice/http.js";
+import type * as voice_store from "../voice/store.js";
+import type * as voice_whisper from "../voice/whisper.js";
 
 import type {
   ApiFromModules,
@@ -74,12 +78,16 @@ declare const fullApi: ApiFromModules<{
   "lib/providers/x": typeof lib_providers_x;
   "lib/providers/youtube": typeof lib_providers_youtube;
   "lib/ticket": typeof lib_ticket;
+  "lib/voice": typeof lib_voice;
   "market/http": typeof market_http;
   "market/store": typeof market_store;
   "market/worker": typeof market_worker;
   quota: typeof quota;
   "remote/http": typeof remote_http;
   "remote/store": typeof remote_store;
+  "voice/http": typeof voice_http;
+  "voice/store": typeof voice_store;
+  "voice/whisper": typeof voice_whisper;
 }>;
 
 /**

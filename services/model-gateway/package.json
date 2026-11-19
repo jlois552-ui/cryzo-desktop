@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "convex dev",
     "typecheck": "tsc --noEmit",
-    "test": "bun test test/quota.test.ts && bun test test/market.test.ts && bun test test/remote.test.ts && bun test test/cloud.test.ts && bun test test/apps.test.ts",
+    "test": "bun test test/quota.test.ts && bun test test/market.test.ts && bun test test/remote.test.ts && bun test test/cloud.test.ts && bun test test/apps.test.ts && bun test test/voice.test.ts",
     "build": "tsc --noEmit",
     "deploy": "convex deploy"
   },
