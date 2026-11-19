@@ -306,6 +306,27 @@ pub async fn page_act(
     ))
 }
 
+/// The preview as the user sees it, as tool content: a line of text and the picture as a
+/// `Tool.FileContent` data URL. JPEG keeps it small; the model reads the page with page_read first.
+pub async fn page_screenshot(engine: &Engine, root: &Path) -> Result<Value> {
+    let pane = preview_page(engine, root).await?;
+    let address = evaluate(&*pane, "location.href").await?;
+    let shot = pane
+        .cdp(
+            "Page.captureScreenshot",
+            json!({"format":"jpeg","quality":70}),
+        )
+        .await?;
+    let data = shot["data"]
+        .as_str()
+        .context("the browser pane returned no screenshot")?;
+    ensure!(data.len() <= 3_000_000, "the screenshot is too large");
+    Ok(json!([
+        {"type":"text","text":format!("Screenshot of {} as it shows in Cryzo's browser pane.", address.as_str().unwrap_or_default())},
+        {"type":"file","uri":format!("data:image/jpeg;base64,{data}"),"mime":"image/jpeg","name":"page.jpg"},
+    ]))
+}
+
 /// Errors the preview's page reported (uncaught errors, rejected promises, console.error),
 /// collected by the pane's page script since the page loaded.
 pub async fn page_errors(engine: &Engine, root: &Path) -> Result<String> {

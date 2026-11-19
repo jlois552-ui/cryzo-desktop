@@ -59,6 +59,8 @@ pub enum Operation {
         text: Option<String>,
     },
     PageErrors {},
+    /// A picture of the preview, for models that see images.
+    PageScreenshot {},
 }
 
 impl Operation {
@@ -85,6 +87,7 @@ impl Operation {
                 | Self::PageRead {}
                 | Self::PageAct { .. }
                 | Self::PageErrors {}
+                | Self::PageScreenshot {}
         )
     }
 
@@ -196,7 +199,8 @@ impl Workspace {
             | Operation::PreviewStop {}
             | Operation::PageRead {}
             | Operation::PageAct { .. }
-            | Operation::PageErrors {} => {
+            | Operation::PageErrors {}
+            | Operation::PageScreenshot {} => {
                 anyhow::bail!("preview tools run in the session runner")
             }
             Operation::Diff => {

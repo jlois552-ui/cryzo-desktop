@@ -4,8 +4,13 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 pub fn prepare(protocol: &str, mut request: Value) -> Result<(String, Value)> {
-    let messages = request["messages"].as_array().context("messages missing")?;
+    let messages = request["messages"]
+        .as_array()
+        .context("messages missing")?
+        .clone();
+    let messages = &messages;
     if protocol == "chat-completions" {
+        request["messages"] = json!(chat_messages(messages));
         request["stream"] = json!(true);
         return Ok(("chat/completions".into(), request));
     }
@@ -13,7 +18,15 @@ pub fn prepare(protocol: &str, mut request: Value) -> Result<(String, Value)> {
         let mut input = Vec::new();
         for message in messages {
             if message["role"] == "tool" {
-                input.push(json!({"type":"function_call_output","call_id":message["tool_call_id"],"output":message["content"]}));
+                let images = images(message);
+                let output = if images.is_empty() {
+                    message["content"].clone()
+                } else {
+                    let mut parts = vec![json!({"type":"input_text","text":message["content"]})];
+                    parts.extend(images.iter().map(|(mime, data)| json!({"type":"input_image","image_url":format!("data:{mime};base64,{data}")})));
+                    json!(parts)
+                };
+                input.push(json!({"type":"function_call_output","call_id":message["tool_call_id"],"output":output}));
                 continue;
             }
             if let Some(native) = message["cryzo_native"]["responses"].as_array() {
@@ -47,12 +60,20 @@ pub fn prepare(protocol: &str, mut request: Value) -> Result<(String, Value)> {
                 continue;
             }
             if message["role"] == "tool" {
+                let images = images(message);
+                let content = if images.is_empty() {
+                    message["content"].clone()
+                } else {
+                    let mut parts = vec![json!({"type":"text","text":message["content"]})];
+                    parts.extend(images.iter().map(|(mime, data)| json!({"type":"image","source":{"type":"base64","media_type":mime,"data":data}})));
+                    json!(parts)
+                };
                 append_turn(
                     &mut conversation,
                     "user",
                     "content",
                     vec![
-                        json!({"type":"tool_result","tool_use_id":message["tool_call_id"],"content":message["content"]}),
+                        json!({"type":"tool_result","tool_use_id":message["tool_call_id"],"content":content}),
                     ],
                 );
                 continue;
@@ -113,13 +134,21 @@ pub fn prepare(protocol: &str, mut request: Value) -> Result<(String, Value)> {
                 let name = names
                     .get(message["tool_call_id"].as_str().unwrap_or(""))
                     .context("tool name missing from history")?;
+                let mut response = json!({"name":name,"response":{"output":message["content"]}});
+                let images = images(message);
+                if !images.is_empty() {
+                    response["parts"] = json!(
+                        images
+                            .iter()
+                            .map(|(mime, data)| json!({"inlineData":{"mimeType":mime,"data":data}}))
+                            .collect::<Vec<_>>()
+                    );
+                }
                 append_turn(
                     &mut contents,
                     "user",
                     "parts",
-                    vec![
-                        json!({"functionResponse":{"name":name,"response":{"output":message["content"]}}}),
-                    ],
+                    vec![json!({ "functionResponse": response })],
                 );
                 continue;
             }
@@ -181,6 +210,50 @@ pub fn prepare(protocol: &str, mut request: Value) -> Result<(String, Value)> {
         .context("invalid request")?
         .remove("cryzo_native");
     anyhow::bail!("unsupported native transport")
+}
+
+/// Images a tool returned (`cryzo_images`, data URLs) as media type and base64 data.
+fn images(message: &Value) -> Vec<(String, String)> {
+    message["cryzo_images"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter_map(|url| url.strip_prefix("data:")?.split_once(";base64,"))
+        .filter(|(mime, _)| mime.starts_with("image/"))
+        .map(|(mime, data)| (mime.to_owned(), data.to_owned()))
+        .collect()
+}
+
+/// Chat Completions tool messages hold text only, so images a run of tool results returned follow
+/// it as one user message.
+fn chat_messages(messages: &[Value]) -> Vec<Value> {
+    let mut out = Vec::new();
+    let mut pending = Vec::new();
+    let flush = |out: &mut Vec<Value>, pending: &mut Vec<Value>| {
+        if pending.is_empty() {
+            return;
+        }
+        let mut content =
+            vec![json!({"type":"text","text":"Images returned by the tool calls above."})];
+        content.append(pending);
+        out.push(json!({"role":"user","content":content}));
+    };
+    for message in messages {
+        let mut message = message.clone();
+        if message["role"] == "tool" {
+            pending.extend(images(&message).into_iter().map(|(mime, data)| json!({"type":"image_url","image_url":{"url":format!("data:{mime};base64,{data}")}})));
+            if let Some(fields) = message.as_object_mut() {
+                fields.remove("cryzo_images");
+            }
+            out.push(message);
+            continue;
+        }
+        flush(&mut out, &mut pending);
+        out.push(message);
+    }
+    flush(&mut out, &mut pending);
+    out
 }
 
 fn append_turn(turns: &mut Vec<Value>, role: &str, field: &str, parts: Vec<Value>) {
@@ -396,5 +469,92 @@ impl Decoder {
             "provider replay data is too large"
         );
         Ok(json!({"choices":[{"delta":delta,"finish_reason":finish}],"usage":self.usage}))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prepare;
+    use serde_json::{Value, json};
+
+    /// A conversation where the agent took a screenshot: the tool result carries one image.
+    fn request() -> Value {
+        json!({"model":"m","messages":[
+            {"role":"system","content":"be brief"},
+            {"role":"user","content":"check the page"},
+            {"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"page_screenshot","arguments":"{}"}}]},
+            {"role":"tool","tool_call_id":"c1","content":"Screenshot of http://localhost:5173/","cryzo_images":["data:image/jpeg;base64,QUJD"]},
+            {"role":"assistant","content":"Looks fine."},
+        ]})
+    }
+
+    #[test]
+    fn chat_completions_follows_tool_results_with_their_images() {
+        let (_, body) = prepare("chat-completions", request()).unwrap();
+        let messages = body["messages"].as_array().unwrap();
+        assert_eq!(messages[3]["role"], "tool");
+        assert!(messages[3].get("cryzo_images").is_none());
+        assert_eq!(messages[4]["role"], "user");
+        assert_eq!(
+            messages[4]["content"][1],
+            json!({"type":"image_url","image_url":{"url":"data:image/jpeg;base64,QUJD"}})
+        );
+        assert_eq!(messages[5]["content"], "Looks fine.");
+    }
+
+    #[test]
+    fn responses_put_the_image_in_the_function_output() {
+        let (_, body) = prepare("responses", request()).unwrap();
+        let output = body["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["type"] == "function_call_output")
+            .unwrap();
+        assert_eq!(
+            output["output"],
+            json!([
+                {"type":"input_text","text":"Screenshot of http://localhost:5173/"},
+                {"type":"input_image","image_url":"data:image/jpeg;base64,QUJD"},
+            ])
+        );
+    }
+
+    #[test]
+    fn messages_put_the_image_in_the_tool_result() {
+        let (_, body) = prepare("messages", request()).unwrap();
+        let result = &body["messages"][2]["content"][0];
+        assert_eq!(result["type"], "tool_result");
+        assert_eq!(
+            result["content"][1],
+            json!({"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"QUJD"}})
+        );
+    }
+
+    #[test]
+    fn generate_content_puts_the_image_in_the_function_response() {
+        let (_, body) = prepare("generate-content", request()).unwrap();
+        let response = &body["contents"][2]["parts"][0]["functionResponse"];
+        assert_eq!(response["name"], "page_screenshot");
+        assert_eq!(
+            response["parts"],
+            json!([{"inlineData":{"mimeType":"image/jpeg","data":"QUJD"}}])
+        );
+    }
+
+    #[test]
+    fn tool_results_without_images_stay_text() {
+        let mut plain = request();
+        plain["messages"][3]
+            .as_object_mut()
+            .unwrap()
+            .remove("cryzo_images");
+        let (_, body) = prepare("chat-completions", plain.clone()).unwrap();
+        assert_eq!(body["messages"].as_array().unwrap().len(), 5);
+        let (_, body) = prepare("messages", plain).unwrap();
+        assert_eq!(
+            body["messages"][2]["content"][0]["content"],
+            "Screenshot of http://localhost:5173/"
+        );
     }
 }

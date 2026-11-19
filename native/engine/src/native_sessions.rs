@@ -189,6 +189,31 @@ impl Engine {
         if desktop {
             system.push(json!({"role":"system","content":cryzo_desktop_control::INSTRUCTIONS}));
         }
+        let model_id = provider.model["id"].as_str().context("model missing")?;
+        let provider_id = provider.model["providerID"]
+            .as_str()
+            .context("provider missing")?;
+        let model = self
+            .catalog
+            .providers
+            .iter()
+            .find(|p| p.id == provider_id)
+            .and_then(|p| p.models.iter().find(|m| m.id == model_id))
+            .context("model not in catalog")?;
+        // Models that take images get page_screenshot and see the latest screenshots.
+        let vision = model
+            .details
+            .pointer("/modalities/input")
+            .and_then(Value::as_array)
+            .is_some_and(|input| {
+                input
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .any(|kind| kind == "image" || kind.starts_with("image/"))
+            });
+        if vision {
+            system.push(json!({"role":"system","content":"page_screenshot shows the preview as the user sees it. Read the page with page_read first; take a screenshot when layout or visuals matter."}));
+        }
         let history = |state: &Value| {
             let mut conversation = system.clone();
             for message in state["messages"].as_array().unwrap() {
@@ -238,32 +263,26 @@ impl Engine {
                     }
                     conversation.push(turn);
                     for tool in tools {
+                        let mut images = Vec::new();
                         let content = if tool["state"]["status"] == "completed" {
-                            tool["state"]["content"].to_string()
+                            tool_text(&tool["state"]["content"], &mut images)
                         } else if tool["state"]["status"] == "error" {
                             tool["state"]["error"].to_string()
                         } else {
                             "Execution was interrupted; the outcome is unknown. Inspect the workspace before proposing another effect.".into()
                         };
-                        conversation.push(
-                            json!({"role":"tool","tool_call_id":tool["id"],"content":content}),
-                        );
+                        let mut result =
+                            json!({"role":"tool","tool_call_id":tool["id"],"content":content});
+                        if !images.is_empty() {
+                            result["cryzo_images"] = json!(images);
+                        }
+                        conversation.push(result);
                     }
                 }
             }
+            keep_recent_images(&mut conversation, if vision { 2 } else { 0 });
             conversation
         };
-        let model_id = provider.model["id"].as_str().context("model missing")?;
-        let provider_id = provider.model["providerID"]
-            .as_str()
-            .context("provider missing")?;
-        let model = self
-            .catalog
-            .providers
-            .iter()
-            .find(|p| p.id == provider_id)
-            .and_then(|p| p.models.iter().find(|m| m.id == model_id))
-            .context("model not in catalog")?;
         let tools = model
             .details
             .pointer("/capabilities/tools/supported")
@@ -298,7 +317,7 @@ impl Engine {
                 request.as_object_mut().unwrap().remove("cryzo_step_id");
             }
             if tools {
-                request["tools"] = tool_definitions(plan, desktop);
+                request["tools"] = tool_definitions(plan, desktop, vision);
             }
             // ChatGPT access tokens last about an hour, so each step refreshes when needed. Like the
             // Codex client, it sends the session as prompt-cache affinity.
@@ -415,11 +434,15 @@ impl Engine {
                             self.emit(event);
                         }
                         // Desktop tools return plain text; quoting it as JSON would escape every line.
-                        let text = match output {
-                            Value::String(text) => text,
-                            output => output.to_string(),
+                        // page_screenshot returns its content parts, text and image, as they are.
+                        let content = match output {
+                            Value::String(text) => json!([{"type":"text","text":text}]),
+                            Value::Object(mut output) if call.name == "page_screenshot" => {
+                                output.remove("parts").unwrap_or_else(|| json!([]))
+                            }
+                            output => json!([{"type":"text","text":output.to_string()}]),
                         };
-                        self.record(session,"session.tool.success",json!({"assistantMessageID":message,"id":call.id,"executed":true,"content":[{"type":"text","text":text}]}))?;
+                        self.record(session,"session.tool.success",json!({"assistantMessageID":message,"id":call.id,"executed":true,"content":content}))?;
                     }
                     Err(error) => {
                         self.record(session,"session.tool.failed",json!({"assistantMessageID":message,"id":call.id,"executed":false,"error":{"type":"ToolError","message":error.to_string()}}))?;
@@ -679,6 +702,9 @@ impl Engine {
                 text,
             } => crate::preview::page_act(self, root, *element, action, text.as_deref()).await?,
             Operation::PageErrors {} => crate::preview::page_errors(self, root).await?,
+            Operation::PageScreenshot {} => {
+                return Ok(json!({ "parts": crate::preview::page_screenshot(self, root).await? }));
+            }
             _ => anyhow::bail!("not a preview tool"),
         };
         Ok(Value::String(text))
@@ -798,7 +824,53 @@ fn replayed_arguments(tool: &Value) -> String {
     input.to_string()
 }
 
-fn tool_definitions(plan: bool, desktop: bool) -> Value {
+/// A completed tool's content for the model: its text parts as plain text, with image file parts
+/// (data URLs) collected into `images`.
+fn tool_text(content: &Value, images: &mut Vec<Value>) -> String {
+    let Some(parts) = content.as_array() else {
+        return content.to_string();
+    };
+    let mut text = Vec::new();
+    for part in parts {
+        match part["type"].as_str() {
+            Some("text") => text.push(part["text"].as_str().unwrap_or_default().to_owned()),
+            Some("file")
+                if part["mime"]
+                    .as_str()
+                    .is_some_and(|mime| mime.starts_with("image/"))
+                    && part["uri"]
+                        .as_str()
+                        .is_some_and(|uri| uri.starts_with("data:image/")) =>
+            {
+                images.push(part["uri"].clone())
+            }
+            _ => text.push(part.to_string()),
+        }
+    }
+    text.join("\n")
+}
+
+/// Screenshots cost many tokens each, so only the most recent `keep` stay in the conversation; the
+/// model can take a new one.
+fn keep_recent_images(conversation: &mut [Value], keep: usize) {
+    let mut seen = 0;
+    for message in conversation.iter_mut().rev() {
+        if message.get("cryzo_images").is_none() {
+            continue;
+        }
+        seen += 1;
+        if seen > keep {
+            message.as_object_mut().unwrap().remove("cryzo_images");
+            let text = format!(
+                "{}\n[The screenshot is no longer shown; take a new one if needed.]",
+                message["content"].as_str().unwrap_or_default()
+            );
+            message["content"] = json!(text);
+        }
+    }
+}
+
+fn tool_definitions(plan: bool, desktop: bool, vision: bool) -> Value {
     let specs = [
         (
             "read",
@@ -862,6 +934,12 @@ fn tool_definitions(plan: bool, desktop: bool) -> Value {
             vec![],
         ),
         (
+            "page_screenshot",
+            "A picture of the app's preview in Cryzo's browser pane, as the user sees it. Use page_read for text and controls; use this for layout and visual checks",
+            json!({}),
+            vec![],
+        ),
+        (
             "market_channels",
             "List the user's connected social media channels in Cryzo Marketing",
             json!({}),
@@ -880,7 +958,7 @@ fn tool_definitions(plan: bool, desktop: bool) -> Value {
             vec!["content", "channels", "when", "schedule"],
         ),
     ];
-    let mut tools = specs.into_iter().filter(|(name,_,_,_)|!plan||!["write","shell","preview"].contains(name)).map(|(name,description,properties,required)|json!({"type":"function","function":{"name":name,"description":description,"parameters":{"type":"object","properties":properties,"required":required,"additionalProperties":false}}})).collect::<Vec<_>>();
+    let mut tools = specs.into_iter().filter(|(name,_,_,_)|(!plan||!["write","shell","preview"].contains(name))&&(vision||*name!="page_screenshot")).map(|(name,description,properties,required)|json!({"type":"function","function":{"name":name,"description":description,"parameters":{"type":"object","properties":properties,"required":required,"additionalProperties":false}}})).collect::<Vec<_>>();
     // Desktop tools keep their MCP schemas. Agents get text only, so screenshot is left out, and
     // plan mode reads without acting.
     if desktop {
@@ -1416,7 +1494,60 @@ async fn log_stream(
 mod tests {
     use serde_json::json;
 
-    use super::replayed_arguments;
+    use super::{keep_recent_images, replayed_arguments, tool_definitions, tool_text};
+
+    #[test]
+    fn tool_content_reaches_the_model_as_text_with_images_apart() {
+        let mut images = Vec::new();
+        let content = json!([
+            {"type":"text","text":"line one\nline two"},
+            {"type":"file","uri":"data:image/jpeg;base64,QUJD","mime":"image/jpeg","name":"page.jpg"},
+            {"type":"file","uri":"https://example.com/a.png","mime":"image/png"},
+        ]);
+        let text = tool_text(&content, &mut images);
+        assert!(text.starts_with("line one\nline two\n"));
+        assert_eq!(images, vec![json!("data:image/jpeg;base64,QUJD")]);
+    }
+
+    #[test]
+    fn only_the_latest_screenshots_stay_in_the_conversation() {
+        let shot = |n: u8| json!({"role":"tool","tool_call_id":format!("c{n}"),"content":"shot","cryzo_images":["data:image/jpeg;base64,QUJD"]});
+        let mut conversation = vec![
+            shot(1),
+            shot(2),
+            json!({"role":"user","content":"hi"}),
+            shot(3),
+        ];
+        keep_recent_images(&mut conversation, 2);
+        assert!(conversation[0].get("cryzo_images").is_none());
+        assert!(
+            conversation[0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("no longer shown")
+        );
+        assert!(conversation[1].get("cryzo_images").is_some());
+        assert!(conversation[3].get("cryzo_images").is_some());
+        keep_recent_images(&mut conversation, 0);
+        assert!(
+            conversation
+                .iter()
+                .all(|message| message.get("cryzo_images").is_none())
+        );
+    }
+
+    #[test]
+    fn page_screenshot_is_offered_only_to_models_that_see_images() {
+        let named = |vision: bool| {
+            tool_definitions(false, false, vision)
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool["function"]["name"] == "page_screenshot")
+        };
+        assert!(named(true));
+        assert!(!named(false));
+    }
 
     /// Replayed calls must match what the model sent, or it imitates the stored shape instead.
     #[test]
