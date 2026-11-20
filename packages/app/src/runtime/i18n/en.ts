@@ -1056,6 +1056,8 @@ export const dict = {
   "mic.start": "Dictate",
   "mic.stop": "Stop and insert text (Esc cancels)",
   "mic.busy": "Transcribing…",
+  "mic.cancel": "Cancel dictation (Esc)",
+  "mic.recording": "Dictating",
   "mic.error": "Dictation didn't work",
   "mic.unavailable": "This window can't use a microphone.",
   "mic.timeout": "The microphone didn't respond. Check that no other app is using it, then try again.",
