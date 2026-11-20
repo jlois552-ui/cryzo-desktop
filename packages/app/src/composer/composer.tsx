@@ -3,9 +3,7 @@ import { Dynamic } from "solid-js/web"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Button } from "@opencode/ui/button"
 import { useDialog } from "@opencode/ui/context/dialog"
-import { Icon } from "@opencode/ui/icon"
 import { Keybind } from "@opencode/ui/keybind"
-import { Slash } from "@opencode/ui/slash"
 import { consoleModelGroup } from "@/providers/models/provider-group"
 import { consoleProviderName } from "@/providers/catalog/console"
 import { Tooltip } from "@opencode/ui/tooltip"
@@ -136,20 +134,11 @@ function ComposerModelControl(props: {
 
   const content = () => (
     <>
+      {/* Like ChatGPT, the chip names the model alone; its effort follows it as "High ▾", and the
+          provider shows in the tooltip and the picker. */}
       <span class="flex min-w-0 whitespace-nowrap leading-4">
-        <Show when={props.providerName}>
-          {(name) => (
-            <>
-              <span class="shrink-0 text-v2-text-text-faint">{name()}</span>
-              <Slash />
-              <span class="sr-only">{" / "}</span>
-            </>
-          )}
-        </Show>
-        <span class="truncate">{props.modelName}</span>
-      </span>
-      <span class="-ml-0.5 -mr-1 flex shrink-0">
-        <Icon name="chevron-down" />
+        <Show when={props.providerName}>{(name) => <span class="sr-only">{`${name()} / `}</span>}</Show>
+        <span class="truncate font-medium">{props.modelName}</span>
       </span>
     </>
   )

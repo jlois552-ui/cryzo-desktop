@@ -114,7 +114,9 @@ async function gatewayPost(path: string, body: unknown) {
 function pairingScreen(code: string) {
   const root = document.getElementById("root")!
   root.innerHTML = ""
-  root.style.cssText = `min-height:100dvh;display:flex;align-items:center;background:${token("background-bg-base", "#fff")}`
+  // Styled on its own page element: the app later renders into #root, which must keep its own layout.
+  const page = element("div", `flex:1;display:flex;align-items:center;background:${token("background-bg-base", "#fff")}`)
+  root.append(page)
   const form = element(
     "form",
     `display:flex;flex-direction:column;gap:16px;box-sizing:border-box;width:100%;max-width:400px;margin:0 auto;padding:24px;font-family:var(--font-family-sans);color:${token("text-text-base", "#111")}`,
@@ -134,8 +136,9 @@ function pairingScreen(code: string) {
   )
   submit.textContent = en["remote.pair.submit"]
   form.append(title, help, codeInput.label, nameInput.label, error, submit)
-  root.append(form)
-  return new Promise<Credential>((resolve) => {
+  page.append(form)
+  // Pairing ends in a reload, so this promise only settles by leaving the page.
+  return new Promise<Credential>(() => {
     form.onsubmit = (event) => {
       event.preventDefault()
       submit.disabled = true
@@ -146,8 +149,9 @@ function pairingScreen(code: string) {
           const body = (await response.json()) as { data?: Credential; error?: string }
           if (!body.data) throw new Error(body.error ?? en["remote.pair.failed"])
           localStorage.setItem(storageKey, JSON.stringify(body.data))
-          root.innerHTML = ""
-          resolve(body.data)
+          // Start the app from a fresh page, exactly as a later visit does, rather than inside the
+          // document the pairing screen laid out.
+          location.replace(location.pathname)
         })
         .catch((failure: unknown) => {
           error.textContent = failure instanceof Error ? failure.message : en["remote.pair.failed"]

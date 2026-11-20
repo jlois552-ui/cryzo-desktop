@@ -53,7 +53,8 @@ export function FullAccessChip() {
         onClick={toggle}
       >
         <Icon name={full() ? "warning" : "lock"} size="small" />
-        {full() ? language.t("access.full") : language.t("access.ask")}
+        {/* Phones show the icon alone, as ChatGPT's composer does. */}
+        <span class="max-md:sr-only">{full() ? language.t("access.full") : language.t("access.ask")}</span>
       </Button>
     </Tooltip>
   )

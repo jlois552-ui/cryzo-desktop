@@ -408,6 +408,7 @@ export function ComposerEditor(props: ComposerEditorProps) {
               onContext={props.controller.openContext}
               onShell={props.controller.openShell}
             />
+            {props.accessControl}
           </div>
           <div
             ref={controlsViewport}
@@ -422,7 +423,8 @@ export function ComposerEditor(props: ComposerEditorProps) {
             inert={state.mode === "shell" ? true : undefined}
             style={buttons()}
           >
-            <div ref={controlsContent} class="flex h-full w-max min-w-full items-center gap-0.5">
+            {/* Model and effort sit on the right, beside the mic and send, as in ChatGPT. */}
+            <div ref={controlsContent} class="flex h-full w-max min-w-full items-center justify-end gap-0.5">
               <Show when={view.agent} keyed>
                 {(control) => (
                   <ComposerEditorConfiguredSelect
@@ -442,13 +444,13 @@ export function ComposerEditor(props: ComposerEditorProps) {
                         title={i18n.t("ui.promptInput.chooseVariant")}
                         keybind={["Shift", "Mod", "D"]}
                         control={control}
-                        class={control.current() === "default" ? "composer-variant-default" : undefined}
+                        // Muted beside the model name, as ChatGPT shows "GPT-6.2 Sol High".
+                        class={`-ms-1 text-v2-text-text-muted${control.current() === "default" ? " composer-variant-default" : ""}`}
                       />
                     </Show>
                   )}
                 </Show>
               </Show>
-              {props.accessControl}
             </div>
           </div>
           <div data-slot="composer-actions" class="flex shrink-0 items-center">
@@ -1432,7 +1434,7 @@ function ComposerEditorSubmitButton(props: {
         }
         aria-busy={props.held && !props.stopping}
         variant="submit"
-        class="size-7 rounded-md p-[6px]"
+        class="size-8 rounded-full p-[7px]"
         aria-label={props.stopping ? props.stopLabel : props.sendLabel}
         onClick={(event) => {
           event.preventDefault()
