@@ -38,7 +38,9 @@ export async function verify(token: string, secret: string, now = Date.now()): P
   }
 }
 
-async function mac(body: string, secret: string) {
+async function mac(body: string, raw: string) {
+  // Setting the secret through a pipe can add a line break; both sides sign with the trimmed key.
+  const secret = raw.trim()
   if (secret.length < 32) throw new Error("REMOTE_TICKET_KEY must be at least 32 characters.")
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
   return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)))

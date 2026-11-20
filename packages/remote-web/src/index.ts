@@ -1,5 +1,7 @@
 // Cryzo remote: the regular Cryzo web app, running against the user's desktop engine through the
 // relay. Pairing happens once with a code from Settings > Remote control on the computer.
+// The app's fonts and color tokens, loaded first so the pairing screen looks like Cryzo too.
+import "@/index.css"
 import en from "@/runtime/i18n/en"
 import { Relay } from "./relay"
 
@@ -112,17 +114,24 @@ async function gatewayPost(path: string, body: unknown) {
 function pairingScreen(code: string) {
   const root = document.getElementById("root")!
   root.innerHTML = ""
-  const form = element("form", "display:flex;flex-direction:column;gap:12px;max-width:360px;margin:auto;padding:24px;width:100%")
-  const title = element("h1", "font-size:20px;margin:0")
+  root.style.cssText = `min-height:100dvh;display:flex;align-items:center;background:${token("background-bg-base", "#fff")}`
+  const form = element(
+    "form",
+    `display:flex;flex-direction:column;gap:16px;box-sizing:border-box;width:100%;max-width:400px;margin:0 auto;padding:24px;font-family:var(--font-family-sans);color:${token("text-text-base", "#111")}`,
+  )
+  const title = element("h1", "font-size:22px;line-height:28px;font-weight:600;margin:0")
   title.textContent = en["remote.pair.title"]
-  const help = element("p", "margin:0;opacity:.7")
+  const help = element("p", `margin:0;font-size:15px;line-height:22px;color:${token("text-text-muted", "#666")}`)
   help.textContent = en["remote.pair.description"]
   const codeInput = field(en["remote.pair.code"], code, "K7QF-2M9X")
   codeInput.input.autocapitalize = "characters"
   const nameInput = field(en["remote.pair.name"], deviceName(), "")
-  const error = element("p", "margin:0;color:#d33")
+  const error = element("p", "margin:0;font-size:14px;color:#d33")
   error.setAttribute("role", "alert")
-  const submit = element("button", "padding:10px;font-size:16px")
+  const submit = element(
+    "button",
+    `height:48px;border:0;border-radius:12px;font:inherit;font-size:16px;font-weight:600;cursor:pointer;background:${token("text-text-base", "#111")};color:${token("background-bg-base", "#fff")}`,
+  )
   submit.textContent = en["remote.pair.submit"]
   form.append(title, help, codeInput.label, nameInput.label, error, submit)
   root.append(form)
@@ -150,13 +159,22 @@ function pairingScreen(code: string) {
 }
 
 function field(text: string, value: string, placeholder: string) {
-  const label = element("label", "display:flex;flex-direction:column;gap:4px")
+  const label = element("label", `display:flex;flex-direction:column;gap:6px;font-size:13px;color:${token("text-text-muted", "#666")}`)
   label.textContent = text
-  const input = element("input", "padding:10px;font-size:18px")
+  // 17px keeps phones from zooming into the field.
+  const input = element(
+    "input",
+    `box-sizing:border-box;width:100%;height:48px;padding:0 14px;border-radius:12px;border:1px solid ${token("border-border-base", "#ccc")};background:${token("background-bg-base", "#fff")};color:${token("text-text-base", "#111")};font:inherit;font-size:17px`,
+  )
   input.value = value
   input.placeholder = placeholder
   label.append(input)
   return { label, input }
+}
+
+/** A Cryzo color token, with a plain color while the theme has not applied its values yet. */
+function token(name: string, fallback: string) {
+  return `var(--v2-${name}, ${fallback})`
 }
 
 function element<Tag extends keyof HTMLElementTagNameMap>(tag: Tag, style: string) {

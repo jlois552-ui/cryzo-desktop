@@ -122,6 +122,7 @@ export const SettingsRemote: Component = () => {
                   <span class="text-12-regular text-v2-text-text-muted">
                     {language.t("settings.remote.pair.description")}
                   </span>
+                  <span class="text-12-regular text-v2-text-text-muted">{language.t("settings.remote.awake")}</span>
                   <Show
                     when={state.pairing}
                     fallback={

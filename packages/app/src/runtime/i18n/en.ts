@@ -1169,6 +1169,8 @@ export const dict = {
   "settings.remote.pair.button": "Show pairing code",
   "settings.remote.pair.again": "New code",
   "settings.remote.pair.qr": "QR code for pairing a device",
+  "settings.remote.awake":
+    "Your phone reaches Cryzo on this computer, so keep it awake with Cryzo open. Remote control pauses while it sleeps.",
   "settings.remote.section.devices": "Paired devices",
   "settings.remote.devices.empty": "No devices paired yet.",
   "settings.remote.devices.remove": "Remove",

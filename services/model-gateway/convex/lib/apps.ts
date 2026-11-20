@@ -4,7 +4,7 @@
 
 export const FREE_APPS = 1
 
-const RESERVED = new Set(["www", "api", "app", "apps", "admin", "auth", "mail", "preview", "cryzo", "status", "docs", "help", "support"])
+const RESERVED = new Set(["www", "api", "app", "apps", "admin", "auth", "mail", "preview", "cryzo", "status", "docs", "help", "support", "remote"])
 
 /** Why a requested address can't be used, or undefined when it can. */
 export function slugProblem(slug: string) {

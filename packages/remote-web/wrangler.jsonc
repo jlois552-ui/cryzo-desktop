@@ -1,0 +1,12 @@
+{
+  "$schema": "../../services/remote-relay/node_modules/wrangler/config-schema.json",
+  // Remote control's web app, static files only, on its own address in the cryzo.dev zone.
+  // cryzo.me/remote redirects here. Build first with VITE_CRYZO_GATEWAY_URL set to the gateway's
+  // site URL, then `bun run deploy`.
+  "name": "cryzo-remote-web",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "assets": { "directory": "./dist", "not_found_handling": "single-page-application" },
+  "routes": [{ "pattern": "remote.cryzo.dev", "custom_domain": true }],
+}

@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1430 --strictPort",
     "build": "vite build",
+    "deploy": "bunx wrangler@4.110.0 deploy",
     "test": "bun test --preload ../app/happydom.ts src",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
