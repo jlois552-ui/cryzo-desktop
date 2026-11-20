@@ -4,7 +4,7 @@ import { internalAction } from "../_generated/server"
 
 const MODEL = "@cf/openai/whisper-large-v3-turbo"
 
-/** Text spoken in a base64 WAV recording. */
+/** Text spoken in a base64 recording (WAV, AAC in MP4, or Opus in WebM). */
 export const transcribe = internalAction({
   args: { audio: v.string() },
   handler: async (_ctx, args): Promise<string> => {
@@ -14,7 +14,10 @@ export const transcribe = internalAction({
     const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/ai/run/${MODEL}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ audio: args.audio }),
+      // A short punctuated hint makes Whisper write sentences with capitals and punctuation, as typed
+      // text, instead of a lowercase stream of words. Voice detection drops silence first, which would
+      // otherwise come back as the hint itself.
+      body: JSON.stringify({ audio: args.audio, initial_prompt: "Hi, here's what I need.", vad_filter: true }),
       signal: AbortSignal.timeout(60_000),
     })
     const body = (await response.json().catch(() => null)) as {

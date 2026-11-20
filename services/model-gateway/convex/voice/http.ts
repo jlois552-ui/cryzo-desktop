@@ -17,8 +17,8 @@ export function voiceRoutes(http: HttpRouter) {
     handler: httpAction(async (ctx, request) => {
       const user = await account(ctx, request)
       if (!user) return reply({ error: "Sign in to Cryzo to use dictation.", code: "sign_in" }, 401)
-      const input = (await request.json().catch(() => null)) as { audio?: unknown } | null
-      const checked = recording(input?.audio)
+      const input = (await request.json().catch(() => null)) as { audio?: unknown; seconds?: unknown } | null
+      const checked = recording(input?.audio, input?.seconds)
       if ("problem" in checked) return reply({ error: checked.problem }, 400)
       try {
         await ctx.runMutation(internal.voice.store.spend, {

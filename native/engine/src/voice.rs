@@ -8,7 +8,8 @@ pub fn router() -> Router {
     Router::new().route("/api/cryzo/transcribe", post(transcribe))
 }
 
-/// `{audio}` is a base64 16 kHz mono WAV recording; the answer is `{text}`.
+/// `{audio, seconds}` is a base64 recording as the browser made it and its length; the answer is
+/// `{text}`.
 async fn transcribe(Json(input): Json<Value>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let failed = |error: anyhow::Error| {
         (
@@ -21,7 +22,7 @@ async fn transcribe(Json(input): Json<Value>) -> Result<Json<Value>, (StatusCode
         reqwest::Method::POST,
         "voice/transcribe",
         Some(account),
-        json!({"audio":input["audio"]}),
+        json!({"audio":input["audio"],"seconds":input["seconds"]}),
     )
     .await
     .map_err(failed)?;

@@ -14,7 +14,6 @@ import { showToast } from "@/shell/notifications/toast"
 import { cloudRequest } from "@/shell/cloud/api"
 
 const MAX_SECONDS = 60
-const RATE = 16_000
 const BARS = 24
 
 /**
@@ -36,9 +35,11 @@ export function ComposerMic(props: { onText: (text: string) => void }) {
     cancelled: boolean
     audio?: AudioContext
     frame?: number
+    started: number
   } = {
     chunks: [],
     cancelled: false,
+    started: 0,
   }
   let canvas: HTMLCanvasElement | undefined
 
@@ -115,6 +116,7 @@ export function ComposerMic(props: { onText: (text: string) => void }) {
       if (!session.cancelled) void transcribe(new Blob(session.chunks, { type: recorder.mimeType }))
     }
     recorder.start()
+    session.started = Date.now()
     setState({ recording: true, seconds: 0 })
     waveform(stream)
     session.timer = setInterval(() => {
@@ -141,7 +143,8 @@ export function ComposerMic(props: { onText: (text: string) => void }) {
 
   const transcribe = async (blob: Blob) => {
     setState("busy", true)
-    const data = await wav(blob)
+    const seconds = (Date.now() - session.started) / 1000
+    const data = await base64(blob)
       .then((audio) =>
         cloudRequest({
           url: sdk.url,
@@ -149,7 +152,7 @@ export function ComposerMic(props: { onText: (text: string) => void }) {
           platform,
           directory: "",
           path: "transcribe",
-          body: { audio },
+          body: { audio, seconds },
           fallback: language.t("mic.error"),
         }),
       )
@@ -218,34 +221,13 @@ export function ComposerMic(props: { onText: (text: string) => void }) {
   )
 }
 
-/** The recording as base64 16 kHz mono 16-bit WAV, the format Whisper reads most reliably. */
-async function wav(blob: Blob) {
-  const context = new AudioContext()
-  const decoded = await context.decodeAudioData(await blob.arrayBuffer()).finally(() => context.close())
-  const offline = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * RATE)), RATE)
-  const source = offline.createBufferSource()
-  source.buffer = decoded
-  source.connect(offline.destination)
-  source.start()
-  const samples = (await offline.startRendering()).getChannelData(0)
-  const view = new DataView(new ArrayBuffer(44 + samples.length * 2))
-  const ascii = (offset: number, text: string) =>
-    Array.from(text).forEach((char, index) => view.setUint8(offset + index, char.charCodeAt(0)))
-  ascii(0, "RIFF")
-  view.setUint32(4, 36 + samples.length * 2, true)
-  ascii(8, "WAVE")
-  ascii(12, "fmt ")
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, 1, true)
-  view.setUint32(24, RATE, true)
-  view.setUint32(28, RATE * 2, true)
-  view.setUint16(32, 2, true)
-  view.setUint16(34, 16, true)
-  ascii(36, "data")
-  view.setUint32(40, samples.length * 2, true)
-  samples.forEach((sample, index) => view.setInt16(44 + index * 2, Math.max(-1, Math.min(1, sample)) * 0x7fff, true))
-  const bytes = new Uint8Array(view.buffer)
+/**
+ * The recording as base64, exactly as the browser recorded it (AAC in MP4 on iPhones, Opus in WebM
+ * elsewhere). Whisper decodes both, so the upload stays small and the browser does no decoding or
+ * resampling of its own.
+ */
+async function base64(blob: Blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer())
   const parts: string[] = []
   for (let index = 0; index < bytes.length; index += 0x8000)
     parts.push(String.fromCharCode(...bytes.subarray(index, index + 0x8000)))

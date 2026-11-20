@@ -11,6 +11,8 @@ const modules = {
 
 // base64 of a WAV this many seconds long (16 kHz, 16-bit mono, plus the 44-byte header).
 const wav = (seconds: number) => Buffer.alloc(44 + seconds * 32_000).toString("base64")
+// base64 of a compressed recording (AAC or Opus) of this many bytes.
+const compressed = (bytes: number) => Buffer.alloc(bytes).toString("base64")
 
 describe("dictation", () => {
   test("a recording's length comes from its size and long ones are refused", () => {
@@ -19,6 +21,14 @@ describe("dictation", () => {
     expect("problem" in recording(wav(MAX_SECONDS + 5))).toBe(true)
     expect("problem" in recording("")).toBe(true)
     expect("problem" in recording("not base64!")).toBe(true)
+  })
+
+  test("a compressed recording counts its stated length, but never less than its size allows", () => {
+    expect(recording(compressed(20_000), 8)).toEqual({ seconds: 8 })
+    expect(recording(compressed(20_000))).toEqual({ seconds: 1 })
+    expect(recording(compressed(20_000), "8")).toEqual({ seconds: 1 })
+    expect(recording(wav(30), 2)).toEqual({ seconds: 30 })
+    expect("problem" in recording(compressed(20_000), MAX_SECONDS + 5)).toBe(true)
   })
 
   test("each user gets a daily allowance", async () => {
