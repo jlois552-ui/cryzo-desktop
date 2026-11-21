@@ -2,6 +2,10 @@
 
 mod browser;
 mod desktop;
+#[cfg(target_os = "linux")]
+mod webkit_linux;
+#[cfg(target_os = "macos")]
+mod webkit_mac;
 use desktop::{DesktopHost, desktop_call, native_bootstrap, native_fetch, native_interrupt};
 use desktop::{native_socket_close, native_socket_open, native_socket_send};
 

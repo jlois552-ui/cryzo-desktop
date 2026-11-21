@@ -48,9 +48,13 @@ jobs:
             target: aarch64-apple-darwin
           - os: macos-latest
             target: x86_64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libxdo-dev pkg-config
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
@@ -71,3 +75,46 @@ jobs:
       - name: Native host compilation (no public release)
         working-directory: native
         run: cargo check --locked -p cryzo-desktop --target ${{ matrix.target }}
+
+  # Installers for testing on each OS, kept as workflow artifacts. Unsigned, so never published:
+  # see the signing gates in native/README.md.
+  bundle:
+    needs: desktop
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows-x64
+          - os: macos-latest
+            name: macos-arm64
+          - os: ubuntu-22.04
+            name: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libxdo-dev pkg-config
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Install frontend
+        run: bun install --frozen-lockfile --filter '@cryzo/desktop' --filter '@opencode/app' --ignore-scripts
+      - name: Build installers
+        working-directory: packages/desktop-tauri
+        env:
+          CRYZO_GATEWAY_URL: ${{ vars.CRYZO_GATEWAY_URL }}
+        run: bunx tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cryzo-${{ matrix.name }}
+          path: |
+            native/target/release/bundle/**/*.dmg
+            native/target/release/bundle/**/*.deb
+            native/target/release/bundle/**/*.AppImage
+            native/target/release/bundle/**/*.exe
+          if-no-files-found: error

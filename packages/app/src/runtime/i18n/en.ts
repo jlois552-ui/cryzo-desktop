@@ -1044,6 +1044,7 @@ export const dict = {
   "settings.computer.row.stop.title": "Stop shortcut",
   "settings.computer.row.stop.description": "Stops every action at once, from any app. Always on.",
   "settings.computer.row.stop.keys": "Ctrl+Alt+Esc",
+  "settings.computer.row.stop.keys.mac": "Control+Option+Esc",
   "settings.computer.section.blocked": "Blocked apps",
   "settings.computer.blocked.description":
     "Agents can't read or control these apps. Matched against window titles and app names.",
@@ -1187,7 +1188,7 @@ export const dict = {
   "settings.remote.devices.lastSeen": "Last used {{time}}",
   "settings.remote.devices.never": "Not used yet",
   "session.computer.active": "Cryzo is using your computer",
-  "session.computer.hint": "Press Ctrl+Alt+Esc to stop",
+  "session.computer.hint": "Press {{keys}} to stop",
   "session.computer.stop": "Stop",
   "settings.tab.about": "About",
   "settings.about.version": "Version {{version}}",
@@ -1525,7 +1526,7 @@ export const dict = {
   "settings.permissions.tool.doom_loop.description": "Detect repeated tool calls with identical input",
   "settings.permissions.tool.desktop.title": "Computer use",
   "settings.permissions.tool.desktop.description":
-    "Control an app on this computer. Check what it will do; press Ctrl+Alt+Esc at any time to stop.",
+    "Control an app on this computer. Check what it will do; press Ctrl+Alt+Esc (Control+Option+Esc on a Mac) at any time to stop.",
 
   "session.delete.failed.title": "Failed to delete session",
   "session.delete.title": "Delete session",

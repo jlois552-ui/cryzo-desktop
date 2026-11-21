@@ -2,11 +2,13 @@ use std::{
     cell::OnceCell,
     collections::{HashMap, HashSet},
     io::Write,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::Ordering,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-pub(crate) use crate::ax::{invisible, quote};
+pub(crate) use crate::ax::quote;
+use crate::common::{STOPPED, line_id, summary};
+pub(crate) use crate::common::{changes, clean, clip, is_stopped, stop, stopped, verb};
 use anyhow::{Result, anyhow, bail, ensure};
 use uiautomation::{
     UIAutomation, UIElement, UITreeWalker,
@@ -46,9 +48,6 @@ use serde_json::Value;
 
 use crate::{Output, Settings, capture::capture, overlay::Overlay};
 
-/// Set by the global stop hotkey. Once set, every acting call fails until the process restarts.
-static STOPPED: AtomicBool = AtomicBool::new(false);
-
 /// Everything `line_for` and `states` read, fetched in one cache request per snapshot.
 const PROPERTIES: [UIProperty; 15] = [
     UIProperty::ControlType,
@@ -77,8 +76,6 @@ const SETTLE: Duration = Duration::from_millis(350);
 const POLL: Duration = Duration::from_millis(50);
 const QUIET: Duration = Duration::from_millis(350);
 const SETTLE_LIMIT: Duration = Duration::from_secs(3);
-/// Elements that disappeared are listed one by one up to this many, then only counted.
-const GONE: usize = 8;
 
 pub struct Desktop {
     automation: UIAutomation,
@@ -745,7 +742,7 @@ impl Desktop {
             })
             .filter(|rect| rect.right > rect.left && rect.bottom > rect.top);
         match rect {
-            Some(rect) => overlay.point(step, rect),
+            Some(rect) => overlay.point(step, rect.into()),
             None => overlay.step(step),
         }
     }
@@ -823,7 +820,7 @@ impl Desktop {
                 right: x + 10,
                 bottom: y + 10,
             };
-            overlay.point(format!("Clicking at {x}, {y}"), spot);
+            overlay.point(format!("Clicking at {x}, {y}"), spot.into());
             overlay.click();
         }
         let mouse = Mouse::default();
@@ -1354,24 +1351,6 @@ pub fn start_stop_hotkey() {
     });
 }
 
-/// The overlay's Stop button: the same as pressing Ctrl+Alt+Esc.
-pub(crate) fn stop() {
-    STOPPED.store(true, Ordering::SeqCst);
-}
-
-pub(crate) fn is_stopped() -> bool {
-    STOPPED.load(Ordering::SeqCst)
-}
-
-pub(crate) fn stopped() -> Result<()> {
-    if STOPPED.load(Ordering::SeqCst) {
-        bail!(
-            "The user stopped desktop control (the Stop button or Ctrl+Alt+Esc). Don't retry; it resumes when the user sends a new message."
-        );
-    }
-    Ok(())
-}
-
 /// Sends keys in the `key` syntax, one key press (with its modifiers) per SendInput call. When the
 /// focused field exposes its text, each press waits until the text changes, so typing goes as fast
 /// as the app takes it. Windows 11 Notepad lost or repeated characters under fixed pacing (5 to
@@ -1499,25 +1478,6 @@ fn full_text(element: &UIElement) -> String {
         ""
     };
     format!("{}{note}", text.replace('\r', ""))
-}
-
-/// How the overlay names an action, as in `Clicking button "Save"`.
-pub(crate) fn verb(action: &str) -> &str {
-    match action {
-        "click" => "Clicking",
-        "double_click" => "Double-clicking",
-        "right_click" => "Right-clicking",
-        "type" => "Typing into",
-        "toggle" => "Toggling",
-        "select" | "add_to_selection" => "Selecting",
-        "expand" => "Expanding",
-        "collapse" => "Collapsing",
-        "scroll_into_view" => "Scrolling to",
-        "scroll_down" => "Scrolling down",
-        "scroll_up" => "Scrolling up",
-        "focus" => "Focusing",
-        _ => action,
-    }
 }
 
 fn states(element: &UIElement, kind: ControlType, name: &str, password: bool) -> Vec<String> {
@@ -1661,13 +1621,6 @@ fn reach(app: &str) -> Option<&'static str> {
     None
 }
 
-/// The element ID a snapshot line starts with, such as `e12` from `[e12] button "Save"`.
-fn line_id(line: &str) -> Option<String> {
-    line.strip_prefix('[')?
-        .split_once(']')
-        .map(|(id, _)| id.to_string())
-}
-
 /// Whether a page document has nothing under it: Chromium has not built that page's tree yet.
 fn cold_document(lines: &[String]) -> bool {
     let depth = |line: &String| line.len() - line.trim_start().len();
@@ -1722,79 +1675,6 @@ fn ocr(hwnd: isize) -> String {
     }
 }
 
-/// One line for an acting step in the middle of a batch: its result line, window notes such as
-/// "closed" or the new foreground, and how many elements changed.
-fn summary(text: &str) -> String {
-    let changed = text
-        .lines()
-        .filter(|line| {
-            ["~ ", "+ ", "- ", "  "]
-                .iter()
-                .any(|mark| line.starts_with(mark))
-        })
-        .count();
-    let notes = text
-        .lines()
-        .filter(|line| {
-            !["~ ", "+ ", "- ", "  "]
-                .iter()
-                .any(|mark| line.starts_with(mark))
-        })
-        .map(|line| line.trim_end_matches(" changed:"))
-        .collect::<Vec<_>>()
-        .join("; ");
-    match changed {
-        0 => notes,
-        _ => format!("{notes} ({changed} lines changed)"),
-    }
-}
-
-/// `~` marks an element whose line changed, `+` a new one and `-` one that is gone. Long runs of
-/// gone elements (a view switched away) are only counted, since the model rarely needs them.
-pub(crate) fn changes(header: &str, previous: &[String], now: &[String]) -> String {
-    let id = line_id;
-    let before = previous
-        .iter()
-        .map(|line| line.trim())
-        .collect::<HashSet<_>>();
-    let after = now.iter().map(|line| line.trim()).collect::<HashSet<_>>();
-    let ids_before = before
-        .iter()
-        .filter_map(|line| id(line))
-        .collect::<HashSet<_>>();
-    let ids_after = after
-        .iter()
-        .filter_map(|line| id(line))
-        .collect::<HashSet<_>>();
-    let gone = previous
-        .iter()
-        .map(|line| line.trim())
-        .filter(|line| !after.contains(line))
-        .filter(|line| id(line).is_none_or(|id| !ids_after.contains(&id)))
-        .collect::<Vec<_>>();
-    let gone = if gone.len() > GONE {
-        vec![format!("- {} elements gone", gone.len())]
-    } else {
-        gone.iter().map(|line| format!("- {line}")).collect()
-    };
-    let lines = gone
-        .into_iter()
-        .chain(
-            now.iter()
-                .map(|line| line.trim())
-                .filter(|line| !before.contains(line))
-                .map(|line| match id(line) {
-                    Some(id) if ids_before.contains(&id) => format!("~ {line}"),
-                    _ => format!("+ {line}"),
-                }),
-        )
-        .collect::<Vec<_>>();
-    if lines.is_empty() {
-        return format!("{header}: no visible change");
-    }
-    format!("{header} changed:\n{}", lines.join("\n"))
-}
-
 fn header(window: &UIElement) -> String {
     let title = clean(&window.get_name().unwrap_or_default());
     let size = window
@@ -1845,22 +1725,6 @@ fn process(element: &UIElement) -> String {
     }
     let path = String::from_utf16_lossy(&buffer[..size as usize]);
     path.rsplit('\\').next().unwrap_or_default().to_string()
-}
-
-fn clean(text: &str) -> String {
-    // Icon fonts put glyphs in the Unicode private use area; they carry no meaning as text.
-    let text = text
-        .chars()
-        .filter(|c| !('\u{e000}'..='\u{f8ff}').contains(c) && !invisible(*c))
-        .collect::<String>();
-    clip(&text.split_whitespace().collect::<Vec<_>>().join(" "), 120)
-}
-
-fn clip(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
-        return text.to_string();
-    }
-    format!("{}…", text.chars().take(max).collect::<String>())
 }
 
 #[cfg(test)]

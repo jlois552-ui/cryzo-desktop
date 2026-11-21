@@ -8,6 +8,7 @@ import { type ComputerUseSettings, usePlatform } from "@/runtime/platform/platfo
 import { SettingsList } from "@/settings/list"
 import { SettingsRow } from "@/settings/row"
 import "@/settings/settings.css"
+import { stopKeys } from "@/session/composer/computer-pill"
 
 const approvals = [
   { id: "always", label: "settings.computer.approval.always" },
@@ -111,7 +112,7 @@ export const SettingsComputer: Component = () => {
                     description={language.t("settings.computer.row.stop.description")}
                   >
                     <kbd class="rounded-[6px] border border-v2-border-border-base px-2 py-0.5 font-mono text-12-regular text-v2-text-text-base">
-                      {language.t("settings.computer.row.stop.keys")}
+                      {stopKeys(language)}
                     </kbd>
                   </SettingsRow>
                 </SettingsList>

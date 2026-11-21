@@ -13,6 +13,16 @@ bun install --frozen-lockfile --filter '@cryzo/desktop' --filter '@opencode/app'
 bun run --cwd packages/desktop-tauri dev
 ```
 
+### macOS and Linux
+
+`sh native/install-development.sh` builds and installs a development build: `/Applications/Cryzo Development.app` on macOS, `~/.local/bin/cryzo-development` with an app-menu entry on Linux. It compiles in the Cryzo gateway (`CRYZO_GATEWAY_URL`), like the Windows build.
+
+- **Linux packages:** `libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libxdo-dev pkg-config`, plus a running Secret Service (GNOME Keyring or KWallet) for saved keys. Optionally install `tesseract-ocr` for computer use OCR.
+- **Computer use on macOS:** reads apps through the Accessibility API and acts with CoreGraphics events. Turn Cryzo on under System Settings > Privacy & Security > Accessibility, and under Screen Recording for screenshots. The stop keys are Control+Option+Esc.
+- **Computer use on Linux:** reads apps through AT-SPI and acts through X11's XTEST extension. That covers X11 sessions and apps under XWayland. The stop keys are Ctrl+Alt+Esc.
+- **Browser pane:** WebKit has no DevTools Protocol, so `page_read` and `page_act` run through a script in the page (`webkit-cdp.js`). Page screenshots are Windows-only for now.
+- **Type-check from Windows:** the computer-use crate can be checked for both systems with `cargo check -p cryzo-desktop-control --target aarch64-apple-darwin` and `--target x86_64-unknown-linux-gnu`.
+
 Engine checks are independent of the frontend:
 
 ```sh

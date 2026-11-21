@@ -420,7 +420,6 @@ pub async fn desktop_call(
         // Computer use (desktop control) lives in its own JSON file so the standalone MCP server
         // and Cryzo's engine read the same settings. Windows only for now.
         "AppGetComputerUse" => {
-            if !cfg!(windows) { return Ok(Value::Null); }
             let settings = cryzo_desktop_control::Settings::load().map_err(|e| format!("{e:#}"))?;
             Ok(json!({
                 "enabled": settings.enabled,

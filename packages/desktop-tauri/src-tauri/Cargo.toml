@@ -33,3 +33,15 @@ tokio-util = "0.7"
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39.1"
 windows = "0.62.2"
+
+# The browser pane's page tools on WebKit, which has no DevTools Protocol (see webkit-cdp.js).
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", features = ["NSString", "NSError"] }
+objc2-web-kit = { version = "0.3.2", features = ["WKWebView", "WKContentWorld", "WKFrameInfo", "block2", "objc2-app-kit"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+javascriptcore-rs = "1.1.2"
+# 2.40 brings call_async_javascript_function.
+webkit2gtk = { version = "2.0.2", features = ["v2_40"] }

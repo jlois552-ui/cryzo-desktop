@@ -190,8 +190,8 @@ impl Engine {
             system.push(json!({"role":"system","content":crate::cloud::INSTRUCTIONS}));
         }
         // Read once per run: desktop control stays off unless the user enabled it in its settings.
-        let desktop = cfg!(windows)
-            && cryzo_desktop_control::Settings::load().is_ok_and(|settings| settings.enabled);
+        let desktop =
+            cryzo_desktop_control::Settings::load().is_ok_and(|settings| settings.enabled);
         if desktop {
             system.push(json!({"role":"system","content":cryzo_desktop_control::INSTRUCTIONS}));
         }

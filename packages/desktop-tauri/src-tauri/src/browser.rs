@@ -75,14 +75,34 @@ fn devtools(
         .map_err(|error| error.to_string())
 }
 
+/// WebKit has no DevTools Protocol, so the calls the page tools make are answered by a script in
+/// the page (`webkit-cdp.js`), run through the platform's async JavaScript call.
 #[cfg(not(windows))]
 fn devtools(
-    _webview: &tauri::Webview,
-    _method: String,
-    _params: String,
-    _sender: tokio::sync::oneshot::Sender<Result<Value, String>>,
+    webview: &tauri::Webview,
+    method: String,
+    params: String,
+    sender: tokio::sync::oneshot::Sender<Result<Value, String>>,
 ) -> Result<(), String> {
-    Err("controlling the browser pane is only available on Windows for now".into())
+    const SCRIPT: &str = include_str!("webkit-cdp.js");
+    let body = format!(
+        "{SCRIPT}
+return JSON.stringify(await cryzoCdp({}, {params}))",
+        serde_json::to_string(&method).map_err(|error| error.to_string())?
+    );
+    let finish = Box::new(move |result: Result<String, String>| {
+        let _ = sender.send(
+            result.and_then(|text| serde_json::from_str(&text).map_err(|error| error.to_string())),
+        );
+    });
+    webview
+        .with_webview(move |platform| {
+            #[cfg(target_os = "macos")]
+            crate::webkit_mac::call(platform.inner(), &body, finish);
+            #[cfg(target_os = "linux")]
+            crate::webkit_linux::call(&platform.inner(), &body, finish);
+        })
+        .map_err(|error| error.to_string())
 }
 
 /// The visible page as base64 PNG, which the renderer draws in the page's place while its address

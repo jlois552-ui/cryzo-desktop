@@ -14,7 +14,16 @@ export function usingComputer(messages: readonly SessionMessageInfo[]) {
 }
 
 // Shown for the whole turn rather than per tool call, so it doesn't flicker while the model thinks between actions.
-// The global Ctrl+Alt+Esc works from any app, since the user is usually watching another window, not Cryzo.
+/**
+ * The stop keys for computer use on this computer: Control+Option+Esc on a Mac, else Ctrl+Alt+Esc.
+ * An iPad also says "Macintosh" in its user agent, but has touch points.
+ */
+export function stopKeys(language: ReturnType<typeof useLanguage>) {
+  const mac = /Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints === 0
+  return language.t(mac ? "settings.computer.row.stop.keys.mac" : "settings.computer.row.stop.keys")
+}
+
+// The global stop keys work from any app, since the user is usually watching another window, not Cryzo.
 export function SessionComputerPill(props: { onStop: () => void }) {
   const language = useLanguage()
 
@@ -26,7 +35,7 @@ export function SessionComputerPill(props: { onStop: () => void }) {
     >
       <Spinner width={14} height={14} class="shrink-0" />
       <span class="min-w-0 truncate">{language.t("session.computer.active")}</span>
-      <span class="min-w-0 truncate text-v2-text-text-muted">{language.t("session.computer.hint")}</span>
+      <span class="min-w-0 truncate text-v2-text-text-muted">{language.t("session.computer.hint", { keys: stopKeys(language) })}</span>
       <button
         type="button"
         class="h-5 shrink-0 rounded-[8px] px-2 text-[12px] font-medium text-v2-text-text-base hover:bg-v2-background-bg-subtle"

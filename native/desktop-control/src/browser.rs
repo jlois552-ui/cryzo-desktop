@@ -1,6 +1,6 @@
 //! A Chrome window Cryzo drives through the Chrome DevTools Protocol, with no extension.
 //!
-//! Chrome runs with its own profile under `%LOCALAPPDATA%\Cryzo\desktop-control\browser`, because
+//! Chrome runs with its own profile in Cryzo's desktop-control folder (see `local_dir`), because
 //! Chrome refuses remote debugging on the user's default profile. The user signs in to sites there
 //! once. Pages are read through Chrome's accessibility tree as the same compact lines desktop
 //! snapshots use (`[b12] link "Download for Windows"`), and elements are acted on by ID or name.
@@ -17,12 +17,11 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket};
-use windows::Win32::Foundation::RECT;
 
 use crate::{
     ax::{Element, quote},
+    common::{Rect, changes, stopped, verb},
     overlay::Overlay,
-    uia::{changes, stopped, verb},
 };
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
@@ -804,7 +803,7 @@ impl Browser {
 
     /// Where an element sits on the screen in physical pixels, from its box on the page and the
     /// browser window's position. It assumes 100% page zoom; only the overlay uses it.
-    fn screen_box(&mut self, backend: i64) -> Option<RECT> {
+    fn screen_box(&mut self, backend: i64) -> Option<Rect> {
         let model = self
             .send("DOM.getBoxModel", json!({"backendNodeId":backend}))
             .ok()?;
@@ -843,7 +842,7 @@ impl Browser {
         let frame = (outer_width - inner_width) / 2.0;
         let (left, top) = (x + frame, y + outer_height - inner_height - frame);
         let screen = |page: f64, origin: f64| ((origin + page) * ratio).round() as i32;
-        Some(RECT {
+        Some(Rect {
             left: screen(x0.min(x1).min(x2).min(x3), left),
             top: screen(y0.min(y1).min(y2).min(y3), top),
             right: screen(x0.max(x1).max(x2).max(x3), left),
@@ -1021,21 +1020,22 @@ fn host(url: &str) -> &str {
 
 fn profile() -> Result<PathBuf> {
     let dir = crate::local_dir()
-        .context("LOCALAPPDATA is not set")?
+        .context("no data folder: the home folder is not set")?
         .join("browser");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
 fn downloads_dir() -> Result<PathBuf> {
-    let dir = PathBuf::from(std::env::var_os("USERPROFILE").context("USERPROFILE is not set")?)
-        .join("Downloads");
-    Ok(dir)
+    Ok(crate::home()
+        .context("the home folder is not set")?
+        .join("Downloads"))
 }
 
-/// Chrome, else Edge, which speaks the same protocol.
+/// Chrome, else Edge or Chromium, which speak the same protocol.
 fn chrome() -> Result<PathBuf> {
-    [
+    #[cfg(windows)]
+    let found = [
         ("ProgramFiles", r"Google\Chrome\Application\chrome.exe"),
         ("ProgramFiles(x86)", r"Google\Chrome\Application\chrome.exe"),
         ("LOCALAPPDATA", r"Google\Chrome\Application\chrome.exe"),
@@ -1047,8 +1047,38 @@ fn chrome() -> Result<PathBuf> {
     ]
     .into_iter()
     .filter_map(|(root, path)| Some(PathBuf::from(std::env::var_os(root)?).join(path)))
-    .find(|path| path.exists())
-    .ok_or_else(|| anyhow!("Chrome or Edge is not installed"))
+    .find(|path| path.exists());
+    #[cfg(target_os = "macos")]
+    let found = [
+        "Google Chrome.app/Contents/MacOS/Google Chrome",
+        "Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        "Chromium.app/Contents/MacOS/Chromium",
+    ]
+    .into_iter()
+    .flat_map(|app| {
+        [
+            Some(PathBuf::from("/Applications")),
+            crate::home().map(|home| home.join("Applications")),
+        ]
+        .into_iter()
+        .flatten()
+        .map(move |dir| dir.join(app))
+    })
+    .find(|path| path.exists());
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let found = std::env::var_os("PATH").and_then(|path| {
+        [
+            "google-chrome",
+            "google-chrome-stable",
+            "microsoft-edge",
+            "chromium",
+            "chromium-browser",
+        ]
+        .into_iter()
+        .flat_map(|name| std::env::split_paths(&path).map(move |dir| dir.join(name)))
+        .find(|path| path.is_file())
+    });
+    found.ok_or_else(|| anyhow!("Chrome, Edge or Chromium is not installed"))
 }
 
 #[cfg(test)]

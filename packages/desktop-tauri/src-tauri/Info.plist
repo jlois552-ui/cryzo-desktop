@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Tauri merges these keys into the bundle's Info.plist. -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Cryzo uses the microphone when you dictate a message.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Cryzo controls other apps when you turn on computer use and ask it to.</string>
+</dict>
+</plist>

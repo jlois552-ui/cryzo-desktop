@@ -112,10 +112,15 @@ impl Overlay {
 
     /// Glides the agent cursor to the middle of `rect` and outlines it, then waits for the glide,
     /// so the user sees the target before the action lands.
-    pub(crate) fn point(&self, step: impl Into<String>, rect: RECT) {
+    pub(crate) fn point(&self, step: impl Into<String>, rect: crate::common::Rect) {
         self.send(Signal::Point {
             step: step.into(),
-            rect,
+            rect: RECT {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+            },
         });
         std::thread::sleep(GLIDE);
     }
