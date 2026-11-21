@@ -12,6 +12,7 @@ export async function cloudRequest(input: {
     | "cloud/link"
     | "cloud/unlink"
     | "cloud/preview"
+    | "app"
     | "publish"
     | "apps"
     | "apps/new"
@@ -27,7 +28,7 @@ export async function cloudRequest(input: {
   const response = await (input.platform.fetch ?? fetch)(
     `${input.url}/api/cryzo/${input.path}?location%5Bdirectory%5D=${encodeURIComponent(input.directory)}`,
     {
-      method: input.path === "cloud" || input.path === "apps" ? "GET" : "POST",
+      method: input.path === "cloud" || input.path === "apps" || input.path === "app" ? "GET" : "POST",
       headers: {
         ...(input.password ? { Authorization: `Basic ${authTokenFromCredentials({ password: input.password })}` } : {}),
         ...(input.body ? { "Content-Type": "application/json" } : {}),

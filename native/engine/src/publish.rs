@@ -89,6 +89,7 @@ const MODULE: &str = "_worker.js";
 
 pub fn router(engine: Arc<Engine>) -> Router {
     Router::new()
+        .route("/api/cryzo/app", get(app))
         .route("/api/cryzo/publish", post(publish))
         .route("/api/cryzo/apps", get(apps))
         .route("/api/cryzo/apps/unpublish", post(unpublish))
@@ -135,6 +136,118 @@ fn invalid(error: impl std::fmt::Display) -> (StatusCode, Json<Value>) {
     )
 }
 
+/// Whether a folder is an app Cryzo publishes with its own database and sign-in: Cloudflare
+/// settings with a D1 database, as the starter has, and migrations for it.
+pub fn is_app(root: &Path) -> bool {
+    root.join("migrations").is_dir()
+        && ["wrangler.jsonc", "wrangler.json", "wrangler.toml"]
+            .iter()
+            .any(|name| {
+                std::fs::read_to_string(root.join(name))
+                    .is_ok_and(|text| text.contains("d1_databases"))
+            })
+}
+
+/// Where an app's chosen address is kept after it first goes live. Publishing skips `.cryzo`.
+const CHOSEN: &str = ".cryzo/app.json";
+
+/// The app's address: the one it went live with, else one made from the folder name the way the
+/// Publish dialog suggests it.
+pub fn slug(root: &Path) -> String {
+    let chosen = std::fs::read_to_string(root.join(CHOSEN))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|value| value["slug"].as_str().map(str::to_owned))
+        .filter(|slug| !slug.is_empty());
+    if let Some(slug) = chosen {
+        return slug;
+    }
+    let folder = root
+        .file_name()
+        .map(|name| name.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let slug: String = folder
+        .split(|char: char| !char.is_ascii_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+        .chars()
+        .take(40)
+        .collect();
+    if slug.is_empty() {
+        return "my-app".into();
+    }
+    slug
+}
+
+/// The live address of the user's app with this slug, when they're signed in and it's published.
+async fn live(slug: &str) -> Option<String> {
+    let apps = remote::call(
+        reqwest::Method::GET,
+        "apps",
+        Some(remote::account().ok()?),
+        Value::Null,
+    )
+    .await
+    .ok()?;
+    apps.as_array()?.iter().find(|app| app["slug"] == slug)?["url"]
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// What the session's Publish button needs: whether the folder is an app with a database and
+/// sign-in, whether it's built, its address, and its live link once published.
+async fn app(RawQuery(query): RawQuery) -> ApiResult {
+    let root = crate::desktop_api::directory(query.as_deref()).map_err(invalid)?;
+    let app = is_app(&root);
+    let slug = slug(&root);
+    let url = if app { live(&slug).await } else { None };
+    Ok(Json(
+        json!({"app":app,"built":output(&root).is_ok(),"slug":slug,"url":url}),
+    ))
+}
+
+/// The agent's `publish` tool. It runs every check a publish would, so the agent fixes problems
+/// first, and then leaves going live to the user: the chat shows a Publish card they click.
+pub async fn prepare(root: &Path) -> Result<Value> {
+    let problems = check(root)?;
+    ensure!(problems.is_empty(), "{}", listed(&problems));
+    output(root)?;
+    let slug = slug(root);
+    if let Ok(account) = remote::account() {
+        let live: Vec<Value> = remote::call(
+            reqwest::Method::POST,
+            "apps/migrations",
+            Some(account),
+            json!({"slug":slug}),
+        )
+        .await
+        .ok()
+        .and_then(|ran| serde_json::from_value(ran).ok())
+        .unwrap_or_default();
+        let problems = migration_problems(&migrations(root)?, &live);
+        ensure!(problems.is_empty(), "{}", listed(&problems));
+    }
+    let url = live(&slug).await;
+    Ok(json!({
+        "ready": true,
+        "slug": slug,
+        "url": url,
+        "next": "The chat now shows the user a Publish card. Tell them to click Publish on it to put the app live; you can't publish it yourself.",
+    }))
+}
+
+fn listed(problems: &[Problem]) -> String {
+    let lines: Vec<String> = problems
+        .iter()
+        .map(|problem| format!("{}: {}", problem.path, problem.reason))
+        .collect();
+    format!(
+        "The app can't be published until these are fixed:\n{}",
+        lines.join("\n")
+    )
+}
+
 /// Runs the checks and, when they pass, publishes. Problems come back for the agent to fix.
 async fn publish(
     State(_engine): State<Arc<Engine>>,
@@ -162,6 +275,10 @@ async fn publish(
         return Ok(Json(json!({"problems":[],"confirm":risky})));
     }
     let live = deploy(&root, slug, &local).await.map_err(invalid)?;
+    // Remembered so the Publish button and the agent's card use this address next time. The app
+    // is already live, so failing to remember it isn't an error.
+    let _ = std::fs::create_dir_all(root.join(".cryzo"))
+        .and_then(|()| std::fs::write(root.join(CHOSEN), json!({"slug":slug}).to_string()));
     Ok(Json(
         json!({"problems":[],"url":live["url"],"warning":live["warning"]}),
     ))
@@ -786,6 +903,34 @@ mod tests {
         ));
         assert!(deletes_data("DELETE\n FROM note WHERE 1"));
         assert!(migrations(&root.path().join("missing")).unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_app_with_a_database_is_found_and_keeps_its_chosen_address() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("Calorie Tracker!");
+        std::fs::create_dir_all(root.join("migrations")).unwrap();
+        assert!(!is_app(&root), "migrations alone aren't a Cryzo app");
+        std::fs::write(
+            root.join("wrangler.jsonc"),
+            r#"{"d1_databases":[{"binding":"DB"}]}"#,
+        )
+        .unwrap();
+        assert!(is_app(&root));
+        assert_eq!(
+            slug(&root),
+            "calorie-tracker",
+            "as the Publish dialog suggests"
+        );
+        std::fs::create_dir_all(root.join(".cryzo")).unwrap();
+        std::fs::write(root.join(CHOSEN), r#"{"slug":"my-calories"}"#).unwrap();
+        assert_eq!(slug(&root), "my-calories");
+
+        let error = prepare(&root).await.unwrap_err().to_string();
+        assert!(error.contains("Run the build first"), "{error}");
+        std::fs::write(root.join(".env"), "KEY=x").unwrap();
+        let error = prepare(&root).await.unwrap_err().to_string();
+        assert!(error.contains(".env: environment file"), "{error}");
     }
 
     #[test]

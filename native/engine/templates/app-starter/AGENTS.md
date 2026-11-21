@@ -7,7 +7,7 @@ A Cryzo app: a React site with a Cloudflare Worker behind it, a SQLite database 
 - Install once with the `shell` tool: program `npm`, args `["install"]`.
 - Run the app with the `preview` tool: program `npm`, args `["run", "dev"]`. It starts the site, API and a local database, and shows the app in Cryzo's browser pane as soon as it answers. Never start it with `shell` (it would stop after 120 seconds), and don't open the local address in another browser. Use `preview_logs` to read errors.
 - `npm run check` type-checks the site and the Worker.
-- `npm run build` writes the publishable app to `dist/`. Run it when the app works, then tell the user to click **Publish**.
+- `npm run build` writes the publishable app to `dist/`. Run it when the app works, then call the `publish` tool. It checks the app and shows the user a Publish card to click; you can't publish yourself.
 
 ## Where things go
 
@@ -49,7 +49,7 @@ Only add file storage when the app needs uploads (photos, documents, audio, vide
 
 ## Publishing
 
-The user publishes with Cryzo's Publish button, which gives the app its own address on cryzo.dev, a database, a file bucket if `wrangler.jsonc` declares one, `APP_URL` and `BETTER_AUTH_SECRET`. Make sure `npm run build` succeeds first.
+The user publishes with Cryzo's Publish button, which gives the app its own address on cryzo.dev, a database, a file bucket if `wrangler.jsonc` declares one, `APP_URL` and `BETTER_AUTH_SECRET`. Make sure `npm run build` succeeds first, then call the `publish` tool: it lists anything that blocks publishing, and otherwise shows the user a Publish card in the chat.
 
 ## Moving to the user's own setup
 

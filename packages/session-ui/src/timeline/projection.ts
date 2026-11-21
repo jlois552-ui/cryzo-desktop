@@ -910,11 +910,17 @@ function renderable(content: Content, showReasoning: boolean, detail?: TimelineD
 
   if (content.name === "todowrite") return false
 
-  if (content.name === "question") return content.state.status !== "streaming" && content.state.status !== "running"
+  if (ownRow(content)) return content.state.status !== "streaming" && content.state.status !== "running"
 
   if (detail && detail[timelineCategory(content)!].placement === "hidden") return false
 
   return true
+}
+
+// Tools the user answers or acts on in the transcript get their own row instead of folding into
+// "Used N tools": a question, and Cryzo's Publish card.
+function ownRow(content: Extract<Content, { type: "tool" }>) {
+  return content.name === "question" || content.name === "publish"
 }
 
 function groupContent(
@@ -1007,7 +1013,7 @@ function toolGroupType(
   detail?: TimelineDetail,
 ) {
   if (detail) {
-    if (content.name === "question" && !currentToolFailed(content)) return undefined
+    if (ownRow(content) && !currentToolFailed(content)) return undefined
     const category = timelineCategory(content)!
 
     if (detail[category].placement === "grouped") return "context"
@@ -1021,7 +1027,7 @@ function toolGroupType(
     return undefined
   }
 
-  if (content.name === "question" || currentToolHasLoadedFiles(content)) return undefined
+  if (ownRow(content) || currentToolHasLoadedFiles(content)) return undefined
 
   if (content.state.status === "error") {
     if ((content.name === "shell" || content.name === "execute") && shellExpanded) return undefined

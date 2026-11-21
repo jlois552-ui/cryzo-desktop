@@ -41,6 +41,9 @@ import { SessionActivityChips, type SessionActivityItem } from "./activity-chips
 import { SessionComposerLane, useComposerLaneAlignment } from "./composer-lane"
 import { SessionTodoPill } from "./todo-pill"
 import { SessionComputerPill, usingComputer } from "./computer-pill"
+import { SessionPublishPill } from "./publish-pill"
+// Registers the chat card the agent's publish tool shows.
+import "@/shell/cloud/publish-card"
 import { sessionTodos, todoFinished } from "./todos"
 import { useOpenSessionRoute } from "../session-identity-header"
 import { resolveSessionComposerSelection } from "./selection"
@@ -546,6 +549,9 @@ export function ActiveSessionComposerRegion(props: {
             </Show>
             <Show when={todosVisible()}>
               <SessionTodoPill todos={todos()} />
+            </Show>
+            <Show when={props.session.data.info()?.location.directory}>
+              {(directory) => <SessionPublishPill directory={directory()} idle={!props.session.data.working()} />}
             </Show>
             <SessionPluginPills session={props.view()} screen={props.screen} alignment={alignment} />
           </SessionComposerLane>

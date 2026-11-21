@@ -43,6 +43,7 @@ export function DialogPublish(props: { directory: string }) {
 
   const call = (
     path:
+      | "app"
       | "publish"
       | "apps"
       | "apps/unpublish"
@@ -67,6 +68,14 @@ export function DialogPublish(props: { directory: string }) {
       .then((data) => (Array.isArray(data.apps) ? (data.apps as App[]) : []))
       .catch(() => [] as App[]),
   )
+
+  // An app that went live before keeps the address it was published at, unless the user already typed another.
+  const suggested = state.slug
+  void call("app")
+    .then((data) => {
+      if (typeof data.slug === "string" && data.slug && state.slug === suggested) setState("slug", data.slug)
+    })
+    .catch(() => undefined)
 
   // Reading the resource directly would suspend and blank the dialog while it loads.
   const published = () => (apps.state === "ready" || apps.state === "refreshing" ? apps.latest : undefined) ?? []

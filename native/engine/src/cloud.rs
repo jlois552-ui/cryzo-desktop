@@ -43,7 +43,7 @@ and files the command creates or changes sync back; dependencies (node_modules) 
 Start dev servers in the background and bind them to 0.0.0.0, for example: \
 nohup npm run dev -- --host 0.0.0.0 --port 5173 > /tmp/dev.log 2>&1 & \
 then tell the user to press Preview with that port. Do not run commands that wait forever in the foreground. \
-To put the app online, run the build so dist/index.html exists, then tell the user to press Publish. \
+To put the app online, run the build so dist/index.html exists, then call the publish tool, which shows the user a Publish card to click. \
 Published apps run on Cloudflare Workers: files in dist are served as they are, and an optional server module \
 at dist/_worker.js (one bundled ES module, `export default { fetch(request, env) }`) handles other requests, \
 falling back to env.ASSETS.fetch(request). The server gets env.DB (this app's Cloudflare D1 SQLite database), \

@@ -1100,6 +1100,11 @@ export const dict = {
   "publish.data.description":
     "Saves the live database as a .sql file in your Downloads folder, to keep a copy or try real data in the local app. It contains your users' data.",
   "publish.data.saved": "Saved to {{path}}",
+  "publish.card.title": "Ready to publish",
+  "publish.card.description": "Your app passed Cryzo's checks. Publishing gives it its own address, database and sign-in.",
+  "publish.card.update": "Publish update",
+  "publish.card.live": "Live",
+  "publish.pill.live": "Live",
   "secrets.description":
     "API keys and other private values the app reads from env, like GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET for Google sign-in. They go straight to the app's host and can't be viewed again, by you or the agent. Changes apply right away.",
   "secrets.name": "Name",

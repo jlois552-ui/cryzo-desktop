@@ -61,6 +61,9 @@ pub enum Operation {
     PageErrors {},
     /// A picture of the preview, for models that see images.
     PageScreenshot {},
+    /// Checks the app is ready to go live and shows the user a Publish card. Publishing itself
+    /// is always the user's click, so it needs no approval and never deploys.
+    Publish {},
 }
 
 impl Operation {
@@ -203,6 +206,7 @@ impl Workspace {
             | Operation::PageScreenshot {} => {
                 anyhow::bail!("preview tools run in the session runner")
             }
+            Operation::Publish {} => anyhow::bail!("publish runs in the session runner"),
             Operation::Diff => {
                 self.process(
                     "git",
