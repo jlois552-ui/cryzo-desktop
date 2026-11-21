@@ -100,6 +100,7 @@ export const api: ElectronAPI = {
   setComputerUse: (settings) => invoke("AppSetComputerUse", { settings }),
   getRemoteControl: () => invoke("AppGetRemoteControl"),
   setRemoteControl: (enabled) => invoke("AppSetRemoteControl", { enabled }),
+  setRemoteOptions: (options) => invoke("AppSetRemoteOptions", options),
   pairRemoteDevice: () => invoke("AppPairRemoteDevice"),
   listRemoteDevices: () => invoke("AppListRemoteDevices").then(mutable),
   revokeRemoteDevice: (id) => invoke("AppRevokeRemoteDevice", { id }),

@@ -41,7 +41,15 @@ export type RemoteControlStatus = {
   /** Paired devices connected right now. */
   clients: number
   error: string | null
+  /** Keep the computer from sleeping while remote control is on. */
+  awake: boolean
+  /** Start Cryzo, into the tray, when the user signs in while remote control is on. */
+  startup: boolean
+  /** Closing the window keeps Cryzo running in the tray. */
+  background: boolean
 }
+
+export type RemoteOptions = Partial<Pick<RemoteControlStatus, "awake" | "startup" | "background">>
 
 export type RemotePairing = {
   /** Typed on the phone, e.g. "K7QF-2M9X"; single use, expires at `expiresAt` (ms). */
@@ -199,6 +207,9 @@ type PlatformBase = {
 
   /** Turn remote control on or off; off removes every paired device (desktop only) */
   setRemoteControl?(enabled: boolean): Promise<RemoteControlStatus>
+
+  /** Change how this computer stays reachable: awake, start at sign-in, keep running when closed (desktop only) */
+  setRemoteOptions?(options: RemoteOptions): Promise<RemoteControlStatus>
 
   /** A new single-use pairing code for a phone or browser (desktop only) */
   pairRemoteDevice?(): Promise<RemotePairing>

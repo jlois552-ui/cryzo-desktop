@@ -25,6 +25,7 @@ export class Relay {
   private pending = new Map<number, Pending>()
   private tunnels = new Map<number, TunnelSocket>()
   online = false
+  /** Called for every status the relay reports, including a repeated one. */
   onstatus: ((online: boolean) => void) | undefined
 
   /** Uses a newly opened relay socket; the caller passes its messages to `deliver` and its close to `detach`. */
@@ -44,7 +45,7 @@ export class Relay {
   /** The connection to the relay ended: every open request and terminal fails, so the app reconnects. */
   detach() {
     this.socket = undefined
-    this.setOnline(false)
+    this.online = false
     for (const pending of this.pending.values()) pending.fail("The connection to your computer was lost.")
     this.pending.clear()
     for (const tunnel of this.tunnels.values()) tunnel.finish(1006)
@@ -132,15 +133,10 @@ export class Relay {
     this.socket?.send(JSON.stringify(frame))
   }
 
-  private setOnline(online: boolean) {
-    if (this.online === online) return
-    this.online = online
-    this.onstatus?.(online)
-  }
-
   private receive(frame: Frame) {
     if (frame.t === "online" || frame.t === "offline") {
-      this.setOnline(frame.t === "online")
+      this.online = frame.t === "online"
+      this.onstatus?.(this.online)
       if (frame.t === "offline") {
         for (const pending of this.pending.values()) pending.fail("Cryzo on your computer went offline.")
         this.pending.clear()

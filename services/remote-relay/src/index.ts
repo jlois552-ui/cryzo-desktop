@@ -2,7 +2,7 @@
 // opens a port. One Durable Object per computer holds the engine's socket and its clients' sockets.
 // Tickets come from the Convex gateway and are checked here without calling it (see ticket.ts).
 import { DurableObject } from "cloudflare:workers"
-import { fromClient, fromHost } from "./route"
+import { fromClient, fromHost, newest } from "./route"
 import { verify } from "./ticket"
 
 interface Env {
@@ -42,6 +42,12 @@ export default {
 }
 
 export class Host extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+    // Both ends send "ping" to notice a dead connection; answering here never wakes this object.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"))
+  }
+
   override async fetch(request: Request) {
     const role = request.headers.get("X-Role")
     const client = request.headers.get("X-Client") ?? ""
@@ -50,7 +56,7 @@ export class Host extends DurableObject<Env> {
     if (role === "host") {
       // One engine per computer: a reconnect replaces a stale socket.
       for (const old of this.ctx.getWebSockets("host")) old.close(4000, "Replaced by a newer connection.")
-      this.ctx.acceptWebSocket(inside, ["host"])
+      this.ctx.acceptWebSocket(inside, ["host", `h:${Date.now()}`])
       this.toClients({ t: "online" })
       inside.send(JSON.stringify({ t: "clients", n: this.ctx.getWebSockets("client").length }))
     } else {
@@ -103,7 +109,7 @@ export class Host extends DurableObject<Env> {
   }
 
   private toHost(frame: unknown) {
-    const host = this.ctx.getWebSockets("host")[0]
+    const host = newest(this.ctx.getWebSockets("host"), (socket) => this.ctx.getTags(socket))
     if (!host) return false
     host.send(typeof frame === "string" ? frame : JSON.stringify(frame))
     return true

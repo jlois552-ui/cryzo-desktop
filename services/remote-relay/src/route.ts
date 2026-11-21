@@ -26,3 +26,12 @@ function parse(raw: string) {
     return null
   }
 }
+
+/**
+ * The most recently connected engine socket. A replaced socket can still be listed while its close
+ * completes, and requests sent to it would never be answered.
+ */
+export function newest<Socket>(sockets: Socket[], tags: (socket: Socket) => string[]) {
+  const connected = (socket: Socket) => Number(tags(socket).find((tag) => tag.startsWith("h:"))?.slice(2) ?? 0)
+  return sockets.reduce<Socket | undefined>((best, socket) => (!best || connected(socket) > connected(best) ? socket : best), undefined)
+}

@@ -14,6 +14,7 @@ export {
   type Platform,
   type RemoteControlStatus,
   type RemoteDevice,
+  type RemoteOptions,
   type RemotePairing,
   PlatformProvider,
 } from "./runtime/platform/platform"

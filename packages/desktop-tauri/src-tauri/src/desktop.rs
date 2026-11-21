@@ -22,12 +22,17 @@ pub struct DesktopHost {
     router: axum::Router,
     /// The outbound remote control link, while remote control is on.
     remote: Mutex<Option<remote::Link>>,
+    /// Holds off system sleep while remote control is on, so the phone can reach this computer.
+    awake: std::sync::Mutex<Option<keepawake::KeepAwake>>,
+    /// Started at sign-in into the tray: the window stays hidden when the renderer is ready.
+    hidden_start: std::sync::atomic::AtomicBool,
 }
 
 impl DesktopHost {
     pub async fn start(
         directory: &Path,
         engine: Arc<Engine>,
+        hidden: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let url = format!("http://{}", listener.local_addr()?);
@@ -43,10 +48,12 @@ impl DesktopHost {
         let link = remote::saved().map(|credential| {
             remote::Link::start(engine.clone(), router.clone(), token.clone(), credential)
         });
-        Ok(Self {
+        let host = Self {
             engine,
             router,
             remote: Mutex::new(link),
+            awake: std::sync::Mutex::new(None),
+            hidden_start: std::sync::atomic::AtomicBool::new(hidden),
             url,
             token,
             client: reqwest::Client::builder()
@@ -58,7 +65,60 @@ impl DesktopHost {
             zoom: Mutex::new(1.0),
             picked: Mutex::new(HashMap::new()),
             sockets: Mutex::new(HashMap::new()),
-        })
+        };
+        host.stay_awake().await;
+        Ok(host)
+    }
+
+    /// Whether closing the window keeps Cryzo running in the tray (on unless the user turned it off).
+    pub fn keeps_running(&self) -> bool {
+        self.choice("background")
+    }
+
+    /// An on/off preference that is on until the user turns it off.
+    fn choice(&self, key: &str) -> bool {
+        self.setting(key).ok().flatten().as_deref() != Some("off")
+    }
+
+    /// Keeps the computer from sleeping while remote control is on and the user wants it awake.
+    async fn stay_awake(&self) {
+        let wanted = self.remote.lock().await.is_some() && self.choice("awake");
+        let mut guard = self
+            .awake
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !wanted {
+            guard.take();
+            return;
+        }
+        if guard.is_none() {
+            *guard = keepawake::Builder::default()
+                .idle(true)
+                .reason("Remote control is on")
+                .app_name("Cryzo")
+                .app_reverse_domain("me.cryzo.desktop")
+                .create()
+                .map_err(|error| eprintln!("could not keep the computer awake: {error}"))
+                .ok();
+        }
+    }
+
+    /// Starts Cryzo at sign-in, into the tray, while remote control is on and the user wants that.
+    pub async fn start_at_sign_in(&self, app: &tauri::AppHandle) {
+        use tauri_plugin_autostart::ManagerExt;
+        let wanted = self.remote.lock().await.is_some() && self.choice("startup");
+        let launcher = app.autolaunch();
+        if launcher.is_enabled().unwrap_or(false) == wanted {
+            return;
+        }
+        let result = if wanted {
+            launcher.enable()
+        } else {
+            launcher.disable()
+        };
+        if let Err(error) = result {
+            eprintln!("could not change start at sign-in: {error}");
+        }
     }
 
     fn first_launch(&self) -> Result<bool, String> {
@@ -92,6 +152,9 @@ impl DesktopHost {
             "connected": status.as_ref().is_some_and(|value| value.connected),
             "clients": status.as_ref().map_or(0, |value| value.clients),
             "error": status.and_then(|value| value.error),
+            "awake": self.choice("awake"),
+            "startup": self.choice("startup"),
+            "background": self.keeps_running(),
         })
     }
 
@@ -272,6 +335,8 @@ pub async fn desktop_call(
             Ok(json!(directory))
         }
         "AppConsumeInitialDeepLinks" => Ok(json!([])),
+        // Started at sign-in into the tray: the first "ready" leaves the window hidden.
+        "WindowThemeReady" if host.hidden_start.swap(false, std::sync::atomic::Ordering::SeqCst) => Ok(Value::Null),
         "WindowThemeReady" | "WindowShow" => { window.show().map_err(|e| e.to_string())?; Ok(Value::Null) }
         "WindowGetFocused" => window.is_focused().map(|v| json!(v)).map_err(|e| e.to_string()),
         // Windows asks the user itself (Settings → Privacy → Microphone); the app's webview is
@@ -326,6 +391,18 @@ pub async fn desktop_call(
                 }
             }
             drop(link);
+            host.stay_awake().await;
+            host.start_at_sign_in(&app).await;
+            Ok(host.remote_status().await)
+        }
+        "AppSetRemoteOptions" => {
+            for key in ["awake", "startup", "background"] {
+                if let Some(on) = payload[key].as_bool() {
+                    host.set_setting(key, if on { "on" } else { "off" })?;
+                }
+            }
+            host.stay_awake().await;
+            host.start_at_sign_in(&app).await;
             Ok(host.remote_status().await)
         }
         "AppPairRemoteDevice" => {

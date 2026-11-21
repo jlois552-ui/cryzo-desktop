@@ -11,9 +11,13 @@ build = "build.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# "unstable" enables child webviews, which the browser pane needs.
-tauri = { version = "2", features = ["unstable"] }
+# "unstable" enables child webviews, which the browser pane needs; "tray-icon" keeps Cryzo running in
+# the tray after its window closes, so remote control stays connected.
+tauri = { version = "2", features = ["unstable", "tray-icon"] }
 tauri-plugin-dialog = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+keepawake = "0.6"
 cryzo-engine = { path = "../../../native/engine" }
 cryzo-desktop-control = { path = "../../../native/desktop-control" }
 serde.workspace = true

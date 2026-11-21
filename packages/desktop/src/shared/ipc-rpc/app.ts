@@ -77,6 +77,9 @@ const RemoteControl = Schema.Struct({
   connected: Schema.Boolean,
   clients: Schema.Number,
   error: Schema.NullOr(Schema.String),
+  awake: Schema.Boolean,
+  startup: Schema.Boolean,
+  background: Schema.Boolean,
 })
 
 // Null where this host has no remote control.
@@ -84,6 +87,15 @@ export const AppGetRemoteControl = Rpc.make("AppGetRemoteControl", { success: Sc
 
 export const AppSetRemoteControl = Rpc.make("AppSetRemoteControl", {
   payload: { enabled: Schema.Boolean },
+  success: RemoteControl,
+})
+
+export const AppSetRemoteOptions = Rpc.make("AppSetRemoteOptions", {
+  payload: {
+    awake: Schema.optional(Schema.Boolean),
+    startup: Schema.optional(Schema.Boolean),
+    background: Schema.optional(Schema.Boolean),
+  },
   success: RemoteControl,
 })
 
@@ -122,6 +134,7 @@ export const AppRpcs = RpcGroup.make(
   AppSetComputerUse,
   AppGetRemoteControl,
   AppSetRemoteControl,
+  AppSetRemoteOptions,
   AppPairRemoteDevice,
   AppListRemoteDevices,
   AppRevokeRemoteDevice,

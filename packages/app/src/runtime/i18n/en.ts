@@ -1171,8 +1171,15 @@ export const dict = {
   "settings.remote.pair.button": "Show pairing code",
   "settings.remote.pair.again": "New code",
   "settings.remote.pair.qr": "QR code for pairing a device",
-  "settings.remote.awake":
-    "Your phone reaches Cryzo on this computer, so keep it awake with Cryzo open. Remote control pauses while it sleeps.",
+  "settings.remote.section.reach": "Stay reachable",
+  "settings.remote.row.background.title": "Keep running when closed",
+  "settings.remote.row.background.description":
+    "Closing the window keeps Cryzo in the system tray so your devices stay connected. Quit from the tray icon.",
+  "settings.remote.row.startup.title": "Start when you sign in",
+  "settings.remote.row.startup.description": "Cryzo opens in the tray when you sign in to this computer.",
+  "settings.remote.row.awake.title": "Keep this computer awake",
+  "settings.remote.row.awake.description":
+    "Stops this computer from sleeping while remote control is on. The screen can still turn off; closing a laptop's lid still puts it to sleep.",
   "settings.remote.section.devices": "Paired devices",
   "settings.remote.devices.empty": "No devices paired yet.",
   "settings.remote.devices.remove": "Remove",

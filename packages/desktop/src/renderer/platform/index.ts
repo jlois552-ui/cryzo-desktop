@@ -52,6 +52,7 @@ export function createDesktopPlatform(api: ElectronAPI, windowState: DesktopWind
     setComputerUse: (settings) => api.setComputerUse(settings),
     getRemoteControl: () => api.getRemoteControl(),
     setRemoteControl: (enabled) => api.setRemoteControl(enabled),
+    setRemoteOptions: (options) => api.setRemoteOptions(options),
     pairRemoteDevice: () => api.pairRemoteDevice(),
     listRemoteDevices: () => api.listRemoteDevices(),
     revokeRemoteDevice: (id) => api.revokeRemoteDevice(id),

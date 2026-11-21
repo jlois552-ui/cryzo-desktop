@@ -13,7 +13,6 @@ const storageKey = "cryzo.remote"
 const credential = await paired()
 const relay = new Relay()
 const banner = statusBanner()
-relay.onstatus = (online) => banner(online ? "" : en["remote.offline"])
 await connect(relay, credential)
 install(relay)
 // The real app, unchanged. Its server is this page's origin; the shims above carry `/api/` to the computer.
@@ -29,55 +28,125 @@ async function paired(): Promise<Credential> {
   return claimed
 }
 
-/** Keeps one relay connection open, reconnecting with a fresh ticket after any drop. */
+/**
+ * Keeps one relay connection open for as long as the page is open. It redials with a fresh ticket
+ * after any drop, and pings the relay every 20 s, and at once whenever the page comes back to the
+ * front, because iOS freezes background tabs and their sockets die without a close event.
+ */
 async function connect(relay: Relay, credential: Credential) {
+  let socket: WebSocket | undefined
+  let dialing = false
   let delay = 1000
-  const open = async (): Promise<void> => {
-    const response = await gatewayPost("remote/ticket", { role: "client", id: credential.client, secret: credential.secret })
+  let heard = 0
+  let retry: ReturnType<typeof setTimeout> | undefined
+  // Whether the app has started, and whether the computer was online when it did.
+  let started = false
+  let startedOnline = false
+
+  const dial = async () => {
+    if (dialing || socket) return
+    dialing = true
+    clearTimeout(retry)
+    banner(en["remote.connecting"])
+    try {
+      socket = await open()
+      delay = 1000
+    } catch {
+      retry = setTimeout(() => void dial(), delay)
+      delay = Math.min(delay * 2, 30_000)
+    } finally {
+      dialing = false
+    }
+  }
+
+  const open = async () => {
+    const response = await gatewayPost(
+      "remote/ticket",
+      { role: "client", id: credential.client, secret: credential.secret },
+      AbortSignal.timeout(10_000),
+    )
     if (response.status === 401) {
       // This device was removed on the computer; pair again.
       localStorage.removeItem(storageKey)
       location.reload()
-      return new Promise(() => undefined)
+      return new Promise<never>(() => undefined)
     }
     const data = (await response.json()) as { data?: { ticket: string; relay: string } }
     if (!data.data) throw new Error("no ticket")
     const url = new URL(data.data.relay)
     url.searchParams.set("ticket", data.data.ticket)
-    const socket = new WebSocket(url)
+    const next = new WebSocket(url)
     await new Promise<void>((resolve, reject) => {
-      socket.onopen = () => resolve()
-      socket.onerror = () => reject(new Error("relay unreachable"))
+      const timeout = setTimeout(() => {
+        next.close()
+        reject(new Error("relay timed out"))
+      }, 10_000)
+      next.onopen = () => {
+        clearTimeout(timeout)
+        resolve()
+      }
+      next.onerror = () => {
+        clearTimeout(timeout)
+        reject(new Error("relay unreachable"))
+      }
     })
-    relay.attach(socket)
-    socket.addEventListener("message", (event) => relay.deliver(event.data))
-    delay = 1000
-    socket.addEventListener("close", () => {
-      relay.detach()
-      setTimeout(() => void retry(), delay)
-    })
-  }
-  const retry = async (): Promise<void> => {
-    try {
-      await open()
-    } catch {
-      banner(en["remote.connecting"])
-      delay = Math.min(delay * 2, 30_000)
-      setTimeout(() => void retry(), delay)
+    heard = Date.now()
+    relay.attach(next)
+    next.onmessage = (event) => {
+      heard = Date.now()
+      if (event.data !== "pong") relay.deliver(event.data)
     }
+    next.onclose = () => drop(next)
+    return next
   }
-  banner(en["remote.connecting"])
-  await retry()
-  // Wait briefly for the computer to answer, so the app's first requests are not lost.
-  await new Promise<void>((resolve) => {
-    if (relay.online) return resolve()
-    const previous = relay.onstatus
+
+  // Forgets a socket at once, without waiting for a dead one's close handshake, and redials.
+  const drop = (dead: WebSocket) => {
+    if (socket !== dead) return
+    socket = undefined
+    dead.onclose = null
+    dead.onmessage = null
+    dead.close()
+    relay.detach()
+    void dial()
+  }
+
+  // The relay answers "ping" with "pong"; silence past `patience` means the socket is gone.
+  const probe = (patience: number) => {
+    const current = socket
+    if (!current) {
+      delay = 1000
+      return void dial()
+    }
+    const sent = Date.now()
+    current.send("ping")
+    setTimeout(() => {
+      if (heard < sent) drop(current)
+    }, patience)
+  }
+  setInterval(() => probe(10_000), 20_000)
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") probe(4000)
+  })
+  addEventListener("pageshow", () => probe(4000))
+  addEventListener("online", () => probe(4000))
+
+  // The app starts once the computer answers, or after 5 s either way so the page never hangs. If it
+  // had to start while the computer was offline, the page reloads when it comes back, so the app
+  // loads its data from a working connection.
+  const ready = new Promise<void>((resolve) => {
     relay.onstatus = (online) => {
-      previous?.(online)
-      if (online) resolve()
+      banner(online ? "" : en["remote.offline"])
+      if (!online) return
+      if (started && !startedOnline) location.reload()
+      resolve()
     }
     setTimeout(resolve, 5000)
   })
+  await dial()
+  await ready
+  started = true
+  startedOnline = relay.online
 }
 
 /** Routes this origin's `/api/` requests and terminal sockets through the relay. */
@@ -106,9 +175,14 @@ function load(): Credential | undefined {
   }
 }
 
-async function gatewayPost(path: string, body: unknown) {
+async function gatewayPost(path: string, body: unknown, signal?: AbortSignal) {
   if (!gateway) throw new Error("VITE_CRYZO_GATEWAY_URL is not set for this build.")
-  return fetch(`${gateway}/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+  return fetch(`${gateway}/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  })
 }
 
 function pairingScreen(code: string) {

@@ -4,7 +4,7 @@ import { Button } from "@opencode/ui/button"
 import { Switch } from "@opencode/ui/switch"
 import { renderSVG } from "@opencode/util/qr"
 import { useLanguage } from "@/runtime/i18n/language"
-import { type RemotePairing, usePlatform } from "@/runtime/platform/platform"
+import { type RemoteOptions, type RemotePairing, usePlatform } from "@/runtime/platform/platform"
 import { SettingsList } from "@/settings/list"
 import { SettingsRow } from "@/settings/row"
 import "@/settings/settings.css"
@@ -43,6 +43,11 @@ export const SettingsRemote: Component = () => {
       mutate(next)
       setState("pairing", undefined)
       void devicesControl.refetch()
+    })
+
+  const choose = (options: RemoteOptions) =>
+    run(async () => {
+      mutate(await platform.setRemoteOptions!(options))
     })
 
   const pair = () =>
@@ -117,12 +122,50 @@ export const SettingsRemote: Component = () => {
               </div>
 
               <Show when={value().enabled}>
+                {/* Remote control works while Cryzo runs and the computer is awake, as with ChatGPT's and Claude's. */}
+                <div class="settings-section">
+                  <h3 class="settings-section-title">{language.t("settings.remote.section.reach")}</h3>
+                  <SettingsList>
+                    <SettingsRow
+                      title={language.t("settings.remote.row.background.title")}
+                      description={language.t("settings.remote.row.background.description")}
+                    >
+                      <div data-action="settings-remote-background">
+                        <Switch
+                          checked={value().background}
+                          disabled={state.busy}
+                          onChange={(background) => void choose({ background })}
+                        />
+                      </div>
+                    </SettingsRow>
+                    <SettingsRow
+                      title={language.t("settings.remote.row.startup.title")}
+                      description={language.t("settings.remote.row.startup.description")}
+                    >
+                      <div data-action="settings-remote-startup">
+                        <Switch
+                          checked={value().startup}
+                          disabled={state.busy}
+                          onChange={(startup) => void choose({ startup })}
+                        />
+                      </div>
+                    </SettingsRow>
+                    <SettingsRow
+                      title={language.t("settings.remote.row.awake.title")}
+                      description={language.t("settings.remote.row.awake.description")}
+                    >
+                      <div data-action="settings-remote-awake">
+                        <Switch checked={value().awake} disabled={state.busy} onChange={(awake) => void choose({ awake })} />
+                      </div>
+                    </SettingsRow>
+                  </SettingsList>
+                </div>
+
                 <div class="settings-section">
                   <h3 class="settings-section-title">{language.t("settings.remote.section.pair")}</h3>
                   <span class="text-12-regular text-v2-text-text-muted">
                     {language.t("settings.remote.pair.description")}
                   </span>
-                  <span class="text-12-regular text-v2-text-text-muted">{language.t("settings.remote.awake")}</span>
                   <Show
                     when={state.pairing}
                     fallback={

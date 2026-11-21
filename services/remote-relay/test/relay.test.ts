@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { fromClient, fromHost } from "../src/route"
+import { fromClient, fromHost, newest } from "../src/route"
 import { sign, verify } from "../src/ticket"
 import { sign as gatewaySign } from "../../model-gateway/convex/lib/ticket"
 
@@ -31,5 +31,17 @@ describe("routing", () => {
     expect(fromClient("[1,2]", "c1")).toBeNull()
     expect(fromClient(JSON.stringify({ t: "req" }), "")).toBeNull()
     expect(fromHost("x".repeat(9 * 1024 * 1024))).toBeNull()
+  })
+})
+
+describe("routing", () => {
+  test("requests go to the newest engine socket while a replaced one is still closing", () => {
+    const tags = new Map([
+      ["old", ["host", "h:1000"]],
+      ["new", ["host", "h:2000"]],
+    ])
+    expect(newest(["old", "new"], (socket) => tags.get(socket) ?? [])).toBe("new")
+    expect(newest(["new", "old"], (socket) => tags.get(socket) ?? [])).toBe("new")
+    expect(newest([], () => [])).toBeUndefined()
   })
 })

@@ -138,10 +138,72 @@ async fn save_credential(
     .map_err(|error| error.to_string())?
 }
 
+/// Brings the main window back from the tray, the taskbar or a second launch.
+fn reveal(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// The tray icon that keeps Cryzo reachable after its window closes; Quit really quits.
+fn tray(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    let open = MenuItem::with_id(app, "open", "Open Cryzo", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Cryzo", true, None::<&str>)?;
+    let mut builder = TrayIconBuilder::with_id("main")
+        .tooltip("Cryzo")
+        .menu(&Menu::with_items(app, &[&open, &quit])?)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "open" => reveal(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                reveal(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.build(app)?;
+    Ok(())
+}
+
 fn main() {
+    // Before anything else starts: apps opened from the Dock or an app menu need the login shell's PATH.
+    cryzo_engine::shell_env::adopt();
+    // Started at sign-in: open into the tray rather than in front of the user.
+    let hidden = std::env::args().any(|argument| argument == "--background");
     tauri::Builder::default()
+        // A second launch (from the Start menu, say) shows the running Cryzo instead of starting another.
+        .plugin(tauri_plugin_single_instance::init(|app, _arguments, _directory| reveal(app)))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--background"]),
+        ))
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
+            // Closing the window keeps Cryzo running in the tray, so remote control stays connected.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == "main"
+                && window
+                    .app_handle()
+                    .try_state::<DesktopHost>()
+                    .is_some_and(|host| host.keeps_running())
+            {
+                api.prevent_close();
+                let _ = window.hide();
+            }
             if let tauri::WindowEvent::Resized(_) = event {
                 let _ = window.emit("cryzo:desktop", json!({"_tag":"WindowCaptionChanged","maximized":window.is_maximized().unwrap_or(false),"fullscreen":window.is_fullscreen().unwrap_or(false)}));
             }
@@ -162,21 +224,28 @@ fn main() {
                 PermissionResponse::Default
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("main") {
                 window.set_decorations(false)?;
             }
+            if hidden && let Some(window) = app.get_webview_window("main") {
+                window.hide()?;
+            }
+            tray(app)?;
             let directory = std::env::var_os("CRYZO_DATA_DIR")
                 .map(std::path::PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?);
             std::fs::create_dir_all(&directory)?;
             let engine = Arc::new(Engine::open(&directory.join("cryzo.sqlite"))?);
             engine.install_pane(Arc::new(browser::PreviewPane(app.handle().clone())));
-            app.manage(tauri::async_runtime::block_on(DesktopHost::start(
+            let host = tauri::async_runtime::block_on(DesktopHost::start(
                 &directory,
                 engine.clone(),
-            ))?);
+                hidden,
+            ))?;
+            tauri::async_runtime::block_on(host.start_at_sign_in(app.handle()));
+            app.manage(host);
             app.manage(engine);
             Ok(())
         })
@@ -202,12 +271,16 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("Cryzo native host failed")
-        .run(|app, event| {
+        .run(|app, event| match event {
             // Dev servers end with the app; their job objects also end them after a crash.
-            if let tauri::RunEvent::Exit = event
-                && let Some(engine) = app.try_state::<Arc<Engine>>()
-            {
-                engine.previews.stop_all();
+            tauri::RunEvent::Exit => {
+                if let Some(engine) = app.try_state::<Arc<Engine>>() {
+                    engine.previews.stop_all();
+                }
             }
+            // macOS: clicking the Dock icon brings the hidden window back.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => reveal(app),
+            _ => {}
         });
 }

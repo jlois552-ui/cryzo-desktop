@@ -74,6 +74,7 @@ export const appHandlers = AppRpcs.toLayer(
       // So does remote control through the Cryzo relay.
       AppGetRemoteControl: () => Effect.succeed(null),
       AppSetRemoteControl: () => Effect.die(new Error("Remote control is not available in this host")),
+      AppSetRemoteOptions: () => Effect.die(new Error("Remote control is not available in this host")),
       AppPairRemoteDevice: () => Effect.die(new Error("Remote control is not available in this host")),
       AppListRemoteDevices: () => Effect.succeed([]),
       AppRevokeRemoteDevice: () => Effect.die(new Error("Remote control is not available in this host")),

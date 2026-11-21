@@ -90,7 +90,7 @@ async fn run(
 ) {
     let mut delay = Duration::from_secs(1);
     while !cancel.is_cancelled() {
-        let started = std::time::Instant::now();
+        let mut reached = false;
         let result = async {
             let (ticket, relay) = ticket(&credential).await?;
             let mut url = url::Url::parse(&relay).context("invalid relay URL")?;
@@ -98,6 +98,7 @@ async fn run(
             let (socket, _) = tokio_tungstenite::connect_async(url.as_str())
                 .await
                 .context("could not reach the remote control relay")?;
+            reached = true;
             status.send_modify(|value| {
                 value.connected = true;
                 value.error = None;
@@ -118,7 +119,9 @@ async fn run(
             value.clients = 0;
             value.error = result.err().map(|error| format!("{error:#}"));
         });
-        if started.elapsed() > Duration::from_secs(60) {
+        // A link that worked and then dropped (sleep, a network change) redials straight away; only
+        // repeated failures to reach the relay back off.
+        if reached {
             delay = Duration::from_secs(1);
         }
         tokio::select! {
@@ -128,6 +131,10 @@ async fn run(
         delay = (delay * 2).min(Duration::from_secs(30));
     }
 }
+
+/// How often the link checks that the relay still answers, and how long a silence means it is gone.
+const HEARTBEAT: Duration = Duration::from_secs(20);
+const SILENCE: Duration = Duration::from_secs(45);
 
 #[derive(Default)]
 struct Tasks {
@@ -151,9 +158,22 @@ where
     let (send, mut outgoing) = mpsc::unbounded_channel::<Value>();
     let tasks = Arc::new(Mutex::new(Tasks::default()));
     let session = cancel.child_token();
+    // After sleep or a network change the socket can stay open on this side while the relay has
+    // long dropped it. A "ping" every 20 s (the relay answers "pong") shows whether it still works.
+    let mut heartbeat = tokio::time::interval(HEARTBEAT);
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut heard = tokio::time::Instant::now();
     let result = loop {
         tokio::select! {
             _ = session.cancelled() => break Ok(()),
+            _ = heartbeat.tick() => {
+                if heard.elapsed() > SILENCE {
+                    break Err(anyhow::anyhow!("the remote control relay stopped answering"));
+                }
+                if let Err(error) = sink.send(Message::text("ping")).await {
+                    break Err(error.into());
+                }
+            }
             frame = outgoing.recv() => {
                 let Some(frame) = frame else { break Ok(()) };
                 if let Err(error) = sink.send(Message::text(frame.to_string())).await {
@@ -161,6 +181,7 @@ where
                 }
             }
             message = stream.next() => {
+                heard = tokio::time::Instant::now();
                 let text = match message {
                     None => break Ok(()),
                     Some(Err(error)) => break Err(error.into()),
@@ -168,6 +189,9 @@ where
                     Some(Ok(Message::Close(_))) => break Ok(()),
                     Some(Ok(_)) => continue,
                 };
+                if text.as_str() == "pong" {
+                    continue;
+                }
                 let Ok(frame) = serde_json::from_str::<Value>(text.as_str()) else { continue };
                 handle(frame, &engine, &router, token, status, &send, &tasks, &session).await;
             }
@@ -627,6 +651,7 @@ mod tests {
                 .await
                 .expect("frame in time")
             {
+                Some(Ok(Message::Text(text))) if text.as_str() == "ping" => continue,
                 Some(Ok(Message::Text(text))) => {
                     return serde_json::from_str(text.as_str()).unwrap();
                 }
@@ -634,6 +659,58 @@ mod tests {
                 other => panic!("relay socket ended: {other:?}"),
             }
         }
+    }
+
+    /// A link and a relay joined in memory, so the heartbeat can run on a paused clock.
+    async fn joined() -> (
+        tokio_tungstenite::WebSocketStream<tokio::io::DuplexStream>,
+        tokio_tungstenite::WebSocketStream<tokio::io::DuplexStream>,
+    ) {
+        use tokio_tungstenite::tungstenite::protocol::Role;
+        let (ours, theirs) = tokio::io::duplex(1 << 16);
+        (
+            tokio_tungstenite::WebSocketStream::from_raw_socket(ours, Role::Client, None).await,
+            tokio_tungstenite::WebSocketStream::from_raw_socket(theirs, Role::Server, None).await,
+        )
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_relay_that_stops_answering_ends_the_link() {
+        let (socket, _relay) = joined().await;
+        let (_directory, engine) = engine();
+        let (status, _receiver) = watch::channel(Status::default());
+        let error = serve(
+            socket,
+            engine,
+            router(),
+            "local",
+            &status,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("stopped answering"), "{error:#}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_relay_that_answers_pings_keeps_the_link() {
+        let (socket, mut relay) = joined().await;
+        tokio::spawn(async move {
+            while let Some(Ok(message)) = relay.next().await {
+                if message.to_text().ok() == Some("ping") {
+                    let _ = relay.send(Message::text("pong")).await;
+                }
+            }
+        });
+        let (_directory, engine) = engine();
+        let (status, _receiver) = watch::channel(Status::default());
+        let cancel = CancellationToken::new();
+        let link = serve(socket, engine, router(), "local", &status, &cancel);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(300), link)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
