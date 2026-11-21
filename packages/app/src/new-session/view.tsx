@@ -5,7 +5,7 @@ import { Icon } from "@opencode/ui/icon"
 import { Slash } from "@opencode/ui/slash"
 import { Keybind } from "@opencode/ui/keybind"
 import { useCommand } from "@/shell/commands/command"
-import { Show, createMemo, createSignal, type JSX } from "solid-js"
+import { Show, createMemo, createResource, createSignal, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { getFilename } from "@opencode/util/path"
@@ -40,6 +40,9 @@ import { CloudToggle } from "@/shell/cloud/toggle"
 import { NewSessionBrickBreaker } from "./brick-breaker"
 import { NewSessionPinBoard, type PinBoardHandle } from "./pin-board"
 import { NewSessionWordmark, type LodgerBall } from "./wordmark"
+import { DialogImportConversations, importable, importRequest } from "./import-dialog"
+import { useServerSDK } from "@/runtime/server/client"
+import { usePlatform } from "@/runtime/platform/platform"
 
 const providerTipDismissalDuration = 30 * 24 * 60 * 60 * 1000
 
@@ -187,7 +190,30 @@ function NewSessionTips(props: { selection: ComposerModel["model"]["selection"];
       Date.now() - providerState.dismissedAt >= providerTipDismissalDuration,
   )
 
-  const tip = providerVisible
+  // The import tip shows once no provider tip does, while Claude Code or Codex chats wait to be imported.
+  const server = useServerSDK()
+  const platform = usePlatform()
+  const [importState, setImportState, , importReady] = persisted(
+    Persist.global("new-session.import-tip"),
+    ProviderTipSchema,
+    { dismissedAt: 0 },
+  )
+  const [waiting] = createResource(
+    () => importReady() && Date.now() - importState.dismissedAt >= providerTipDismissalDuration,
+    () =>
+      importRequest({ url: server.url, password: server.http.password, platform, fallback: "" })
+        .then((data) => importable(data).length)
+        .catch(() => 0),
+  )
+  const importVisible = createMemo(
+    () =>
+      !providerVisible() &&
+      importReady() &&
+      Date.now() - importState.dismissedAt >= providerTipDismissalDuration &&
+      (waiting.state === "ready" ? waiting.latest : 0) > 0,
+  )
+
+  const tip = () => providerVisible() || importVisible()
   const [ref, setRef] = createSignal<HTMLDivElement>()
 
   const presence = createPresence({
@@ -198,6 +224,11 @@ function NewSessionTips(props: { selection: ComposerModel["model"]["selection"];
   const open = () => {
     if (!tip()) return
 
+    if (importVisible()) {
+      void dialog.show(() => <DialogImportConversations />)
+      return
+    }
+
     void import("@/providers/connect/dialog").then(({ DialogConnectProvider }) => {
       void dialog.show(() => (
         <DialogConnectProvider directory={sdk().directory} selection={props.selection} onDone={props.onDone} />
@@ -207,6 +238,11 @@ function NewSessionTips(props: { selection: ComposerModel["model"]["selection"];
 
   const dismiss = () => {
     if (!tip()) return
+
+    if (importVisible()) {
+      setImportState("dismissedAt", Date.now())
+      return
+    }
 
     setProviderState("dismissedAt", Date.now())
   }
@@ -226,7 +262,7 @@ function NewSessionTips(props: { selection: ComposerModel["model"]["selection"];
             class="flex h-6 min-w-0 items-center rounded-[4px] pl-1.5 text-[13px] leading-text-compact tracking-[-0.04px] text-v2-text-text-faint transition-[background-color,color] duration-150 ease-in-out hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-muted focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:text-v2-text-text-muted focus-visible:outline-none"
             onClick={open}
           >
-            <span class="truncate">{language.t("home.providerTip")}</span>
+            <span class="truncate">{language.t(importVisible() ? "import.tip" : "home.providerTip")}</span>
             <span class="flex size-6 shrink-0 items-center justify-center" aria-hidden="true">
               <Icon name="chevron-down" size="small" class="-rotate-90" />
             </span>

@@ -84,6 +84,47 @@ impl Store {
         tx.commit()?;
         Ok(event)
     }
+    /// A session with a conversation brought from another agent, written in one transaction. Each
+    /// event keeps the time it originally happened, so the history reads as it was.
+    pub fn desktop_import(&self, info: Value, events: Vec<(&str, Value, u64)>) -> Result<Value> {
+        let id = info["id"].as_str().context("session ID missing")?;
+        let mut db = self.0.lock().unwrap();
+        let tx = db.transaction()?;
+        tx.execute(
+            "INSERT INTO sessions(id,directory,title) VALUES(?1,?2,?3)",
+            params![
+                id,
+                info["location"]["directory"].as_str(),
+                info["title"].as_str().unwrap_or("New session")
+            ],
+        )?;
+        let mut data = info.clone();
+        data["sessionID"] = json!(id);
+        data["slug"] = json!(id);
+        data["version"] = json!(env!("CARGO_PKG_VERSION"));
+        for key in ["id", "time", "cost", "tokens", "outcome"] {
+            data.as_object_mut().unwrap().remove(key);
+        }
+        let created = info["time"]["created"].as_u64().unwrap_or_else(now);
+        let event = log_at(&tx, id, "session.created", data, created)?;
+        let mut state = json!({"info":info,"messages":[],"inbox":[],"forms":[],"status":"idle"});
+        for (kind, mut data, at) in events {
+            if kind == "session.inbox.enqueued" {
+                tx.execute(
+                    "INSERT INTO desktop_prompt_owners(id,session_id) VALUES(?1,?2)",
+                    params![data["inboxID"].as_str(), id],
+                )?;
+            }
+            data["sessionID"] = json!(id);
+            project(&mut state, &log_at(&tx, id, kind, data, at)?)?;
+        }
+        tx.execute(
+            "INSERT INTO desktop_state(id,data) VALUES(?1,?2)",
+            params![id, state.to_string()],
+        )?;
+        tx.commit()?;
+        Ok(event)
+    }
     pub fn desktop_append(&self, id: &str, kind: &str, mut data: Value) -> Result<Value> {
         let mut db = self.0.lock().unwrap();
         let tx = db.transaction()?;
@@ -148,6 +189,14 @@ impl Store {
             .map(|r| Ok(serde_json::from_str(&r?)?))
             .collect()
     }
+    pub fn desktop_meta_keys(&self, namespace: &str) -> Result<Vec<String>> {
+        let db = self.0.lock().unwrap();
+        let mut query = db.prepare("SELECT key FROM desktop_meta WHERE namespace=?1")?;
+        query
+            .query_map([namespace], |r| r.get::<_, String>(0))?
+            .map(|r| Ok(r?))
+            .collect()
+    }
     pub fn desktop_put_meta(&self, namespace: &str, key: &str, data: Option<&Value>) -> Result<()> {
         let db = self.0.lock().unwrap();
         if let Some(data) = data {
@@ -162,6 +211,9 @@ impl Store {
     }
 }
 fn log(tx: &Transaction<'_>, id: &str, kind: &str, data: Value) -> Result<Value> {
+    log_at(tx, id, kind, data, now())
+}
+fn log_at(tx: &Transaction<'_>, id: &str, kind: &str, data: Value, created: u64) -> Result<Value> {
     let seq: u64 = tx.query_row(
         "SELECT COALESCE(MAX(seq),0)+1 FROM desktop_log WHERE session_id=?1",
         [id],
@@ -175,7 +227,7 @@ fn log(tx: &Transaction<'_>, id: &str, kind: &str, data: Value) -> Result<Value>
     } else {
         1
     };
-    let event = json!({"id":self::id("evt"),"created":now(),"type":kind,"data":data,"durable":{"aggregateID":id,"seq":seq,"version":version}});
+    let event = json!({"id":self::id("evt"),"created":created,"type":kind,"data":data,"durable":{"aggregateID":id,"seq":seq,"version":version}});
     tx.execute(
         "INSERT INTO desktop_log(session_id,seq,data) VALUES(?1,?2,?3)",
         params![id, seq, event.to_string()],

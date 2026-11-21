@@ -16,6 +16,7 @@ pub mod pty;
 pub mod publish;
 pub mod remote;
 pub mod service;
+pub mod session_import;
 pub mod session_store;
 pub mod shell_env;
 pub mod starter;

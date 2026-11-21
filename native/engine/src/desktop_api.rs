@@ -20,6 +20,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
     let market = crate::market::router(engine.clone());
     let cloud = crate::cloud::router(engine.clone());
     let publish = crate::publish::router(engine.clone());
+    let import = crate::session_import::router(engine.clone());
     Router::new()
         .route("/api/info", get(info))
         .route("/api/location", get(location))
@@ -38,6 +39,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .with_state(engine)
         .merge(models)
         .merge(sessions)
+        .merge(import)
         .merge(files)
         .merge(free)
         .merge(chatgpt)

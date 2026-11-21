@@ -20,6 +20,9 @@ import { createShellOptions } from "./behavior"
 import type { ShellSettingsController } from "./controllers"
 import { InterfaceModeSetting } from "./interface-mode"
 import "@/settings/settings.css"
+import { Button } from "@opencode/ui/button"
+import { useDialog } from "@opencode/ui/context/dialog"
+import { DialogImportConversations } from "@/new-session/import-dialog"
 
 const AutoApprovePermissionsSetting: Component = () => {
   const language = useLanguage()
@@ -232,6 +235,7 @@ export const SettingsGeneral: Component = () => {
   const language = useLanguage()
   const platform = usePlatform()
   const settings = useSettings()
+  const dialog = useDialog()
   const mobile = createMediaQuery("(max-width: 767px)")
   const desktop = createMemo(() => platform.platform === "desktop")
 
@@ -272,6 +276,18 @@ export const SettingsGeneral: Component = () => {
         </SettingsRow>
 
         <FollowUpBehaviorSetting />
+
+        <Show when={desktop()}>
+          <SettingsRow title={language.t("import.title")} description={language.t("import.description")}>
+            <Button
+              data-action="settings-import-conversations"
+              variant="neutral"
+              onClick={() => dialog.show(() => <DialogImportConversations />)}
+            >
+              {language.t("import.open")}
+            </Button>
+          </SettingsRow>
+        </Show>
 
         <Show when={desktop()}>
           <SettingsRow

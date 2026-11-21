@@ -242,6 +242,37 @@ impl Engine {
                         .iter()
                         .filter(|part| part["type"] == "tool")
                         .collect::<Vec<_>>();
+                    // A conversation imported from another agent used its own tools, which this
+                    // model doesn't have: their calls and results go to it as text instead.
+                    if message["model"]["providerID"]
+                        .as_str()
+                        .is_some_and(|id| id.starts_with("imported-"))
+                    {
+                        let mut images = Vec::new();
+                        let used = tools
+                            .iter()
+                            .map(|tool| {
+                                let result = match tool["state"]["status"].as_str() {
+                                    Some("completed") => {
+                                        tool_text(&tool["state"]["content"], &mut images)
+                                    }
+                                    _ => tool["state"]["error"]["message"]
+                                        .as_str()
+                                        .unwrap_or_default()
+                                        .to_owned(),
+                                };
+                                let result: String = result.chars().take(2_000).collect();
+                                format!(
+                                    "[{} {}]\n{result}",
+                                    tool["name"].as_str().unwrap_or("tool"),
+                                    tool["state"]["input"]
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        let content = [vec![text], used].concat().join("\n\n");
+                        conversation.push(json!({"role":"assistant","content":content.trim()}));
+                        continue;
+                    }
                     let mut turn = json!({"role":"assistant","content":text});
                     if message["model"] == provider.model
                         && let Some(native) = message["content"]
