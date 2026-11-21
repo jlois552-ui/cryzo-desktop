@@ -230,7 +230,7 @@ pub fn tools() -> Value {
           "inputSchema": { "type": "object", "properties": { "window": window, "diff": { "type": "boolean" } } } },
         { "name": "find", "description": "Search a window for elements whose name or value contains text (case-insensitive). Reaches elements a cut-off snapshot did not show, and scrolls lists that only load items once they come into view (such as Windows Settings).",
           "inputSchema": { "type": "object", "properties": { "text": { "type": "string" }, "role": { "type": "string", "description": "Optional role such as button, edit, listitem." }, "window": window }, "required": ["text"] } },
-        { "name": "act", "description": "Act on an element, given its ID from snapshot or find, or its name (exact match first, then contains) with an optional role and window. type replaces the field's or document's whole text exactly when the control allows it, otherwise types at the cursor. Waits for the window to settle and returns what changed.",
+        { "name": "act", "description": "Act on an element, given its ID from snapshot or find, or its name (exact match first, then contains) with an optional role and window, or a role alone for the first element with it (such as role document in Notepad). type replaces the field's or document's whole text exactly when the control allows it, otherwise types at the cursor. Waits for the window to settle and returns what changed.",
           "inputSchema": { "type": "object", "properties": {
               "id": { "type": "string", "description": "Element ID like e12." },
               "name": { "type": "string", "description": "Element name, used when id is omitted." },

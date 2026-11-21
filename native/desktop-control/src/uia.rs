@@ -28,6 +28,7 @@ use windows::{
             OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
             QueryFullProcessImageNameW,
         },
+        UI::Accessibility::IUIAutomation2,
         UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext},
         UI::{
             Input::KeyboardAndMouse::{
@@ -41,7 +42,7 @@ use windows::{
             },
         },
     },
-    core::{HSTRING, PCWSTR, PWSTR},
+    core::{HSTRING, Interface, PCWSTR, PWSTR},
 };
 
 use serde_json::Value;
@@ -120,6 +121,15 @@ impl Desktop {
         let _ =
             unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
         let automation = UIAutomation::new()?;
+        // An app that stops answering (File Explorer did, mid-rename) would otherwise hold every
+        // later call, since UI Automation waits for it and `windows` asks every window, Explorer's
+        // taskbar included. With these, a call to it fails within seconds instead.
+        if let Ok(automation) = automation.as_ref().cast::<IUIAutomation2>() {
+            unsafe {
+                let _ = automation.SetConnectionTimeout(2_000);
+                let _ = automation.SetTransactionTimeout(8_000);
+            }
+        }
         let walker = automation.get_control_view_walker()?;
         let cache = automation.create_cache_request()?;
         for property in PROPERTIES {
@@ -175,8 +185,12 @@ impl Desktop {
             "act" => {
                 let id = match text("id") {
                     Some(id) => id.to_string(),
+                    // A role alone, such as the document in Notepad, means the first element
+                    // with that role: models often name the role rather than the element.
                     None => self.resolve(
-                        text("name").ok_or_else(|| anyhow!("act needs id or name"))?,
+                        text("name")
+                            .or(text("role").map(|_| ""))
+                            .ok_or_else(|| anyhow!("act needs id, name or role"))?,
                         text("role"),
                         text("window"),
                     )?,
@@ -591,11 +605,31 @@ impl Desktop {
                 // Setting the value is exact and instant. Injected keystrokes are not: Windows 11
                 // Notepad dropped and repeated characters even at 20 ms apart. Keystrokes remain
                 // the fallback for controls without a writable value.
-                let set = element
-                    .get_pattern::<UIValuePattern>()
-                    .ok()
-                    .filter(|pattern| !pattern.is_readonly().unwrap_or(true))
-                    .is_some_and(|pattern| pattern.set_value(text).is_ok());
+                let field = element.get_pattern::<UIValuePattern>().ok();
+                // A read-only value, such as a file's Name column in Explorer, can't take text,
+                // and forcing focus onto it in the middle of a rename stopped Explorer answering.
+                if field
+                    .as_ref()
+                    .is_some_and(|pattern| pattern.is_readonly().unwrap_or(false))
+                {
+                    bail!("{label} is read-only.{}", self.editing());
+                }
+                // A cell in a list row, such as a file's Name in Explorer, takes text only while
+                // it's being edited. Setting it otherwise renames the item outright, and during
+                // another rename Explorer stopped answering until it gave up a minute later.
+                let cell = self.walker.get_parent(&element).is_ok_and(|parent| {
+                    matches!(
+                        parent.get_control_type(),
+                        Ok(ControlType::ListItem | ControlType::DataItem)
+                    )
+                });
+                if cell && !element.has_keyboard_focus().unwrap_or(false) {
+                    bail!(
+                        "{label} is a cell of a list row; setting it would rename the item without editing it.{} To rename an item, select it and press F2 first.",
+                        self.editing()
+                    );
+                }
+                let set = field.is_some_and(|pattern| pattern.set_value(text).is_ok());
                 if !set {
                     element.set_focus()?;
                     type_text(text, None)?;
@@ -1101,6 +1135,29 @@ impl Desktop {
             },
         );
         Some((line, name))
+    }
+
+    /// Names the field that has keyboard focus, when it takes text, so a refused `type` can point
+    /// the model to where the text belongs, such as Explorer's rename box.
+    fn editing(&self) -> String {
+        let Ok(focused) = self.automation.get_focused_element() else {
+            return String::new();
+        };
+        let writable = focused
+            .get_pattern::<UIValuePattern>()
+            .ok()
+            .is_some_and(|pattern| !pattern.is_readonly().unwrap_or(true));
+        if !writable {
+            return String::new();
+        }
+        let role = focused
+            .get_control_type()
+            .map(|kind| format!("{kind:?}").to_lowercase())
+            .unwrap_or_default();
+        let name = clean(&focused.get_name().unwrap_or_default());
+        format!(
+            " The field being edited is {role} {name:?}: type into it by that name, or send keys to it with key."
+        )
     }
 
     fn id_for(&mut self, element: &UIElement) -> String {

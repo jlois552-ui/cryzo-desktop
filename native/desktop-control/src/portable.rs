@@ -143,8 +143,12 @@ impl<B: Backend> Desktop<B> {
             "act" => {
                 let id = match text("id") {
                     Some(id) => id.to_string(),
+                    // A role alone, such as the document in Notepad, means the first element
+                    // with that role: models often name the role rather than the element.
                     None => self.resolve(
-                        text("name").ok_or_else(|| anyhow!("act needs id or name"))?,
+                        text("name")
+                            .or(text("role").map(|_| ""))
+                            .ok_or_else(|| anyhow!("act needs id, name or role"))?,
                         text("role"),
                         text("window"),
                     )?,
