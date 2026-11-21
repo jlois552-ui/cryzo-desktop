@@ -16,7 +16,7 @@ use std::sync::Arc;
 /// How far back to look, like Cursor and the ChatGPT app.
 const RECENT: std::time::Duration = std::time::Duration::from_secs(30 * 86_400);
 /// Tool results longer than this are cut: they're for reading back, not for the next model.
-const RESULT_LIMIT: usize = 20_000;
+const RESULT_LIMIT: usize = 8_000;
 const NAMESPACE: &str = "import";
 
 pub fn router(engine: Arc<Engine>) -> Router {
@@ -63,23 +63,23 @@ pub enum Part {
 /// The conversations found on this computer, newest first, with whether each is already in Cryzo.
 async fn sources(State(engine): State<Arc<Engine>>) -> ApiResult {
     let imported = imported(&engine);
-    let list = tokio::task::spawn_blocking(|| {
-        files()
+    let found = candidates(&engine);
+    let list = tokio::task::spawn_blocking(move || {
+        found
             .into_iter()
             .filter_map(|(source, path, modified)| {
-                let conversation = read(source, &path)?;
-                let messages = conversation
-                    .turns
-                    .iter()
-                    .filter(|turn| matches!(turn, Turn::User { .. }))
-                    .count();
+                // The start of a transcript names its folder and first message. Transcripts run
+                // to hundreds of megabytes, so the whole file is only read on import.
+                let conversation = read(source, &path, Some(PREVIEW))?;
+                if scratch(&conversation.directory) {
+                    return None;
+                }
                 Some(json!({
                     "source": source,
                     "file": path,
                     "title": conversation.title,
                     "directory": conversation.directory,
                     "exists": Path::new(&conversation.directory).is_dir(),
-                    "messages": messages,
                     "updated": modified,
                 }))
             })
@@ -100,6 +100,13 @@ async fn sources(State(engine): State<Arc<Engine>>) -> ApiResult {
 
 /// Imports the chosen files. Each one becomes a session; files already imported are skipped.
 async fn import(State(engine): State<Arc<Engine>>, Json(input): Json<Value>) -> ApiResult {
+    tokio::task::spawn_blocking(move || import_files(&engine, &input))
+        .await
+        .map(Json)
+        .map_err(invalid)
+}
+
+fn import_files(engine: &Engine, input: &Value) -> Value {
     let chosen: Vec<String> = input["files"]
         .as_array()
         .into_iter()
@@ -107,7 +114,7 @@ async fn import(State(engine): State<Arc<Engine>>, Json(input): Json<Value>) -> 
         .filter_map(|file| file.as_str().map(str::to_owned))
         .collect();
     // Only files the scan found can be imported, so the request can't name arbitrary paths.
-    let found = files();
+    let found = candidates(engine);
     let mut sessions = Vec::new();
     let mut skipped = Vec::new();
     for file in chosen {
@@ -118,21 +125,22 @@ async fn import(State(engine): State<Arc<Engine>>, Json(input): Json<Value>) -> 
             skipped.push(json!({"file":file,"reason":"not found"}));
             continue;
         };
-        if imported(&engine).contains(&file) {
+        if imported(engine).contains(&file) {
             skipped.push(json!({"file":file,"reason":"already imported"}));
             continue;
         }
-        match save(&engine, source, path) {
+        match save(engine, source, path) {
             Ok(session) => sessions.push(session),
             Err(error) => skipped.push(json!({"file":file,"reason":error.to_string()})),
         }
     }
-    Ok(Json(json!({"sessions":sessions,"skipped":skipped})))
+    json!({"sessions":sessions,"skipped":skipped})
 }
 
 /// Writes one conversation as a Cryzo session and returns its ID.
 fn save(engine: &Engine, source: &'static str, path: &Path) -> anyhow::Result<String> {
-    let conversation = read(source, path).ok_or_else(|| anyhow::anyhow!("nothing to import"))?;
+    let conversation =
+        read(source, path, None).ok_or_else(|| anyhow::anyhow!("nothing to import"))?;
     let directory = PathBuf::from(&conversation.directory);
     anyhow::ensure!(directory.is_dir(), "its folder no longer exists");
     let project = engine.store.desktop_project(&directory)?;
@@ -269,6 +277,34 @@ pub fn events(conversation: &Conversation) -> Vec<(&'static str, Value, u64)> {
     events
 }
 
+/// The transcripts the user can import: Claude Code runs that Cryzo itself started for a Claude
+/// plan are already Cryzo sessions, so they're left out.
+fn candidates(engine: &Engine) -> Vec<(&'static str, PathBuf, u64)> {
+    let own: Vec<String> = engine
+        .store
+        .desktop_meta("claude-code")
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|run| run["conversation"].as_str().map(str::to_owned))
+        .collect();
+    files()
+        .into_iter()
+        .filter(|(_, path, _)| {
+            !path
+                .file_stem()
+                .is_some_and(|stem| own.iter().any(|id| *id == stem.to_string_lossy()))
+        })
+        .collect()
+}
+
+/// A folder in the system's temporary files, where tools run throwaway sessions.
+fn scratch(directory: &str) -> bool {
+    let temp = std::env::temp_dir();
+    let temp = temp.to_string_lossy();
+    let temp = temp.trim_end_matches(['\\', '/']).to_lowercase();
+    directory.to_lowercase().starts_with(&temp)
+}
+
 /// The transcript files of both agents changed in the last 30 days, newest first.
 fn files() -> Vec<(&'static str, PathBuf, u64)> {
     let Some(home) =
@@ -329,8 +365,22 @@ fn files() -> Vec<(&'static str, PathBuf, u64)> {
     recent
 }
 
-fn read(source: &'static str, path: &Path) -> Option<Conversation> {
-    let text = std::fs::read_to_string(path).ok()?;
+/// How much of a transcript the list reads.
+const PREVIEW: u64 = 2 * 1024 * 1024;
+
+/// A transcript, or only its first `limit` bytes (up to the last whole line).
+fn read(source: &'static str, path: &Path, limit: Option<u64>) -> Option<Conversation> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(limit.unwrap_or(u64::MAX))
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if limit.is_some_and(|limit| bytes.len() as u64 >= limit) {
+        bytes.truncate(bytes.iter().rposition(|byte| *byte == b'\n').unwrap_or(0));
+    }
+    let text = String::from_utf8_lossy(&bytes);
     let conversation = match source {
         "claude-code" => claude_code(&text),
         _ => codex(&text),
@@ -554,8 +604,7 @@ fn user(conversation: &mut Conversation, text: &str, at: u64) {
         return;
     }
     if conversation.title.is_empty() {
-        let line = text.lines().next().unwrap_or_default();
-        conversation.title = line.chars().take(80).collect();
+        conversation.title = title(text);
         conversation.created = at;
     }
     if conversation.created == 0 {
@@ -565,6 +614,26 @@ fn user(conversation: &mut Conversation, text: &str, at: u64) {
         text: text.to_owned(),
         at,
     });
+}
+
+/// The first line of the message with markup such as `<pasted_content id="…">` taken out.
+fn title(text: &str) -> String {
+    let mut plain = String::new();
+    let mut tag = false;
+    for char in text.chars() {
+        match char {
+            '<' => tag = true,
+            '>' if tag => tag = false,
+            _ if !tag => plain.push(char),
+            _ => {}
+        }
+    }
+    let line = plain
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or(text);
+    line.chars().take(80).collect()
 }
 
 /// Adds to the agent's reply since the last user message, starting one when needed.
@@ -670,6 +739,15 @@ mod tests {
             matches!(&parts[1], Part::Tool { name, output: Some(output), failed: false, .. } if name == "Read" && output == "export function login() {}")
         );
         assert!(matches!(&parts[2], Part::Text(text) if text == "Fixed it."));
+    }
+
+    #[test]
+    fn titles_leave_out_markup() {
+        assert_eq!(
+            title("<pasted_content id=\"a01c\">\nDictation isn't accurate\nmore</pasted_content>"),
+            "Dictation isn't accurate"
+        );
+        assert_eq!(title("Fix the build"), "Fix the build");
     }
 
     #[test]

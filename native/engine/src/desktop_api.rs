@@ -25,6 +25,12 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/info", get(info))
         .route("/api/location", get(location))
         .route("/api/config", get(config))
+        // The upstream app asks whether OpenCode's old database is still being migrated. Cryzo's
+        // engine never had that database, so there is nothing to migrate.
+        .route(
+            "/api/experimental/migration/v1",
+            get(|| async { Json(json!({"status":"completed"})) }),
+        )
         .route("/api/project", get(projects))
         .route("/api/event", get(events))
         .route("/api/pty", get(pty_list).post(pty_create))

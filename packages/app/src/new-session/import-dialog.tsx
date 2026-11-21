@@ -16,7 +16,6 @@ export type ImportableConversation = {
   directory: string
   exists: boolean
   imported: boolean
-  messages: number
   updated: number
 }
 
