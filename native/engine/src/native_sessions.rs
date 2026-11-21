@@ -17,11 +17,11 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Default)]
-struct StreamParts {
-    text: String,
-    reasoning: String,
-    text_ordinal: Option<usize>,
-    reasoning_ordinal: Option<usize>,
+pub(crate) struct StreamParts {
+    pub(crate) text: String,
+    pub(crate) reasoning: String,
+    pub(crate) text_ordinal: Option<usize>,
+    pub(crate) reasoning_ordinal: Option<usize>,
     next: usize,
 }
 
@@ -65,9 +65,15 @@ impl Engine {
                 crate::free_tier::SIGN_IN_REQUIRED
             );
         }
+        // A Claude plan runs through the user's Claude Code, which keeps its own sign-in.
+        let secret = if provider == "anthropic" && crate::claude_code::connection(self)?.is_some() {
+            String::new()
+        } else {
+            crate::credentials::Credentials::get(provider)?
+        };
         Ok(ResolvedProvider {
             endpoint,
-            secret: crate::credentials::Credentials::get(provider)?,
+            secret,
             model: model.clone(),
         })
     }
@@ -288,6 +294,30 @@ impl Engine {
             .pointer("/capabilities/tools/supported")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        if provider_id == "anthropic" && crate::claude_code::connection(self)?.is_some() {
+            // Claude Code tells the model its working folder as an absolute path, but Cryzo's tools
+            // take paths relative to the project.
+            let system = system
+                .iter()
+                .filter_map(|message| message["content"].as_str())
+                .chain([
+                    "Tool paths are relative to the project folder, like src/app.ts; never pass absolute paths.",
+                ])
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            let tools = tool_definitions(plan, desktop, vision);
+            return self
+                .claude_turn(
+                    session,
+                    system,
+                    tools,
+                    &provider.model,
+                    agent,
+                    &workspace,
+                    cancel,
+                )
+                .await;
+        }
         for _ in 0..32 {
             ensure!(!cancel.is_cancelled(), "generation interrupted");
             let pending = self.store.desktop_state(session)?["inbox"]
@@ -381,73 +411,21 @@ impl Engine {
                 "session.step.streamed",
                 json!({"assistantMessageID":message}),
             )?;
+            // The next step reads each outcome back from the recorded session.
             for call in &completed.calls {
-                self.record(
-                    session,
-                    "session.tool.input.started",
-                    json!({"assistantMessageID":message,"id":call.id,"name":call.name,"native":completed.native}),
-                )?;
-                self.record(
-                    session,
-                    "session.tool.input.ended",
-                    json!({"assistantMessageID":message,"id":call.id,"text":call.arguments}),
-                )?;
-                let parsed =
-                    serde_json::from_str::<Value>(&call.arguments).and_then(|mut input| {
-                        if let Some(command) = call.name.strip_prefix("desktop_") {
-                            input = json!({"tool":"desktop","command":command,"args":input});
-                        } else {
-                            input["tool"] = json!(call.name);
-                        }
-                        serde_json::from_value::<Operation>(input)
-                    });
-                let input = parsed
-                    .as_ref()
-                    .ok()
-                    .map(serde_json::to_value)
-                    .transpose()?
-                    .unwrap_or_else(|| json!({}));
-                self.record(session,"session.tool.called",json!({"assistantMessageID":message,"id":call.id,"input":input,"executed":false}))?;
-                let outcome=async {
-                    let operation=parsed.context("invalid tool arguments")?;
-                    ensure!(!plan || !operation.needs_approval(),"plan mode cannot change files or run commands");
-                    let approval=if operation.needs_approval() && !self.desktop_preapproved(session,&operation).await? {Some(self.ask_permission(session,&message,&call.id,&operation,cancel.clone()).await?)}else{None};
-                    if operation.is_desktop() {
-                        return tokio::select!{_=cancel.cancelled()=>anyhow::bail!("tool interrupted"),result=self.desktop_tool(session,&operation,approval.as_deref())=>result};
-                    }
-                    if operation.is_preview() {
-                        return self.preview_tool(session,workspace.root(),&operation,approval.as_deref()).await;
-                    }
-                    if operation.is_market() {
-                        return tokio::select!{_=cancel.cancelled()=>anyhow::bail!("tool interrupted"),result=self.market_tool(session,&call.id,&operation,approval.as_deref())=>result};
-                    }
-                    tokio::select!{_=cancel.cancelled()=>anyhow::bail!("tool interrupted"),result=workspace.execute(&self.store,session,&operation,approval.as_deref())=>result}
-                }.await;
-                match outcome {
-                    Ok(output) => {
-                        if call.name == "write" {
-                            let mut event = crate::desktop_api::event(
-                                "filesystem.changed",
-                                json!({"file":input["path"],"event":"change"}),
-                            );
-                            event["location"] = state["info"]["location"].clone();
-                            self.emit(event);
-                        }
-                        // Desktop tools return plain text; quoting it as JSON would escape every line.
-                        // page_screenshot returns its content parts, text and image, as they are.
-                        let content = match output {
-                            Value::String(text) => json!([{"type":"text","text":text}]),
-                            Value::Object(mut output) if call.name == "page_screenshot" => {
-                                output.remove("parts").unwrap_or_else(|| json!([]))
-                            }
-                            output => json!([{"type":"text","text":output.to_string()}]),
-                        };
-                        self.record(session,"session.tool.success",json!({"assistantMessageID":message,"id":call.id,"executed":true,"content":content}))?;
-                    }
-                    Err(error) => {
-                        self.record(session,"session.tool.failed",json!({"assistantMessageID":message,"id":call.id,"executed":false,"error":{"type":"ToolError","message":error.to_string()}}))?;
-                    }
-                };
+                let _ = self
+                    .call_tool(
+                        session,
+                        &message,
+                        &call.id,
+                        &call.name,
+                        &call.arguments,
+                        plan,
+                        &workspace,
+                        &cancel,
+                        &completed.native,
+                    )
+                    .await?;
             }
             let usage = &completed.usage;
             let input = usage["prompt_tokens"].as_u64().unwrap_or(0);
@@ -493,7 +471,181 @@ impl Engine {
         }
         anyhow::bail!("agent reached the 32-step limit; send a follow-up to continue")
     }
-    fn stream_delta(
+
+    /// Runs one tool call from a model and records it on the step: its input, the approval when
+    /// one is needed, and its outcome. The inner result is what the model sees: the content, or
+    /// why the call failed.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn call_tool(
+        &self,
+        session: &str,
+        message: &str,
+        call_id: &str,
+        name: &str,
+        arguments: &str,
+        plan: bool,
+        workspace: &Workspace,
+        cancel: &CancellationToken,
+        native: &Value,
+    ) -> Result<std::result::Result<Value, String>> {
+        self.record(
+            session,
+            "session.tool.input.started",
+            json!({"assistantMessageID":message,"id":call_id,"name":name,"native":native}),
+        )?;
+        self.record(
+            session,
+            "session.tool.input.ended",
+            json!({"assistantMessageID":message,"id":call_id,"text":arguments}),
+        )?;
+        let parsed = serde_json::from_str::<Value>(arguments).and_then(|mut input| {
+            if let Some(command) = name.strip_prefix("desktop_") {
+                input = json!({"tool":"desktop","command":command,"args":input});
+            } else {
+                input["tool"] = json!(name);
+            }
+            serde_json::from_value::<Operation>(input)
+        });
+        let input = parsed
+            .as_ref()
+            .ok()
+            .map(serde_json::to_value)
+            .transpose()?
+            .unwrap_or_else(|| json!({}));
+        self.record(
+            session,
+            "session.tool.called",
+            json!({"assistantMessageID":message,"id":call_id,"input":input,"executed":false}),
+        )?;
+        let outcome=async {
+            let operation=parsed.context("invalid tool arguments")?;
+            ensure!(!plan || !operation.needs_approval(),"plan mode cannot change files or run commands");
+            let approval=if operation.needs_approval() && !self.desktop_preapproved(session,&operation).await? {Some(self.ask_permission(session,message,call_id,&operation,cancel.clone()).await?)}else{None};
+            if operation.is_desktop() {
+                return tokio::select!{_=cancel.cancelled()=>anyhow::bail!("tool interrupted"),result=self.desktop_tool(session,&operation,approval.as_deref())=>result};
+            }
+            if operation.is_preview() {
+                return self.preview_tool(session,workspace.root(),&operation,approval.as_deref()).await;
+            }
+            if operation.is_market() {
+                return tokio::select!{_=cancel.cancelled()=>anyhow::bail!("tool interrupted"),result=self.market_tool(session,call_id,&operation,approval.as_deref())=>result};
+            }
+            tokio::select!{_=cancel.cancelled()=>anyhow::bail!("tool interrupted"),result=workspace.execute(&self.store,session,&operation,approval.as_deref())=>result}
+        }.await;
+        match outcome {
+            Ok(output) => {
+                if name == "write" {
+                    let mut event = crate::desktop_api::event(
+                        "filesystem.changed",
+                        json!({"file":input["path"],"event":"change"}),
+                    );
+                    event["location"] =
+                        self.store.desktop_state(session)?["info"]["location"].clone();
+                    self.emit(event);
+                }
+                // Desktop tools return plain text; quoting it as JSON would escape every line.
+                // page_screenshot returns its content parts, text and image, as they are.
+                let content = match output {
+                    Value::String(text) => json!([{"type":"text","text":text}]),
+                    Value::Object(mut output) if name == "page_screenshot" => {
+                        output.remove("parts").unwrap_or_else(|| json!([]))
+                    }
+                    output => json!([{"type":"text","text":output.to_string()}]),
+                };
+                self.record(session,"session.tool.success",json!({"assistantMessageID":message,"id":call_id,"executed":true,"content":content}))?;
+                Ok(Ok(content))
+            }
+            Err(error) => {
+                self.record(session,"session.tool.failed",json!({"assistantMessageID":message,"id":call_id,"executed":false,"error":{"type":"ToolError","message":error.to_string()}}))?;
+                Ok(Err(error.to_string()))
+            }
+        }
+    }
+
+    /// A turn on a Claude plan, run by the user's Claude Code with Cryzo's tools. The prompt is the
+    /// user's new messages; the first Claude turn in a session that began with another model also
+    /// gets the earlier conversation, since Claude Code hasn't seen it.
+    #[allow(clippy::too_many_arguments)]
+    async fn claude_turn(
+        &self,
+        session: &str,
+        system: String,
+        tools: Value,
+        model: &Value,
+        agent: &str,
+        workspace: &Workspace,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        let pending = self.store.desktop_state(session)?["inbox"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for item in pending {
+            self.record(
+                session,
+                "session.inbox.delivered",
+                json!({"inboxID":item["id"]}),
+            )?;
+        }
+        let state = self.store.desktop_state(session)?;
+        let messages = state["messages"].as_array().cloned().unwrap_or_default();
+        let last_answer = messages
+            .iter()
+            .rposition(|message| message["type"] == "assistant");
+        let new = &messages[last_answer.map_or(0, |index| index + 1)..];
+        let started = self
+            .store
+            .desktop_meta("claude-code")?
+            .iter()
+            .any(|entry| entry["session"] == session);
+        let mut prompt = Vec::new();
+        if !started && let Some(index) = last_answer {
+            let earlier = messages[..=index]
+                .iter()
+                .filter_map(|message| {
+                    let text = if message["type"] == "user" {
+                        message["text"].as_str().map(str::to_owned)
+                    } else {
+                        message["content"].as_array().map(|parts| {
+                            parts
+                                .iter()
+                                .filter(|part| part["type"] == "text")
+                                .filter_map(|part| part["text"].as_str())
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        })
+                    }?;
+                    let who = if message["type"] == "user" {
+                        "User"
+                    } else {
+                        "Assistant"
+                    };
+                    Some(format!("{who}: {text}"))
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            prompt.push(json!([{"type":"text","text":format!("Earlier in this session, with another model:\n\n{earlier}")}]));
+        }
+        for message in new.iter().filter(|message| message["type"] == "user") {
+            prompt.push(claude_content(&user_turn(message, true)));
+        }
+        ensure!(!prompt.is_empty(), "nothing to send to Claude");
+        crate::claude_code::run(
+            self,
+            crate::claude_code::Turn {
+                session,
+                model,
+                agent,
+                system,
+                tools,
+                prompt,
+                workspace,
+                cancel,
+            },
+        )
+        .await
+    }
+    pub(crate) fn stream_delta(
         &self,
         session: &str,
         message: &str,
@@ -897,6 +1049,23 @@ fn attachments(files: &Value, directory: Option<&std::path::Path>) -> Result<Vec
 
 /// A user message for the model: its text, with attached text files inline and attached images in
 /// `cryzo_images` for models that see them.
+/// A user turn as Anthropic content blocks: its text, then its images.
+fn claude_content(turn: &Value) -> Value {
+    let mut blocks = vec![json!({"type":"text","text":turn["content"]})];
+    for image in turn["cryzo_images"].as_array().into_iter().flatten() {
+        if let Some((mime, data)) = image
+            .as_str()
+            .and_then(|url| url.strip_prefix("data:"))
+            .and_then(|url| url.split_once(";base64,"))
+        {
+            blocks.push(
+                json!({"type":"image","source":{"type":"base64","media_type":mime,"data":data}}),
+            );
+        }
+    }
+    json!(blocks)
+}
+
 fn user_turn(message: &Value, vision: bool) -> Value {
     use base64::Engine as _;
     let mut text = message["text"].as_str().unwrap_or_default().to_owned();

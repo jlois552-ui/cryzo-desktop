@@ -1,5 +1,6 @@
 pub mod catalog;
 pub mod chatgpt;
+pub mod claude_code;
 pub mod cloud;
 pub mod credentials;
 pub mod desktop_api;

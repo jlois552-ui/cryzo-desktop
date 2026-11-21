@@ -39,7 +39,15 @@ struct Log {
 
 impl Drop for Running {
     fn drop(&mut self) {
-        // The job closes after this and takes the rest of the tree with it.
+        // On Unix the server leads its own process group, so npm, node and the bundler it started
+        // stop with it.
+        #[cfg(unix)]
+        if let Some(group) = self.child.id() {
+            let _ = std::process::Command::new("kill")
+                .args(["-KILL", &format!("-{group}")])
+                .status();
+        }
+        // On Windows the job closes after this and takes the rest of the tree with it.
         let _ = self.child.start_kill();
     }
 }
@@ -76,6 +84,8 @@ pub async fn start(engine: &Engine, root: &Path, program: &str, args: &[String])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
     let mut child = command.spawn()?;
     #[cfg(windows)]
     let job = child
@@ -467,6 +477,9 @@ fn plain(line: &str) -> String {
     }
     text
 }
+
+#[cfg(windows)]
+pub(crate) use job::Job;
 
 #[cfg(windows)]
 mod job {

@@ -16,6 +16,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
     let files = crate::desktop_files::router(engine.clone());
     let free = crate::free_tier::router(engine.clone());
     let chatgpt = crate::chatgpt::router(engine.clone());
+    let claude = crate::claude_code::router(engine.clone());
     let market = crate::market::router(engine.clone());
     let cloud = crate::cloud::router(engine.clone());
     let publish = crate::publish::router(engine.clone());
@@ -40,6 +41,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .merge(files)
         .merge(free)
         .merge(chatgpt)
+        .merge(claude)
         .merge(market)
         .merge(cloud)
         .merge(publish)

@@ -139,12 +139,23 @@ pub fn models(engine: &Engine) -> Result<Vec<Value>> {
             && entry["active"] == true
             && entry["value"]["methodID"] == crate::chatgpt::METHOD
     });
+    // Likewise a Claude plan, through the user's Claude Code.
+    let claude = connected.iter().any(|entry| {
+        entry["integrationID"] == "anthropic"
+            && entry["active"] == true
+            && entry["value"]["methodID"] == crate::claude_code::METHOD
+    });
     Ok(available(&engine.catalog)
         .filter(|(provider, _)| provider.id != "cryzo" || free)
         .filter(|(provider, model)| {
             provider.id != "openai"
                 || !chatgpt
                 || crate::chatgpt::MODELS.contains(&model.id.as_str())
+        })
+        .filter(|(provider, model)| {
+            provider.id != "anthropic"
+                || !claude
+                || crate::claude_code::MODELS.contains(&model.id.as_str())
         })
         .filter(|(provider, model)| {
             provider.id != "nvidia"
@@ -165,7 +176,7 @@ pub fn models(engine: &Engine) -> Result<Vec<Value>> {
                         entry["integrationID"] == provider.id && entry["active"] == true
                     }),
             );
-            if chatgpt && provider.id == "openai" {
+            if (chatgpt && provider.id == "openai") || (claude && provider.id == "anthropic") {
                 info["cost"] = json!([]);
             }
             info
@@ -271,6 +282,8 @@ fn integration_values(engine: &Engine) -> Result<Vec<Value>> {
     let methods=match p["id"].as_str(){
         Some("cryzo")=>json!([{"id":"google","type":"oauth","label":"Sign in with Google"}]),
         Some("openai")=>json!([{"type":"key","label":"API key"},{"id":crate::chatgpt::METHOD,"type":"oauth","label":"Sign in with ChatGPT"}]),
+        // Runs the user's own Claude Code, signed in to their Claude account; Cryzo never sees that sign-in.
+        Some("anthropic")=>json!([{"type":"key","label":"API key"},{"id":crate::claude_code::METHOD,"type":"command","label":"Use your Claude plan (runs Claude Code)","command":["claude","auth","login"]}]),
         _=>json!([{"type":"key","label":"API key"}]),
     };
     json!({"id":p["id"],"name":p["name"],"methods":methods,"connections":connections})}).collect())
