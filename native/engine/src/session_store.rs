@@ -189,12 +189,17 @@ impl Store {
             .map(|r| Ok(serde_json::from_str(&r?)?))
             .collect()
     }
-    pub fn desktop_meta_keys(&self, namespace: &str) -> Result<Vec<String>> {
+    pub fn desktop_meta_entries(&self, namespace: &str) -> Result<Vec<(String, Value)>> {
         let db = self.0.lock().unwrap();
-        let mut query = db.prepare("SELECT key FROM desktop_meta WHERE namespace=?1")?;
+        let mut query = db.prepare("SELECT key, data FROM desktop_meta WHERE namespace=?1")?;
         query
-            .query_map([namespace], |r| r.get::<_, String>(0))?
-            .map(|r| Ok(r?))
+            .query_map([namespace], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
+            .map(|r| {
+                let (key, data) = r?;
+                Ok((key, serde_json::from_str(&data)?))
+            })
             .collect()
     }
     pub fn desktop_put_meta(&self, namespace: &str, key: &str, data: Option<&Value>) -> Result<()> {

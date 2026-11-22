@@ -90,8 +90,13 @@ async fn sources(State(engine): State<Arc<Engine>>) -> ApiResult {
     let list: Vec<Value> = list
         .into_iter()
         .map(|mut item| {
-            item["imported"] =
-                json!(imported.contains(&item["file"].as_str().unwrap_or_default().to_owned()));
+            let file = item["file"].as_str().unwrap_or_default().to_owned();
+            if let Some(session) = imported.iter().find(|(key, _)| *key == file) {
+                item["imported"] = json!(true);
+                item["session"] = session.1.clone();
+            } else {
+                item["imported"] = json!(false);
+            }
             item
         })
         .collect();
@@ -125,7 +130,7 @@ fn import_files(engine: &Engine, input: &Value) -> Value {
             skipped.push(json!({"file":file,"reason":"not found"}));
             continue;
         };
-        if imported(engine).contains(&file) {
+        if imported(engine).iter().any(|(key, _)| *key == file) {
             skipped.push(json!({"file":file,"reason":"already imported"}));
             continue;
         }
@@ -137,8 +142,8 @@ fn import_files(engine: &Engine, input: &Value) -> Value {
     json!({"sessions":sessions,"skipped":skipped})
 }
 
-/// Writes one conversation as a Cryzo session and returns its ID.
-fn save(engine: &Engine, source: &'static str, path: &Path) -> anyhow::Result<String> {
+/// Writes one conversation as a Cryzo session and returns its summary.
+fn save(engine: &Engine, source: &'static str, path: &Path) -> anyhow::Result<Value> {
     let conversation =
         read(source, path, None).ok_or_else(|| anyhow::anyhow!("nothing to import"))?;
     let directory = PathBuf::from(&conversation.directory);
@@ -171,6 +176,7 @@ fn save(engine: &Engine, source: &'static str, path: &Path) -> anyhow::Result<St
     {
         info["model"] = json!({"id":model["id"],"providerID":model["providerID"]});
     }
+    let imported = summary(&info);
     let event = engine.store.desktop_import(info, events(&conversation))?;
     engine.store.desktop_put_meta(
         NAMESPACE,
@@ -178,7 +184,7 @@ fn save(engine: &Engine, source: &'static str, path: &Path) -> anyhow::Result<St
         Some(&json!({"session":session,"source":source})),
     )?;
     engine.emit(event);
-    Ok(session)
+    Ok(imported)
 }
 
 /// The session events a live run would have written for this conversation.
@@ -684,12 +690,27 @@ fn finish(conversation: &mut Conversation, call: &str, output: String, error: bo
     }
 }
 
-/// Files already imported, by path.
-fn imported(engine: &Engine) -> Vec<String> {
+/// Files already imported, by path, with their session as `{id, directory, title}`. A session the
+/// user deleted no longer counts, so its file can be imported again.
+fn imported(engine: &Engine) -> Vec<(String, Value)> {
     engine
         .store
-        .desktop_meta_keys(NAMESPACE)
+        .desktop_meta_entries(NAMESPACE)
         .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(file, entry)| {
+            let state = engine
+                .store
+                .desktop_state(entry["session"].as_str()?)
+                .ok()?;
+            (state["deleted"] != true).then(|| (file, summary(&state["info"])))
+        })
+        .collect()
+}
+
+/// What the app needs to show and open an imported session.
+fn summary(info: &Value) -> Value {
+    json!({"id":info["id"],"directory":info["location"]["directory"],"title":info["title"]})
 }
 
 type ApiResult = std::result::Result<Json<Value>, (StatusCode, Json<Value>)>;
