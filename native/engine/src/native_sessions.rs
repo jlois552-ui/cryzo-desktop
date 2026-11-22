@@ -349,7 +349,9 @@ impl Engine {
                 )
                 .await;
         }
-        for _ in 0..32 {
+        // A safety stop against a model looping forever, not a budget: long tasks run until done,
+        // and the user ends one with Stop or redirects it with a message.
+        for _ in 0..MAX_STEPS {
             ensure!(!cancel.is_cancelled(), "generation interrupted");
             let pending = self.store.desktop_state(session)?["inbox"]
                 .as_array()
@@ -500,7 +502,9 @@ impl Engine {
                 return Ok(());
             }
         }
-        anyhow::bail!("agent reached the 32-step limit; send a follow-up to continue")
+        anyhow::bail!(
+            "the agent took {MAX_STEPS} steps without finishing, so Cryzo paused it; send a message to continue"
+        )
     }
 
     /// Runs one tool call from a model and records it on the step: its input, the approval when
@@ -1186,6 +1190,9 @@ fn keep_recent_images(conversation: &mut [Value], keep: usize) {
     }
 }
 
+/// Model calls in one run before Cryzo pauses it as a runaway loop.
+const MAX_STEPS: usize = 500;
+
 fn tool_definitions(plan: bool, desktop: bool, vision: bool) -> Value {
     let specs = [
         (
@@ -1579,10 +1586,32 @@ async fn prompt(
         json!({"data":{"id":inbox,"sessionID":session,"time":{"created":event["created"]},"type":"user","payload":event["data"]["item"]["payload"],"delivery":event["data"]["item"]["delivery"]}}),
     ))
 }
-async fn interrupt(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> ApiResult {
+async fn interrupt(
+    State(engine): State<Arc<Engine>>,
+    Path(id): Path<String>,
+    RawQuery(raw): RawQuery,
+) -> ApiResult {
     engine.store.desktop_state(&id).map_err(error)?;
     let interrupted = engine.running.lock().await.contains_key(&id);
     engine.cancel(&id).await;
+    // `resume` asks for messages queued during the stopped run to be answered next, rather than
+    // left waiting. The run takes a moment to wind down first.
+    if interrupted
+        && query(&raw)
+            .get("resume")
+            .is_some_and(|value| value == "true")
+    {
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            for _ in 0..150 {
+                if !engine.running.lock().await.contains_key(&id) {
+                    let _ = engine.wake(id).await;
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        });
+    }
     Ok(Json(json!({"interrupted":interrupted})))
 }
 /// The desktop opens a session with `order=desc` and a page limit, then reverses the page.

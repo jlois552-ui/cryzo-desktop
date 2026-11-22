@@ -82,6 +82,11 @@ impl Engine {
     pub async fn cancel(&self, session: &str) {
         if let Some(cancel) = self.running.lock().await.get(session) {
             cancel.cancel();
+            // A desktop action already under way runs on its own thread; this halts it at its
+            // next step instead of letting it finish clicking. The next turn clears it.
+            if let Some(Ok(desktop)) = self.desktop.get() {
+                desktop.stop();
+            }
         }
     }
 

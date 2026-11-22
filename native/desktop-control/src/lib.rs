@@ -326,6 +326,12 @@ impl DesktopThread {
         self.run(move |desktop| desktop.configure(settings))
     }
 
+    /// Stops the action in progress at its next check, as the stop keys do. It is called from
+    /// outside the desktop thread, which may be busy with that very action.
+    pub fn stop(&self) {
+        common::stop();
+    }
+
     /// A new user turn: clears a Stop from the previous turn.
     pub fn begin_turn(&self) -> Result<()> {
         self.run(Desktop::begin_turn)

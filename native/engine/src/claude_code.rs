@@ -409,7 +409,7 @@ pub(crate) async fn run(engine: &Engine, turn: Turn<'_>) -> Result<()> {
     )?;
     // Ending the turn ends Claude Code and anything it started.
     #[cfg(windows)]
-    let _job = child
+    let mut job = child
         .raw_handle()
         .and_then(|handle| crate::preview::Job::holding(handle).ok());
     if !resume {
@@ -442,10 +442,15 @@ pub(crate) async fn run(engine: &Engine, turn: Turn<'_>) -> Result<()> {
     let mut steps = Steps::new(engine, session, turn.model, turn.agent);
     let outcome: Result<()> = loop {
         tokio::select! {
+            biased;
             _ = turn.cancel.cancelled() => break Err(anyhow::anyhow!("generation interrupted")),
             request = requests.recv() => {
                 let Some(request) = request else { continue };
-                let answer = steps.tool(&request.name, &request.arguments, turn.workspace, &turn.cancel).await;
+                let answer = tokio::select! {
+                    biased;
+                    _ = turn.cancel.cancelled() => break Err(anyhow::anyhow!("generation interrupted")),
+                    answer = steps.tool(&request.name, &request.arguments, turn.workspace, &turn.cancel) => answer,
+                };
                 let _ = request.reply.send(answer);
             }
             line = lines.next_line() => {
@@ -458,10 +463,30 @@ pub(crate) async fn run(engine: &Engine, turn: Turn<'_>) -> Result<()> {
         }
     };
     if outcome.is_err() {
+        // An npm install runs Claude Code as node under a `claude.cmd` shell, so killing the
+        // child alone leaves node running and holding the output pipes. Closing the job ends the
+        // whole tree at once.
+        #[cfg(windows)]
+        drop(job.take());
         let _ = child.start_kill();
     }
-    let status = child.wait().await?;
-    let errors = errors.await.unwrap_or_default();
+    // Nothing may hold the turn open: tool calls still waiting on the bridge get their answer
+    // dropped, and a process that ignores the kill is given up on after a few seconds.
+    drop(requests);
+    drop(lines);
+    let grace = std::time::Duration::from_secs(5);
+    let status = match tokio::time::timeout(grace, child.wait()).await {
+        Ok(status) => status?,
+        Err(_) => {
+            let _ = child.start_kill();
+            anyhow::bail!("Claude Code didn't stop in time");
+        }
+    };
+    let errors = tokio::time::timeout(grace, errors)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or_default();
     steps.finish("stop")?;
     outcome?;
     ensure!(
@@ -704,7 +729,8 @@ impl<'a> Steps<'a> {
             None => return Err("no step is running".into()),
         };
         let plan = self.agent == "plan";
-        self.engine
+        let answer = self
+            .engine
             .call_tool(
                 self.session,
                 &message,
@@ -717,7 +743,48 @@ impl<'a> Steps<'a> {
                 &json!({}),
             )
             .await
-            .unwrap_or_else(|error| Err(error.to_string()))
+            .unwrap_or_else(|error| Err(error.to_string()));
+        // Claude Code's input is closed for the whole run, so messages the user sends meanwhile
+        // reach Claude with the next tool result: each one is a step boundary, where Cryzo's own
+        // loop reads its inbox too.
+        let steers = self.steers().unwrap_or_default();
+        if steers.is_empty() {
+            return answer;
+        }
+        let note = format!(
+            "The user sent this while you were working. Read it now and follow it, even if it changes or stops the task:\n{}",
+            steers.join("\n\n")
+        );
+        match answer {
+            Ok(Value::Array(mut parts)) => {
+                parts.push(json!({"type":"text","text":note}));
+                Ok(Value::Array(parts))
+            }
+            Ok(other) => {
+                Ok(json!([{"type":"text","text":other.to_string()},{"type":"text","text":note}]))
+            }
+            Err(error) => Err(format!("{error}\n\n{note}")),
+        }
+    }
+
+    /// Delivers the user's queued messages into the conversation and returns their text.
+    fn steers(&self) -> Result<Vec<String>> {
+        let pending = self.engine.store.desktop_state(self.session)?["inbox"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let mut texts = Vec::new();
+        for item in pending.iter().filter(|item| item["type"] == "user") {
+            self.engine.record(
+                self.session,
+                "session.inbox.delivered",
+                json!({"inboxID":item["id"]}),
+            )?;
+            if let Some(text) = item["payload"]["text"].as_str() {
+                texts.push(text.to_owned());
+            }
+        }
+        Ok(texts)
     }
 }
 
@@ -850,6 +917,35 @@ impl Drop for Files {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn messages_sent_during_a_run_are_delivered_with_the_next_tool_result() {
+        let folder = tempfile::tempdir().unwrap();
+        let engine = Engine::open(&folder.path().join("cryzo.sqlite")).unwrap();
+        let info = json!({"id":"ses_steer","title":"t","agent":"build","location":{"directory":folder.path()},"time":{"created":1,"updated":1},"cost":0,"tokens":session_store::tokens()});
+        engine.store.desktop_create(info).unwrap();
+        let model = json!({"id":"claude-opus-5-5","providerID":"anthropic"});
+        let steps = Steps::new(&engine, "ses_steer", &model, "build");
+        assert!(steps.steers().unwrap().is_empty());
+        engine
+            .record(
+                "ses_steer",
+                "session.inbox.enqueued",
+                json!({"inboxID":"msg_steer","item":{"type":"user","payload":{"text":"Stop and use blue instead"},"delivery":"steer"}}),
+            )
+            .unwrap();
+        assert_eq!(steps.steers().unwrap(), ["Stop and use blue instead"]);
+        let state = engine.store.desktop_state("ses_steer").unwrap();
+        assert!(
+            state["inbox"].as_array().unwrap().is_empty(),
+            "delivered, not left pending"
+        );
+        assert_eq!(state["messages"][0]["text"], "Stop and use blue instead");
+        assert!(
+            steps.steers().unwrap().is_empty(),
+            "each message is delivered once"
+        );
+    }
 
     #[test]
     fn only_a_claude_account_counts_as_signed_in() {
