@@ -220,6 +220,11 @@ impl Engine {
         if vision {
             system.push(json!({"role":"system","content":"page_screenshot shows the preview as the user sees it. Read the page with page_read first; take a screenshot when layout or visuals matter."}));
         }
+        let context = model
+            .details
+            .pointer("/limit/context")
+            .and_then(Value::as_u64)
+            .unwrap_or(200_000);
         let history = |state: &Value| {
             let mut conversation = system.clone();
             for message in state["messages"].as_array().unwrap() {
@@ -318,6 +323,7 @@ impl Engine {
                 }
             }
             keep_recent_images(&mut conversation, if vision { 2 } else { 0 });
+            fit_context(&mut conversation, context);
             conversation
         };
         let tools = model
@@ -1171,6 +1177,37 @@ fn tool_text(content: &Value, images: &mut Vec<Value>) -> String {
 
 /// Screenshots cost many tokens each, so only the most recent `keep` stay in the conversation; the
 /// model can take a new one.
+/// Drops the oldest turns until the conversation fits the model's context window, keeping the system
+/// prompt and the newest messages. A long or imported chat otherwise outgrows it, and the provider
+/// refuses the whole request. Sizes are estimated at four characters a token, with a quarter of the
+/// window left for tools and the reply.
+fn fit_context(conversation: &mut Vec<Value>, context: u64) {
+    let budget = usize::try_from(context)
+        .unwrap_or(usize::MAX)
+        .saturating_mul(3);
+    let size = |message: &Value| message.to_string().len();
+    let mut total: usize = conversation.iter().map(size).sum();
+    if total <= budget {
+        return;
+    }
+    let system = conversation
+        .iter()
+        .take_while(|message| message["role"] == "system")
+        .count();
+    let last = conversation.len().saturating_sub(1);
+    let mut start = system;
+    // Cut at a user message, so no tool result is left without the call it answers.
+    while start < last && (total > budget || conversation[start]["role"] != "user") {
+        total -= size(&conversation[start]);
+        start += 1;
+    }
+    conversation.drain(system..start);
+    conversation.insert(
+        system,
+        json!({"role":"system","content":"Earlier messages in this conversation were left out to fit your context window. If you need something from them, ask the user."}),
+    );
+}
+
 fn keep_recent_images(conversation: &mut [Value], keep: usize) {
     let mut seen = 0;
     // The user's own images stay; only tool screenshots age out.
@@ -1846,7 +1883,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        attachments, keep_recent_images, replayed_arguments, tool_definitions, tool_text, user_turn,
+        attachments, fit_context, keep_recent_images, replayed_arguments, tool_definitions,
+        tool_text, user_turn,
     };
 
     #[test]
@@ -1957,6 +1995,42 @@ mod tests {
     }
 
     /// Replayed calls must match what the model sent, or it imitates the stored shape instead.
+    #[test]
+    fn a_conversation_too_long_for_the_model_keeps_its_newest_turns() {
+        let long = "x".repeat(4_000);
+        let mut conversation = vec![json!({"role":"system","content":"rules"})];
+        for turn in 0..50 {
+            conversation.push(json!({"role":"user","content":format!("question {turn} {long}")}));
+            conversation.push(
+                json!({"role":"assistant","content":"","tool_calls":[{"id":format!("c{turn}")}]}),
+            );
+            conversation
+                .push(json!({"role":"tool","tool_call_id":format!("c{turn}"),"content":long}));
+        }
+        conversation.push(json!({"role":"user","content":"Hello"}));
+        let mut fitted = conversation.clone();
+        fit_context(&mut fitted, 20_000);
+        let size: usize = fitted.iter().map(|message| message.to_string().len()).sum();
+        assert!(
+            size <= 60_000 + 1_000,
+            "fits the budget, give or take the note"
+        );
+        assert_eq!(fitted[0]["content"], "rules");
+        assert!(fitted[1]["content"].as_str().unwrap().contains("left out"));
+        assert_eq!(
+            fitted[2]["role"], "user",
+            "starts at a user turn, never a lone tool result"
+        );
+        assert_eq!(fitted.last().unwrap()["content"], "Hello");
+        let mut short = conversation[..4].to_vec();
+        fit_context(&mut short, 200_000);
+        assert_eq!(
+            short,
+            conversation[..4],
+            "a conversation that fits is left alone"
+        );
+    }
+
     #[test]
     fn replayed_arguments_match_what_the_model_sent() {
         let desktop = json!({"name":"desktop_find","state":{"status":"completed","input":{"tool":"desktop","command":"find","args":{"text":"Download"}}}});

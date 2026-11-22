@@ -254,7 +254,8 @@ pub async fn completion_events(
             }
             ensure!(
                 value.get("error").is_none(),
-                "provider reported a generation error"
+                "{}",
+                crate::wire::provider_error(&value)
             );
             if let Some(delta) = value
                 .pointer("/choices/0/delta/reasoning_content")

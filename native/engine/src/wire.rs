@@ -334,7 +334,8 @@ impl Decoder {
         }
         ensure!(
             event.get("error").is_none() && event["type"] != "error",
-            "provider reported a generation error"
+            "{}",
+            provider_error(&event)
         );
         let mut delta = json!({});
         let mut finish = Value::Null;
@@ -365,7 +366,7 @@ impl Decoder {
                         "stop"
                     });
                 }
-                "response.failed" => anyhow::bail!("provider reported a generation error"),
+                "response.failed" => anyhow::bail!("{}", provider_error(&event)),
                 _ => {}
             },
             "messages" => match event["type"].as_str().unwrap_or("") {
@@ -489,6 +490,24 @@ impl Decoder {
             "provider replay data is too large"
         );
         Ok(json!({"choices":[{"delta":delta,"finish_reason":finish}],"usage":self.usage}))
+    }
+}
+
+/// What the provider said went wrong, such as a context that is too long, rather than a bare
+/// "failed": the message is in `error`, or in `response.error` for the Responses API.
+pub(crate) fn provider_error(event: &Value) -> String {
+    let message = [
+        event.pointer("/error/message"),
+        event.pointer("/response/error/message"),
+        event.pointer("/message"),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(Value::as_str)
+    .or_else(|| event.get("error").and_then(Value::as_str));
+    match message {
+        Some(message) => format!("the model provider reported an error: {message}"),
+        None => "provider reported a generation error".into(),
     }
 }
 
