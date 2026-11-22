@@ -317,7 +317,7 @@ function RootSettings() {
       onChange={change}
     >
       <Tabs.Content value="general" class="settings-panel">
-        <SettingsGeneral />
+        <SettingsGeneral server={reachable()} />
       </Tabs.Content>
       <Tabs.Content value="appearance" class="settings-panel">
         <SettingsAppearance />

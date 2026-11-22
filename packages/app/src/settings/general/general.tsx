@@ -23,6 +23,8 @@ import "@/settings/settings.css"
 import { Button } from "@opencode/ui/button"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { DialogImportConversations } from "@/new-session/import-dialog"
+import { ServerProvider } from "@/runtime/server/current"
+import type { ServerConnection } from "@/runtime/server/registry"
 
 const AutoApprovePermissionsSetting: Component = () => {
   const language = useLanguage()
@@ -231,7 +233,7 @@ const LanguageSetting = () => {
   )
 }
 
-export const SettingsGeneral: Component = () => {
+export const SettingsGeneral: Component<{ server?: ServerConnection.Any }> = (props) => {
   const language = useLanguage()
   const platform = usePlatform()
   const settings = useSettings()
@@ -277,16 +279,25 @@ export const SettingsGeneral: Component = () => {
 
         <FollowUpBehaviorSetting />
 
-        <Show when={desktop()}>
+        <Show when={desktop() && props.server}>
+          {(server) => (
           <SettingsRow title={language.t("import.title")} description={language.t("import.description")}>
             <Button
               data-action="settings-import-conversations"
               variant="neutral"
-              onClick={() => dialog.show(() => <DialogImportConversations />)}
+              // Settings sits outside a server's data, so the dialog gets the selected server's.
+              onClick={() =>
+                dialog.show(() => (
+                  <ServerProvider conn={server()}>
+                    <DialogImportConversations />
+                  </ServerProvider>
+                ))
+              }
             >
               {language.t("import.open")}
             </Button>
           </SettingsRow>
+          )}
         </Show>
 
         <Show when={desktop()}>

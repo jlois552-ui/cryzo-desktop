@@ -5,7 +5,7 @@ import type { Theme } from "@pierre/highlights"
 // and all punctuation is one muted colour); each group uses the app syntax role with the same meaning.
 // Token names fall back to their parent scope, so `keyword.control` uses `keyword`.
 export const OpenCodeTheme = {
-  name: "OpenCode",
+  name: "Cryzo",
   appearance: "dark",
   cssVariables: { prefix: "--" },
   style: {
