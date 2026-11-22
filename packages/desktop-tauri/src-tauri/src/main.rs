@@ -20,7 +20,7 @@ type NativeResult = Result<Value, String>;
 #[tauri::command]
 fn bootstrap(engine: State<'_, Arc<Engine>>) -> NativeResult {
     Ok(
-        json!({"sessions":engine.store.sessions().map_err(|error|error.to_string())?,"catalog":engine.catalog}),
+        json!({"sessions":engine.store.sessions().map_err(|error|error.to_string())?,"catalog":&*engine.catalog()}),
     )
 }
 
@@ -128,7 +128,7 @@ async fn save_credential(
     secret: String,
 ) -> Result<(), String> {
     if !engine
-        .catalog
+        .catalog()
         .providers
         .iter()
         .any(|entry| entry.id == provider)
