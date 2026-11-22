@@ -436,6 +436,8 @@ export function CurrentContextToolGroup(props: {
   fileOpen?: (path: string) => boolean | undefined
   onFileOpenChange?: (path: string, open: boolean) => void
   patchGroupKey?: (tools: SessionMessageAssistantTool[]) => string
+  /** The line a finished turn's folded steps show instead of "Used N tools", such as "Worked for 2m 14s". */
+  summary?: string
 }) {
   const i18n = useI18n()
   const tools = createMemo(() => props.parts.filter((part) => part.type === "tool"))
@@ -492,6 +494,9 @@ export function CurrentContextToolGroup(props: {
 
   const label = createMemo(() => {
     const thoughts = reasoning().length
+
+    if (props.summary && !pending())
+      return { text: props.summary, title: props.summary, before: "", count: undefined, between: "", after: "" }
 
     if (thinking()) {
       const text = i18n.t("ui.sessionTurn.status.thinking")

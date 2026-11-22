@@ -622,6 +622,47 @@ describe("current session timeline rows", () => {
       ])
   })
 
+  test("a finished turn folds its steps into one line above the answer, and a running turn does not", () => {
+    const step = (id: string, content: SessionMessageAssistant["content"]) =>
+      ({
+        id,
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content,
+        time: { created: 2, completed: 3 },
+      }) satisfies SessionMessageInfo
+
+    const source = [
+      { id: "msg_user", type: "user", text: "fix", time: { created: 1 } },
+      step("msg_a1", [{ type: "text", text: "Checking." }, storyTool("tool_read", "read", "completed", {})]),
+      step("msg_a2", [{ type: "text", text: "Now the tests." }, storyTool("tool_grep", "grep", "completed", {})]),
+      step("msg_a3", [{ type: "text", text: "Fixed." }]),
+    ] satisfies SessionMessageInfo[]
+
+    const rows = (status: { type: "idle" } | { type: "busy" }) =>
+      Timeline.constructSessionMessageRows(
+        source,
+        false,
+        status,
+        undefined,
+        false,
+        false,
+        undefined,
+        timelinePresets[2].value,
+        [],
+        false,
+        true,
+      ).rows.map(TimelineRow.key)
+
+    expect(rows({ type: "idle" })).toEqual([
+      "user-message:msg_user",
+      "assistant-part:context:worked:msg_a1:msg_a1:text:0",
+      "assistant-part:part:part:msg_a3:msg_a3:text:0",
+    ])
+    expect(rows({ type: "busy" }).length).toBeGreaterThan(3)
+  })
+
   test.each([
     ["grouped", "assistant-part:context:context:msg_a1:msg_a1:text:0"],
     ["hidden", "assistant-part:context:context:msg_a1:tool_read"],

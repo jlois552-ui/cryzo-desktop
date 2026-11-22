@@ -15,6 +15,8 @@ export type PartGroup =
       key: string
       type: "context"
       refs: PartRef[]
+      /** A finished turn's steps folded into one "Worked for …" line above its answer. */
+      worked?: true
     }
   | {
       key: string

@@ -64,6 +64,7 @@ const source = {
   "ui.commentCard.editComment": "Edit comment",
 
   "ui.sessionTurn.steps.show": "Show steps",
+  "ui.sessionTurn.worked": "Worked for {{duration}}",
   "ui.sessionTurn.steps.hide": "Hide steps",
   "ui.sessionTurn.summary.response": "Response",
   "ui.sessionTurn.diff.showMore": "Show more changes ({{count}})",

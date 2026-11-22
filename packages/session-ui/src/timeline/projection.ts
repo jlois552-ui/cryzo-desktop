@@ -139,6 +139,8 @@ export function createReactiveTimelineProjection(input: {
   queuedCompactionIDs?: Accessor<readonly string[]>
   /** Summarize each finished turn's changed files after it. */
   turnDiffs?: Accessor<boolean>
+  /** Fold each finished turn's steps into one "Worked for …" line above its answer. */
+  foldFinishedTurns?: Accessor<boolean>
 }) {
   const sessionMessageByID = createMemo(
     () => new Map(input.sessionMessages().map((message) => [message.id, message] as const)),
@@ -177,6 +179,7 @@ export function createReactiveTimelineProjection(input: {
       input.timelineDetail?.(),
       input.queuedCompactionIDs?.(),
       input.turnDiffs?.(),
+      input.foldFinishedTurns?.(),
     ),
   )
 
@@ -240,6 +243,7 @@ export namespace Timeline {
     detail?: TimelineDetail,
     queuedCompactionIDs: readonly string[] = [],
     turnDiffs = false,
+    fold = false,
   ) {
     type Turn = {
       id: string
@@ -424,6 +428,7 @@ export namespace Timeline {
           visible,
           detail,
           commentary,
+          fold,
         )
       }),
     ]
@@ -482,6 +487,7 @@ export namespace Timeline {
     isRenderable = renderable,
     detail?: TimelineDetail,
     commentary: ReadonlySet<Content> = new Set(),
+    fold = false,
   ) {
     const rows: TimelineRow.TimelineRow[] = []
     const assistantMessages = entries.flatMap((entry) => (entry.type === "assistant" ? [entry.message] : []))
@@ -490,6 +496,11 @@ export namespace Timeline {
     const previousUserMessage = index > 0
     const compaction = entries.some((entry) => entry.type === "notice" && entry.message.type === "compaction")
     const lastContent = lastAssistant?.content.at(-1)
+
+    // Once the turn is over, its steps fold into one "Worked for …" line above the answer, as in the ChatGPT
+    // app, unless the detail setting asks to see every step.
+    const settled = !(isActive && status.type !== "idle")
+    const foldSteps = fold && (!detail || detail.tools.placement === "grouped")
 
     const working =
       isActive &&
@@ -530,7 +541,9 @@ export namespace Timeline {
 
       const appendGroups = (items: typeof refs) => {
         let offset = 0
-        groupContent(items, shellToolDefaultOpen, editToolDefaultOpen, commentary, detail).forEach((group) => {
+        const groups = groupContent(items, shellToolDefaultOpen, editToolDefaultOpen, commentary, detail)
+        const folded = settled && foldSteps ? foldTurn(groups, items) : groups
+        folded.forEach((group) => {
           const tool = group.type !== "part" || items[offset]?.content.type !== "text"
           offset += group.type === "part" ? 1 : group.refs.length
           rows.push(
@@ -922,6 +935,27 @@ function renderable(content: Content, showReasoning: boolean, detail?: TimelineD
 // "Used N tools": a question, and Cryzo's Publish card.
 function ownRow(content: Extract<Content, { type: "tool" }>) {
   return content.name === "question" || content.name === "publish"
+}
+
+/**
+ * A finished turn's groups with everything before its answer folded into one group. The answer is the
+ * trailing text; a turn that ended without one folds every step. One step alone stays as it is.
+ */
+function foldTurn(groups: PartGroup[], items: { messageID: string; partID: string; content: Content }[]): PartGroup[] {
+  const last = groups.at(-1)
+  const answer = last?.type === "part" && items.find((item) => item.partID === last.ref.partID)?.content.type === "text"
+  const steps = answer ? groups.slice(0, -1) : groups
+
+  if (steps.length < 2 && !(steps.length === 1 && steps[0]!.type !== "part")) return groups
+
+  const refs = steps.flatMap((group) => (group.type === "part" ? [group.ref] : group.refs))
+  const first = refs[0]
+
+  if (!first) return groups
+
+  const fold: PartGroup = { type: "context", key: `worked:${first.messageID}:${first.partID}`, refs, worked: true }
+
+  return answer && last ? [fold, last] : [fold]
 }
 
 function groupContent(

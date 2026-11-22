@@ -206,6 +206,25 @@ export function createSessionTimelineRowRenderer(input: {
     return completed - user.time.created
   }
 
+  // The folded steps' line: "Worked for 2m 14s", like the ChatGPT app.
+  const worked = (messageID: string) => {
+    const ms = duration(messageID)
+
+    if (typeof ms !== "number") return i18n.t("ui.sessionTurn.steps.show")
+    const total = Math.max(1, Math.round(ms / 1000))
+    const time =
+      total < 60
+        ? i18n.t("ui.message.duration.seconds", { count: total })
+        : total < 3600
+          ? i18n.t("ui.message.duration.minutesSeconds", { minutes: Math.floor(total / 60), seconds: total % 60 })
+          : i18n.t("ui.message.duration.hoursMinutes", {
+              hours: Math.floor(total / 3600),
+              minutes: Math.floor(total / 60) % 60,
+            })
+
+    return i18n.t("ui.sessionTurn.worked", { duration: time })
+  }
+
   const copyContentID = (messageID: string) => {
     if (workingTurn(messageID)) return null
 
@@ -336,6 +355,10 @@ export function createSessionTimelineRowRenderer(input: {
             }
             onFileOpenChange={(path, open) => input.disclosure.set(`patch:${path}`, open)}
             open={input.disclosure.value(key()) === true}
+            summary={(() => {
+              const group = row().group
+              return group.type === "context" && group.worked ? worked(row().userMessageID) : undefined
+            })()}
             busy={
               workingTurn(row().userMessageID) &&
               input.projection.lastAssistantGroupKey().get(row().userMessageID) === row().group.key

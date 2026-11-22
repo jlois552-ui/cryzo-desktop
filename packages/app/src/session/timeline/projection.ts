@@ -3,5 +3,6 @@ import { createReactiveTimelineProjection } from "@opencode/session-ui/timeline/
 export { reuseTimelineRows } from "@opencode/session-ui/timeline/projection"
 
 export function createTimelineProjection(input: Parameters<typeof createReactiveTimelineProjection>[0]) {
-  return createReactiveTimelineProjection(input)
+  // Finished turns fold their steps into one "Worked for …" line above the answer, as in the ChatGPT app.
+  return createReactiveTimelineProjection({ foldFinishedTurns: () => true, ...input })
 }
