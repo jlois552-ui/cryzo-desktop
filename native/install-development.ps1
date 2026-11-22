@@ -1,7 +1,8 @@
-param([switch]$NoLaunch)
+# -Release installs the optimized build (cargo build --release), which is much faster on large chats.
+param([switch]$NoLaunch, [switch]$Release)
 $ErrorActionPreference = 'Stop'
 $taskRepo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$taskSource = Join-Path $PSScriptRoot 'target/debug/cryzo-desktop.exe'
+$taskSource = Join-Path $PSScriptRoot $(if ($Release) { 'target/release/cryzo-desktop.exe' } else { 'target/debug/cryzo-desktop.exe' })
 if (-not (Test-Path -LiteralPath $taskSource)) { throw 'Build the desktop executable first.' }
 $taskInstall = Join-Path $env:LOCALAPPDATA 'Programs/CryzoDevelopment'
 $null = New-Item -ItemType Directory -Path $taskInstall -Force
