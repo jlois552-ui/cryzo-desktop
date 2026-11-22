@@ -671,7 +671,6 @@ export const dict = {
   "settings.tab.about": "Haqida",
   "settings.about.version": "Versiya {{version}}",
   "settings.about.devVersion": "dasturlash",
-  "settings.about.license": "MIT litsenziyasi asosida chiqarilgan",
   "settings.about.otherContributor.one": "yana {{count}} ta",
   "settings.about.otherContributor.other": "yana {{count}} ta",
   "settings.about.firstPublished": "Ilk bor Missuri, AQSHda nashr etilgan",

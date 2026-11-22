@@ -760,7 +760,6 @@ export const dict = {
   "settings.tab.about": "Про",
   "settings.about.version": "Версія {{version}}",
   "settings.about.devVersion": "Розробка",
-  "settings.about.license": "Випущено під номером MIT License",
   "settings.about.otherContributor.one": "{{count}} інший",
   "settings.about.otherContributor.other": "{{count}} іншого",
   "settings.about.firstPublished": "Вперше опубліковано в Міссурі, США",

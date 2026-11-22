@@ -7,7 +7,6 @@ import file from "./file"
 import review from "./review"
 import details from "./details"
 import browser from "./browser"
-import pairing from "./pairing"
 import updater from "./updater"
 import ssh from "./ssh"
 import wsl from "./wsl"
@@ -24,7 +23,6 @@ export const builtins = compose({
   review,
   details,
   browser: { ...browser, mainEntry: () => import("./browser/main") },
-  pairing: { ...pairing, mainEntry: () => import("./pairing/main") },
   updater: { ...updater, mainEntry: () => import("./updater/main") },
   ssh: { ...ssh, mainEntry: () => import("./ssh/main") },
   wsl: { ...wsl, mainEntry: () => import("./wsl/main") },

@@ -1215,7 +1215,7 @@ export const dict = {
   "settings.tab.about": "About",
   "settings.about.version": "Version {{version}}",
   "settings.about.devVersion": "development",
-  "settings.about.license": "Released under the MIT License",
+  "settings.about.license": "Released under the Apache License 2.0",
   "settings.about.writtenByNames": "Written by {{names}}",
   "settings.about.illustratedByNames": "Illustrated by {{names}}",
   "settings.about.otherContributor.one": "{{count}} other",

@@ -134,7 +134,6 @@ export const dict = {
   "settings.tab.about": "Tietoja",
   "settings.about.version": "Versio {{version}}",
   "settings.about.devVersion": "kehitysversio",
-  "settings.about.license": "Julkaistu MIT-lisenssillä",
   "settings.about.otherContributor.one": "{{count}} muu",
   "settings.about.otherContributor.other": "{{count}} muuta",
   "settings.about.firstPublished": "Julkaistu ensimmäisen kerran Missourissa, Yhdysvalloissa",

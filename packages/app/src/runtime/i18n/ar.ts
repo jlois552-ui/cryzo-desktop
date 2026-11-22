@@ -714,7 +714,6 @@ export const dict = {
   "settings.tab.about": "حول",
   "settings.about.version": "الإصدار \u2068{{version}}\u2069",
   "settings.about.devVersion": "إصدار تطوير",
-  "settings.about.license": "صدر بموجب ترخيص \u2068MIT\u2069",
   "settings.about.otherContributor.zero": "{{count}} مساهمين آخرين",
   "settings.about.otherContributor.one": "{{count}} مساهم آخر",
   "settings.about.otherContributor.two": "{{count}} مساهمان آخران",

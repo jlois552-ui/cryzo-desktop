@@ -666,7 +666,6 @@ export const dict = {
   "settings.tab.about": "შესახებ",
   "settings.about.version": "ვერსია {{version}}",
   "settings.about.devVersion": "დეველოპერული",
-  "settings.about.license": "გამოშვებულია MIT ლიცენზიით",
   "settings.about.otherContributor.one": "{{count}} სხვა",
   "settings.about.otherContributor.other": "{{count}} სხვა",
   "settings.about.firstPublished": "პირველად გამოქვეყნდა მისურიში, აშშ",

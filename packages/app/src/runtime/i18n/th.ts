@@ -730,7 +730,6 @@ export const dict = {
   "settings.tab.about": "เกี่ยวกับ",
   "settings.about.version": "เวอร์ชัน {{version}}",
   "settings.about.devVersion": "การพัฒนา",
-  "settings.about.license": "เผยแพร่ภายใต้ใบอนุญาต MIT",
   "settings.about.otherContributor.one": "อีก {{count}} คน",
   "settings.about.otherContributor.other": "อีก {{count}} คน",
   "settings.about.firstPublished": "ตีพิมพ์ครั้งแรกในรัฐมิสซูรี สหรัฐอเมริกา",

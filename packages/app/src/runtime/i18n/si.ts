@@ -666,7 +666,6 @@ export const dict = {
   "settings.tab.about": "පිළිබඳ",
   "settings.about.version": "අනුවාදය {{version}}",
   "settings.about.devVersion": "සංවර්ධන",
-  "settings.about.license": "MIT බලපත්‍රය යටතේ නිකුත් කර ඇත",
   "settings.about.otherContributor.one": "තවත් {{count}}",
   "settings.about.otherContributor.other": "තවත් {{count}}",
   "settings.about.firstPublished": "මුලින්ම ඇමරිකා එක්සත් ජනපදයේ මිසූරිහි ප්‍රකාශයට පත් කරන ලදී",

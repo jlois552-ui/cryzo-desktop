@@ -680,7 +680,6 @@ export const dict = {
   "settings.tab.about": "درباره",
   "settings.about.version": "نسخه \u2068{{version}}\u2069",
   "settings.about.devVersion": "توسعه",
-  "settings.about.license": "منتشرشده تحت مجوز \u2068MIT\u2069",
   "settings.about.otherContributor.one": "{{count}} نفر دیگر",
   "settings.about.otherContributor.other": "{{count}} نفر دیگر",
   "settings.about.firstPublished": "نخستین انتشار در \u2068Missouri, USA\u2069",

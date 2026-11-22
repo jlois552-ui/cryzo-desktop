@@ -673,7 +673,6 @@ export const dict = {
   "settings.tab.about": "Par",
   "settings.about.version": "Versija {{version}}",
   "settings.about.devVersion": "izstrādes versija",
-  "settings.about.license": "Izlaists saskaņā ar MIT licenci",
   "settings.about.otherContributor.one": "{{count}} cits",
   "settings.about.otherContributor.other": "{{count}} citi",
   "settings.about.firstPublished": "Pirmo reizi publicēts Misūri štatā, ASV",

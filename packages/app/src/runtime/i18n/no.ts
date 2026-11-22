@@ -138,7 +138,6 @@ export const dict = {
   "settings.tab.about": "Om",
   "settings.about.version": "Versjon {{version}}",
   "settings.about.devVersion": "utvikling",
-  "settings.about.license": "Utgitt under MIT-lisensen",
   "settings.about.otherContributor.one": "{{count}} annen",
   "settings.about.otherContributor.other": "{{count}} andre",
   "settings.about.firstPublished": "Først utgitt i Missouri, USA",

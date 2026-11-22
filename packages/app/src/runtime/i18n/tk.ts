@@ -665,7 +665,6 @@ export const dict = {
   "settings.tab.about": "Hakynda",
   "settings.about.version": "Wersiýa {{version}}",
   "settings.about.devVersion": "işläp taýýarlama",
-  "settings.about.license": "MIT ygtyýarnamasy esasynda çykaryldy",
   "settings.about.otherContributor.one": "{{count}} başga",
   "settings.about.otherContributor.other": "{{count}} başga",
   "settings.about.firstPublished": "Ilkinji gezek Missuri, ABŞ-da neşir edildi",

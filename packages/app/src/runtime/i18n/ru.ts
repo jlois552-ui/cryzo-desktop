@@ -744,7 +744,6 @@ export const dict = {
   "settings.tab.about": "О нас",
   "settings.about.version": "Версия {{version}}",
   "settings.about.devVersion": "разработка",
-  "settings.about.license": "Выпущен под индексом MIT License",
   "settings.about.otherContributor.one": "{{count}} другой",
   "settings.about.otherContributor.other": "{{count}} другого",
   "settings.about.firstPublished": "Впервые опубликовано в Миссури, США.",

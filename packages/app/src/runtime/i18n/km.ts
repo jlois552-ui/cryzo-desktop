@@ -667,7 +667,6 @@ export const dict = {
   "settings.tab.about": "អំពី",
   "settings.about.version": "កំណែ {{version}}",
   "settings.about.devVersion": "ការអភិវឌ្ឍន៍",
-  "settings.about.license": "ចេញផ្សាយក្រោមអាជ្ញាប័ណ្ណ MIT",
   "settings.about.otherContributor.one": "{{count}} ផ្សេងទៀត។",
   "settings.about.otherContributor.other": "{{count}} ផ្សេងទៀត។",
   "settings.about.firstPublished": "បោះពុម្ព​លើក​ដំបូង​នៅ​រដ្ឋ Missouri សហរដ្ឋ​អាមេរិក",

@@ -676,7 +676,6 @@ export const dict = {
   "settings.tab.about": "Πληροφορίες",
   "settings.about.version": "Έκδοση {{version}}",
   "settings.about.devVersion": "ανάπτυξη",
-  "settings.about.license": "Κυκλοφόρησε υπό την άδεια MIT",
   "settings.about.otherContributor.one": "{{count}} άλλο",
   "settings.about.otherContributor.other": "{{count}} άλλοι",
   "settings.about.firstPublished": "Πρωτοδημοσιεύτηκε στο Μιζούρι των Η.Π.Α",

@@ -669,7 +669,6 @@ export const dict = {
   "settings.tab.about": "Um",
   "settings.about.version": "Útgáfa {{version}}",
   "settings.about.devVersion": "þróunarútgáfa",
-  "settings.about.license": "Gefið út undir MIT leyfinu",
   "settings.about.otherContributor.one": "{{count}} annað",
   "settings.about.otherContributor.other": "{{count}} aðrir",
   "settings.about.firstPublished": "Fyrst gefin út í Missouri í Bandaríkjunum",

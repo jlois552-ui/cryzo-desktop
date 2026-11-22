@@ -667,7 +667,6 @@ export const dict = {
   "settings.tab.about": "Rreth",
   "settings.about.version": "Versioni {{version}}",
   "settings.about.devVersion": "version zhvillimi",
-  "settings.about.license": "Lëshuar nën licencën MIT",
   "settings.about.otherContributor.one": "{{count}} tjera",
   "settings.about.otherContributor.other": "{{count}} të tjerët",
   "settings.about.firstPublished": "Botuar për herë të parë në Misuri, SHBA",

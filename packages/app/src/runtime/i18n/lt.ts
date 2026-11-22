@@ -683,7 +683,6 @@ export const dict = {
   "settings.tab.about": "Apie",
   "settings.about.version": "{{version}} versija",
   "settings.about.devVersion": "kūrimo versija",
-  "settings.about.license": "Išleistas pagal MIT licenciją",
   "settings.about.otherContributor.one": "{{count}} kita",
   "settings.about.otherContributor.other": "{{count}} kitų",
   "settings.about.firstPublished": "Pirmą kartą išleista Misūrio valstijoje, JAV",

@@ -693,7 +693,6 @@ export const dict = {
   "settings.tab.about": "O",
   "settings.about.version": "Verzia {{version}}",
   "settings.about.devVersion": "Vývoj",
-  "settings.about.license": "Vydané pod MIT License",
   "settings.about.otherContributor.one": "{{count}} ďalší",
   "settings.about.otherContributor.other": "{{count}} ďalších",
   "settings.about.firstPublished": "Prvýkrát publikované v Missouri, USA",

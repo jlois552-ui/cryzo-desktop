@@ -676,7 +676,6 @@ export const dict = {
   "settings.tab.about": "Névjegy",
   "settings.about.version": "{{version}} verzió",
   "settings.about.devVersion": "fejlesztői verzió",
-  "settings.about.license": "MIT licenc alatt jelent meg",
   "settings.about.otherContributor.one": "{{count}} egyéb",
   "settings.about.otherContributor.other": "{{count}} egyebek",
   "settings.about.firstPublished": "Először az Egyesült Államokban, Missouriban jelent meg",

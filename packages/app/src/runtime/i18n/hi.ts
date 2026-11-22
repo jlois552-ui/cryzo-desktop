@@ -671,7 +671,6 @@ export const dict = {
   "settings.tab.about": "परिचय",
   "settings.about.version": "संस्करण {{version}}",
   "settings.about.devVersion": "डेवलपमेंट",
-  "settings.about.license": "MIT लाइसेंस के अंतर्गत जारी",
   "settings.about.otherContributor.one": "{{count}} अन्य",
   "settings.about.otherContributor.other": "{{count}} अन्य",
   "settings.about.firstPublished": "पहली बार मिसौरी, अमेरिका में प्रकाशित",

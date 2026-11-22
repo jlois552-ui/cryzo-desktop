@@ -673,7 +673,6 @@ export const dict = {
   "settings.tab.about": "Despre",
   "settings.about.version": "Versiunea {{version}}",
   "settings.about.devVersion": "versiune de dezvoltare",
-  "settings.about.license": "Lansat sub licența MIT",
   "settings.about.otherContributor.one": "{{count}} alt colaborator",
   "settings.about.otherContributor.other": "{{count}} de alți colaboratori",
   "settings.about.firstPublished": "Prima dată publicată în Missouri, SUA",

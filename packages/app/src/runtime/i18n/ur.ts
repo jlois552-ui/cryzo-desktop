@@ -679,7 +679,6 @@ export const dict = {
   "settings.tab.about": "تعارف",
   "settings.about.version": "ورژن \u2068{{version}}\u2069",
   "settings.about.devVersion": "ترقیاتی",
-  "settings.about.license": "MIT لائسنس کے تحت جاری کردہ",
   "settings.about.otherContributor.one": "\u2068{{count}}\u2069 دیگر",
   "settings.about.otherContributor.other": "\u2068{{count}}\u2069 دیگر",
   "settings.about.firstPublished": "پہلی بار میزوری، امریکہ میں شائع ہوا",

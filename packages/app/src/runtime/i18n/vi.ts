@@ -677,7 +677,6 @@ export const dict = {
   "settings.tab.about": "Về",
   "settings.about.version": "Phiên bản {{version}}",
   "settings.about.devVersion": "phát triển",
-  "settings.about.license": "Được phát hành theo Giấy phép MIT",
   "settings.about.otherContributor.one": "{{count}} người khác",
   "settings.about.otherContributor.other": "{{count}} người khác",
   "settings.about.firstPublished": "Xuất bản lần đầu ở Missouri, Mỹ",

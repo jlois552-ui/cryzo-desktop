@@ -671,7 +671,6 @@ export const dict = {
   "settings.tab.about": "Тухай",
   "settings.about.version": "Хувилбар {{version}}",
   "settings.about.devVersion": "хөгжүүлэлт",
-  "settings.about.license": "MIT лицензээр гаргасан",
   "settings.about.otherContributor.one": "өөр {{count}}",
   "settings.about.otherContributor.other": "өөр {{count}}",
   "settings.about.firstPublished": "Анх АНУ-ын Миссури мужид хэвлэгдсэн",

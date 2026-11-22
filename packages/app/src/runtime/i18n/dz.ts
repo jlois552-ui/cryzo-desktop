@@ -678,7 +678,6 @@ export const dict = {
   "settings.tab.about": "སྐོར།",
   "settings.about.version": "ཐོན་རིམ་ {{version}} .",
   "settings.about.devVersion": "གོང་འཕེལ།",
-  "settings.about.license": "ཨེམ་ཨའི་ཊི་ཆོག་ཐམ་གྱི་འོག་ལུ་བཏོན་ཡོདཔ།",
   "settings.about.otherContributor.one": "{{count}} གཞན།",
   "settings.about.otherContributor.other": "{{count}} གཞན།",
   "settings.about.firstPublished": "འགོ་དང་པ་ ཡུ་ཨེས་ཨེ་གི་ མི་སོ་རི་ལུ་ དཔར་བསྐྲུན་འབད་ཡོདཔ།",

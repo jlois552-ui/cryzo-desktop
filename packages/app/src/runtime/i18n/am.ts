@@ -654,7 +654,6 @@ export const dict = {
   "settings.tab.about": "ስለ",
   "settings.about.version": "ስሪት {{version}}",
   "settings.about.devVersion": "ልማት",
-  "settings.about.license": "በMIT ፈቃድ የተለቀቀ",
   "settings.about.otherContributor.one": "{{count}} ሌላ",
   "settings.about.otherContributor.other": "{{count}} ሌሎች",
   "settings.about.firstPublished": "መጀመሪያ የታተመው በሚዙሪ፣ አሜሪካ",

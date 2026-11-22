@@ -728,7 +728,6 @@ export const dict = {
   "settings.tab.about": "关于",
   "settings.about.version": "版本{{version}}",
   "settings.about.devVersion": "发展",
-  "settings.about.license": "根据麻省理工学院许可证发布",
   "settings.about.otherContributor.one": "{{count}}其他",
   "settings.about.otherContributor.other": "其他{{count}}人",
   "settings.about.firstPublished": "首次在美国密苏里州发布",

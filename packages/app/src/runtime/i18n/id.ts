@@ -739,7 +739,6 @@ export const dict = {
   "settings.tab.about": "Tentang",
   "settings.about.version": "Versi {{version}}",
   "settings.about.devVersion": "perkembangan",
-  "settings.about.license": "Dirilis di bawah Lisensi MIT",
   "settings.about.otherContributor.one": "{{count}} lainnya",
   "settings.about.otherContributor.other": "{{count}} lainnya",
   "settings.about.firstPublished": "Pertama kali diterbitkan di Missouri, AS",

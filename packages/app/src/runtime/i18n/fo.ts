@@ -666,7 +666,6 @@ export const dict = {
   "settings.tab.about": "Um",
   "settings.about.version": "Útgáva {{version}}",
   "settings.about.devVersion": "menningarútgáva",
-  "settings.about.license": "Útgivið undir MIT-loyvinum",
   "settings.about.otherContributor.one": "{{count}} annað",
   "settings.about.otherContributor.other": "{{count}} onnur",
   "settings.about.firstPublished": "Fyrst útgivið í Missouri í USA",

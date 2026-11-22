@@ -681,7 +681,6 @@ export const dict = {
   "settings.tab.about": "에 대한",
   "settings.about.version": "버전 {{version}}",
   "settings.about.devVersion": "개발",
-  "settings.about.license": "MIT 라이센스에 따라 출시됨",
   "settings.about.otherContributor.one": "기타 {{count}}개",
   "settings.about.otherContributor.other": "기타 {{count}}명",
   "settings.about.firstPublished": "미국 미주리 주에서 처음 출판됨",

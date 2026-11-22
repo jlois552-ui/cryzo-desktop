@@ -684,7 +684,6 @@ export const dict = {
   "settings.tab.about": "ތަޢާރަފް",
   "settings.about.version": "ވާޝަން \u2068{{version}}\u2069",
   "settings.about.devVersion": "ޑެވެލޮޕްމަންޓް",
-  "settings.about.license": "MIT ލައިސަންސްގެ ދަށުން ނެރެފައި",
   "settings.about.otherContributor.one": "އެހެން \u2068{{count}}\u2069",
   "settings.about.otherContributor.other": "އެހެން \u2068{{count}}\u2069",
   "settings.about.firstPublished": "ފުރަތަމަ ޗާޕުކުރީ އެމެރިކާގެ މިޒޫރީގައެވެ",

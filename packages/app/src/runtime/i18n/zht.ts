@@ -720,7 +720,6 @@ export const dict = {
   "settings.tab.about": "關於",
   "settings.about.version": "版本{{version}}",
   "settings.about.devVersion": "發展",
-  "settings.about.license": "根據MIT許可證發布",
   "settings.about.otherContributor.one": "{{count}}其他",
   "settings.about.otherContributor.other": "其他{{count}}人",
   "settings.about.firstPublished": "首次在美國密蘇裏州發佈",

@@ -670,7 +670,6 @@ export const dict = {
   "settings.tab.about": "बारेमा",
   "settings.about.version": "संस्करण {{version}}",
   "settings.about.devVersion": "विकास",
-  "settings.about.license": "MIT इजाजतपत्रअन्तर्गत जारी",
   "settings.about.otherContributor.one": "अन्य {{count}}",
   "settings.about.otherContributor.other": "अन्य {{count}}",
   "settings.about.firstPublished": "पहिलो पटक मिसौरी, संयुक्त राज्य अमेरिकामा प्रकाशित",

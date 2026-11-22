@@ -675,7 +675,6 @@ export const dict = {
   "settings.tab.about": "Quant a",
   "settings.about.version": "Versió {{version}}",
   "settings.about.devVersion": "desenvolupament",
-  "settings.about.license": "Publicat sota la llicència del MIT",
   "settings.about.otherContributor.one": "{{count}} altre",
   "settings.about.otherContributor.other": "{{count}} altres",
   "settings.about.firstPublished": "Publicat per primera vegada a Missouri, EUA",

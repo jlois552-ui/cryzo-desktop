@@ -679,7 +679,6 @@ export const dict = {
   "settings.tab.about": "אודות",
   "settings.about.version": "גרסה \u2068{{version}}\u2069",
   "settings.about.devVersion": "פיתוח",
-  "settings.about.license": "פורסם ברישיון \u2068MIT\u2069",
   "settings.about.otherContributor.one": "עוד {{count}}",
   "settings.about.otherContributor.two": "עוד {{count}}",
   "settings.about.otherContributor.other": "עוד {{count}}",

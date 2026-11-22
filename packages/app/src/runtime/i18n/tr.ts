@@ -744,7 +744,6 @@ export const dict = {
   "settings.tab.about": "Hakkında",
   "settings.about.version": "Sürüm {{version}}",
   "settings.about.devVersion": "geliştirme sürümü",
-  "settings.about.license": "MIT Lisansı altında yayınlandı",
   "settings.about.otherContributor.one": "{{count}} diğer",
   "settings.about.otherContributor.other": "{{count}} diğerleri",
   "settings.about.firstPublished": "İlk olarak Missouri, ABD'de yayınlandı",

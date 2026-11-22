@@ -136,7 +136,6 @@ export const dict = {
   "settings.tab.about": "Om",
   "settings.about.version": "Version {{version}}",
   "settings.about.devVersion": "udvikling",
-  "settings.about.license": "Udgivet under MIT-licensen",
   "settings.about.otherContributor.one": "{{count}} anden",
   "settings.about.otherContributor.other": "{{count}} andre",
   "settings.about.firstPublished": "Først udgivet i Missouri, USA",

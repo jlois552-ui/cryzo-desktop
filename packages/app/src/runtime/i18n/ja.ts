@@ -682,7 +682,6 @@ export const dict = {
   "settings.tab.about": "会社概要",
   "settings.about.version": "バージョン{{version}}",
   "settings.about.devVersion": "開発",
-  "settings.about.license": "MITライセンスの下でリリースされました",
   "settings.about.otherContributor.one": "{{count}}その他",
   "settings.about.otherContributor.other": "他{{count}}人",
   "settings.about.firstPublished": "米国ミズーリ州で初公開",

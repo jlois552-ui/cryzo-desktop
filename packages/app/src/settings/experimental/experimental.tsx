@@ -6,7 +6,7 @@ import { useSettings } from "@/settings/model"
 import { SettingsRow } from "@/settings/row"
 import "@/settings/settings.css"
 
-export const experimentalSettingsAvailable = true
+export const experimentalSettingsAvailable = false
 
 export const SettingsExperimental: Component = () => {
   const language = useLanguage()

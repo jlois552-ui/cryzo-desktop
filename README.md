@@ -1,6 +1,6 @@
 # Cryzo Desktop
 
-An MIT-licensed OpenCode fork for a Rust and Tauri desktop coding app, with planned marketing and team collaboration.
+An Apache 2.0-licensed fork of OpenCode for a Rust and Tauri desktop coding app, with planned marketing and team collaboration.
 
 **Status: native implementation in progress; no public release yet.** See [native implementation, checks and release gates](native/README.md).
 

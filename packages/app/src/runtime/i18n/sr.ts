@@ -680,7 +680,6 @@ export const dict = {
   "settings.tab.about": "Абоут",
   "settings.about.version": "Верзија {{version}}",
   "settings.about.devVersion": "развој",
-  "settings.about.license": "Објављено под MIT License",
   "settings.about.otherContributor.one": "{{count}} други",
   "settings.about.otherContributor.other": "{{count}} других",
   "settings.about.firstPublished": "Први пут објављено у Мисурију, САД",

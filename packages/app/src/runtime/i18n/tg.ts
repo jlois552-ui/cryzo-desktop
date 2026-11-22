@@ -670,7 +670,6 @@ export const dict = {
   "settings.tab.about": "Дар бораи барнома",
   "settings.about.version": "Версияи {{version}}",
   "settings.about.devVersion": "таҳия",
-  "settings.about.license": "Таҳти иҷозатномаи MIT нашр шудааст",
   "settings.about.otherContributor.one": "{{count}} нафари дигар",
   "settings.about.otherContributor.other": "{{count}} нафари дигар",
   "settings.about.firstPublished": "Бори аввал дар Миссури, ИМА нашр шудааст",

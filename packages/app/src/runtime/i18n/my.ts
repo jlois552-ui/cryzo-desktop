@@ -678,7 +678,6 @@ export const dict = {
   "settings.tab.about": "အကြောင်း",
   "settings.about.version": "ဗားရှင်း {{version}}",
   "settings.about.devVersion": "ဖွံ့ဖြိုးတိုးတက်မှု",
-  "settings.about.license": "MIT လိုင်စင်ဖြင့် ထုတ်ဝေခဲ့သည်။",
   "settings.about.otherContributor.one": "အခြား {{count}}",
   "settings.about.otherContributor.other": "အခြား {{count}} ခု",
   "settings.about.firstPublished": "အမေရိကန်နိုင်ငံ၊ Missouri တွင် ပထမဆုံးထုတ်ဝေသည်။",

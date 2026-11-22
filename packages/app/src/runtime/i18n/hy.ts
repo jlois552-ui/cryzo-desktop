@@ -667,7 +667,6 @@ export const dict = {
   "settings.tab.about": "Ծրագրի մասին",
   "settings.about.version": "Տարբերակ {{version}}",
   "settings.about.devVersion": "մշակում",
-  "settings.about.license": "Թողարկվել է MIT արտոնագրով",
   "settings.about.otherContributor.one": "{{count}} այլ",
   "settings.about.otherContributor.other": "{{count}} այլ",
   "settings.about.firstPublished": "Առաջին անգամ հրատարակվել է Միսուրիում, ԱՄՆ",

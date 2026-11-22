@@ -662,7 +662,6 @@ export const dict = {
   "settings.tab.about": "Teave",
   "settings.about.version": "Versioon {{version}}",
   "settings.about.devVersion": "arendus",
-  "settings.about.license": "Välja antud MIT-i litsentsi alusel",
   "settings.about.otherContributor.one": "{{count}} muu",
   "settings.about.otherContributor.other": "{{count}} teised",
   "settings.about.firstPublished": "Esmakordselt avaldati USA-s Missouris",

@@ -679,7 +679,6 @@ export const dict = {
   "settings.tab.about": "O",
   "settings.about.version": "Verzija {{version}}",
   "settings.about.devVersion": "razvoj",
-  "settings.about.license": "Izdano pod MIT License",
   "settings.about.otherContributor.one": "{{count}} drugi",
   "settings.about.otherContributor.other": "{{count}} drugih",
   "settings.about.firstPublished": "Prvi put objavljeno u Missouriju, SAD",

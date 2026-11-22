@@ -671,7 +671,6 @@ export const dict = {
   "settings.tab.about": "পরিচিতি",
   "settings.about.version": "সংস্করণ {{version}}",
   "settings.about.devVersion": "ডেভেলপমেন্ট",
-  "settings.about.license": "MIT লাইসেন্সের অধীনে প্রকাশিত",
   "settings.about.otherContributor.one": "অন্য {{count}} জন",
   "settings.about.otherContributor.other": "অন্য {{count}} জন",
   "settings.about.firstPublished": "প্রথম প্রকাশিত মিসৌরি, যুক্তরাষ্ট্রে",
