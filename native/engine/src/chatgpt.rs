@@ -33,6 +33,28 @@ pub const MODELS: &[&str] = &[
     "gpt-6.1-terra",
 ];
 
+/// Whether a ChatGPT plan offers this model: the known list, plus every newer GPT release in one
+/// of the plan's families (Sol, Terra, Luna, Astra), so a model released today shows up as soon
+/// as the catalog has it.
+pub fn offered(id: &str) -> bool {
+    if MODELS.contains(&id) {
+        return true;
+    }
+    let Some((version, family)) = id
+        .strip_prefix("gpt-")
+        .and_then(|rest| rest.split_once('-'))
+    else {
+        return false;
+    };
+    let major = version
+        .split('.')
+        .next()
+        .and_then(|major| major.parse::<u32>().ok());
+    ["sol", "terra", "luna", "astra"].contains(&family)
+        && major.is_some_and(|major| major >= 6)
+        && version.split('.').all(|part| part.parse::<u32>().is_ok())
+}
+
 pub struct Attempt {
     status: String,
     message: Option<String>,

@@ -57,8 +57,8 @@ impl Engine {
             .as_str()
             .context("select a connected model")?;
         let model_id = model["id"].as_str().context("select a model")?;
-        crate::free_tier::validate_variant(&self.catalog, model)?;
-        let endpoint = crate::free_tier::endpoint(&self.catalog, provider, model_id)?;
+        crate::free_tier::validate_variant(&self.catalog(), model)?;
+        let endpoint = crate::free_tier::endpoint(&self.catalog(), provider, model_id)?;
         if provider == "cryzo" {
             ensure!(
                 crate::free_tier::signed_in(self)?,
@@ -199,8 +199,9 @@ impl Engine {
         let provider_id = provider.model["providerID"]
             .as_str()
             .context("provider missing")?;
-        let model = self
-            .catalog
+        // Held for the whole run, so a catalog refresh mid-run can't change the model under it.
+        let catalog = self.catalog();
+        let model = catalog
             .providers
             .iter()
             .find(|p| p.id == provider_id)
@@ -374,7 +375,7 @@ impl Engine {
             let conversation = history(&self.store.desktop_state(session)?);
             let message = id("msg");
             self.record(session,"session.step.started",json!({"assistantMessageID":message,"agent":agent,"model":provider.model,"started":now()}))?;
-            let mut request = json!({"model":model_id,"messages":conversation,"stream_options":{"include_usage":true},"cryzo_protocol":self.catalog.native_api(provider_id,model_id)?.protocol});
+            let mut request = json!({"model":model_id,"messages":conversation,"stream_options":{"include_usage":true},"cryzo_protocol":catalog.native_api(provider_id,model_id)?.protocol});
             crate::desktop_models::apply_variant(
                 model,
                 provider.model["variant"].as_str(),
@@ -1534,14 +1535,14 @@ async fn select_model(
     }
     let model = &input["model"];
     crate::free_tier::endpoint(
-        &engine.catalog,
+        &engine.catalog(),
         model["providerID"]
             .as_str()
             .ok_or_else(|| error("provider missing"))?,
         model["id"].as_str().ok_or_else(|| error("model missing"))?,
     )
     .map_err(error)?;
-    crate::free_tier::validate_variant(&engine.catalog, model).map_err(error)?;
+    crate::free_tier::validate_variant(&engine.catalog(), model).map_err(error)?;
     engine
         .record(&id, "session.model.selected", json!({"model":model}))
         .map_err(error)?;

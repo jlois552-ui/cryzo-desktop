@@ -57,10 +57,59 @@ impl Catalog {
             anyhow::anyhow!("this model's native transport has not passed the compatibility gate")
         })
     }
+    /// The catalog built into this version of Cryzo.
     pub fn load() -> Result<Self> {
-        let source: BTreeMap<String, SourceProvider> = serde_json::from_str(include_str!(
+        Self::parse(include_str!(
             "../../../packages/core/src/models-dev/snapshot.txt"
-        ))?;
+        ))
+    }
+
+    /// The newest catalog saved in `directory`, else the built-in one.
+    pub fn load_saved(directory: &std::path::Path) -> Result<Self> {
+        match std::fs::read_to_string(directory.join(SAVED))
+            .ok()
+            .and_then(|text| Self::parse(&text).ok())
+            .filter(Catalog::complete)
+        {
+            Some(saved) => Ok(saved),
+            None => Self::load(),
+        }
+    }
+
+    /// Fetches the live catalog, the same one OpenCode refreshes from, and saves it in
+    /// `directory` for the next start. New models reach Cryzo this way without an update.
+    pub async fn fetch(directory: &std::path::Path) -> Result<Self> {
+        let text = reqwest::Client::new()
+            .get(LIVE)
+            .timeout(std::time::Duration::from_secs(60))
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        let catalog = Self::parse(&text)?;
+        anyhow::ensure!(
+            catalog.complete(),
+            "the live model catalog looks incomplete"
+        );
+        let partial = directory.join(format!("{SAVED}.partial"));
+        std::fs::write(&partial, &text)?;
+        std::fs::rename(&partial, directory.join(SAVED))?;
+        Ok(catalog)
+    }
+
+    /// A sanity check before a downloaded catalog replaces the one in use.
+    fn complete(&self) -> bool {
+        self.providers.len() >= 100
+            && ["openai", "anthropic", "google"].iter().all(|id| {
+                self.providers
+                    .iter()
+                    .any(|provider| provider.id == *id && !provider.models.is_empty())
+            })
+    }
+
+    pub fn parse(text: &str) -> Result<Self> {
+        let source: BTreeMap<String, SourceProvider> = serde_json::from_str(text)?;
         Ok(Self {
             upstream_commit: "caebbcc0807e630629725f320f35a09aa4a427be".into(),
             providers: source
@@ -116,6 +165,11 @@ impl Catalog {
             })
     }
 }
+
+/// The live catalog: chat models, routing decisions and image models, as OpenCode fetches it.
+const LIVE: &str = "https://models.opencode.ai/experimental/v2.0/api.json?type=chat,decision,image";
+/// Where the last good copy of the live catalog is kept, next to the database.
+const SAVED: &str = "models.json";
 
 #[derive(Deserialize)]
 struct SourceProvider {

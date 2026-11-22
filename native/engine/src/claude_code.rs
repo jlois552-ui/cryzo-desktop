@@ -38,6 +38,25 @@ pub const MODELS: &[&str] = &[
 /// Cryzo's tools as Claude Code names them: `mcp__<server>__<tool>`.
 const SERVER: &str = "cryzo";
 
+/// Whether a Claude plan offers this model through Claude Code: the known list, plus newer Opus,
+/// Sonnet, Haiku and Fable releases as soon as the catalog has them.
+pub fn offered(id: &str) -> bool {
+    if MODELS.contains(&id) {
+        return true;
+    }
+    let Some(rest) = id.strip_prefix("claude-") else {
+        return false;
+    };
+    let mut parts = rest.split('-');
+    let family = parts.next().unwrap_or_default();
+    let version: Vec<&str> = parts.collect();
+    ["opus", "sonnet", "haiku", "fable"].contains(&family)
+        && !version.is_empty()
+        && version.len() <= 2
+        && version.iter().all(|part| part.parse::<u32>().is_ok())
+        && version[0].parse::<u32>().is_ok_and(|major| major >= 5)
+}
+
 /// The user's active "Claude plan" connection, if any.
 pub fn connection(engine: &Engine) -> Result<Option<Value>> {
     Ok(engine
@@ -944,6 +963,37 @@ mod tests {
         assert!(
             steps.steers().unwrap().is_empty(),
             "each message is delivered once"
+        );
+    }
+
+    #[test]
+    fn new_claude_and_gpt_releases_are_offered_on_the_plans() {
+        assert!(offered("claude-opus-5-5"));
+        assert!(
+            offered("claude-sonnet-6"),
+            "a newer release shows up without an update"
+        );
+        assert!(offered("claude-haiku-6-1"));
+        assert!(!offered("claude-opus-4-8"), "older than the plan's models");
+        assert!(!offered("claude-sonnet-5-5-20260101"));
+        assert!(crate::chatgpt::offered("gpt-6.2-sol"));
+        assert!(crate::chatgpt::offered("gpt-6.2-astra"));
+        assert!(crate::chatgpt::offered("gpt-7-terra"));
+        assert!(crate::chatgpt::offered("gpt-5.6-luna"), "on the known list");
+        assert!(!crate::chatgpt::offered("gpt-6-cyber"), "not a plan family");
+        assert!(!crate::chatgpt::offered("gpt-5.4-sol"));
+    }
+
+    #[test]
+    fn the_built_in_catalog_passes_the_check_a_downloaded_one_must_pass() {
+        let catalog = crate::catalog::Catalog::load().unwrap();
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(folder.path().join("models.json"), "{not json").unwrap();
+        let saved = crate::catalog::Catalog::load_saved(folder.path()).unwrap();
+        assert_eq!(
+            saved.providers.len(),
+            catalog.providers.len(),
+            "a broken saved copy falls back"
         );
     }
 

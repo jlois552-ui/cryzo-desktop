@@ -64,8 +64,8 @@ async fn fixture() -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
     (url, calls, server)
 }
 fn engine(path: &std::path::Path, url: &str) -> Arc<Engine> {
-    let mut engine = Engine::open(&path.join("native.sqlite")).unwrap();
-    engine.catalog = Catalog {
+    let engine = Engine::open(&path.join("native.sqlite")).unwrap();
+    engine.set_catalog(Catalog {
         upstream_commit: "fixture".into(),
         providers: vec![Provider {
             id: "fixture".into(),
@@ -82,7 +82,7 @@ fn engine(path: &std::path::Path, url: &str) -> Arc<Engine> {
                 details: json!({"capabilities":{"tools":{"supported":true}}}),
             }],
         }],
-    };
+    });
     engine.store.desktop_put_meta("credentials","cred_fixture",Some(&json!({"id":"cred_fixture","integrationID":"fixture","label":"Fixture reference","active":true,"value":{"type":"external","methodID":"native-keyring"}}))).unwrap();
     Arc::new(engine)
 }

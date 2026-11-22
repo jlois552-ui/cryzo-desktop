@@ -145,17 +145,13 @@ pub fn models(engine: &Engine) -> Result<Vec<Value>> {
             && entry["active"] == true
             && entry["value"]["methodID"] == crate::claude_code::METHOD
     });
-    Ok(available(&engine.catalog)
+    Ok(available(&engine.catalog())
         .filter(|(provider, _)| provider.id != "cryzo" || free)
         .filter(|(provider, model)| {
-            provider.id != "openai"
-                || !chatgpt
-                || crate::chatgpt::MODELS.contains(&model.id.as_str())
+            provider.id != "openai" || !chatgpt || crate::chatgpt::offered(&model.id)
         })
         .filter(|(provider, model)| {
-            provider.id != "anthropic"
-                || !claude
-                || crate::claude_code::MODELS.contains(&model.id.as_str())
+            provider.id != "anthropic" || !claude || crate::claude_code::offered(&model.id)
         })
         .filter(|(provider, model)| {
             provider.id != "nvidia"
@@ -243,7 +239,7 @@ async fn default_model(State(engine): State<Arc<Engine>>, RawQuery(query): RawQu
 /// OpenCode's own subscriptions and GitHub Copilot's OAuth have no Cryzo route, so they are not offered.
 const UNOFFERED: &[&str] = &["opencode", "opencode-go", "github-copilot"];
 fn provider_values(engine: &Engine) -> Vec<Value> {
-    engine.catalog.providers.iter().filter(|provider|!UNOFFERED.contains(&provider.id.as_str())&&available(&engine.catalog).any(|(p,_)|p.id==provider.id)).map(|p|json!({"id":p.id,"integrationID":p.id,"name":p.name,"activation":"auto","package":"@ai-sdk/openai-compatible"})).collect()
+    engine.catalog().providers.iter().filter(|provider|!UNOFFERED.contains(&provider.id.as_str())&&available(&engine.catalog()).any(|(p,_)|p.id==provider.id)).map(|p|json!({"id":p.id,"integrationID":p.id,"name":p.name,"activation":"auto","package":"@ai-sdk/openai-compatible"})).collect()
 }
 async fn providers(State(engine): State<Arc<Engine>>, RawQuery(query): RawQuery) -> ApiResult {
     let connected = engine.store.desktop_meta("credentials").map_err(error)?;
@@ -312,7 +308,7 @@ pub fn save_key(
     label: Option<&str>,
 ) -> Result<Value> {
     ensure!(
-        available(&engine.catalog).any(|(p, _)| p.id == provider),
+        available(&engine.catalog()).any(|(p, _)| p.id == provider),
         "unsupported provider transport"
     );
     ensure!(provider != "cryzo", "Cryzo Free requires Google sign-in");
@@ -347,7 +343,7 @@ async fn connect_key(
     if id == "cryzo" {
         return Err(error("Cryzo Free requires Google sign-in"));
     }
-    let validation = validate_key(&engine.catalog, &id, &key)
+    let validation = validate_key(&engine.catalog(), &id, &key)
         .await
         .map_err(error)?;
     // An API key replaces a ChatGPT sign-in in the same credential slot.

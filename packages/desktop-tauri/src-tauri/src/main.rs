@@ -243,6 +243,8 @@ fn main() {
             std::fs::create_dir_all(&directory)?;
             let engine = Arc::new(Engine::open(&directory.join("cryzo.sqlite"))?);
             engine.install_pane(Arc::new(browser::PreviewPane(app.handle().clone())));
+            // New models reach Cryzo from the live catalog, checked now and every hour.
+            tauri::async_runtime::block_on(async { engine.refresh_catalog() });
             let host = tauri::async_runtime::block_on(DesktopHost::start(
                 &directory,
                 engine.clone(),

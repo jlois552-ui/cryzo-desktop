@@ -25,6 +25,7 @@ async fn main() -> Result<()> {
     let directory = PathBuf::from(args.get(1).context("data directory is required")?);
     std::fs::create_dir_all(&directory)?;
     let engine = Arc::new(Engine::open(&directory.join("cryzo.sqlite"))?);
+    engine.refresh_catalog();
     // Bind only loopback on an ephemeral port. Never expose local filesystem APIs on the LAN.
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
     let token = Uuid::new_v4().to_string();

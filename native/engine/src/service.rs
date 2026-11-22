@@ -23,7 +23,10 @@ use tokio_util::sync::CancellationToken;
 pub struct Engine {
     _ownership: std::fs::File,
     pub store: Store,
-    pub catalog: Catalog,
+    /// Replaced when a newer catalog arrives; read it with `catalog()`.
+    catalog: std::sync::RwLock<Arc<Catalog>>,
+    /// The folder holding the database, where the live catalog is saved too.
+    directory: std::path::PathBuf,
     pub(crate) running: Mutex<HashMap<String, CancellationToken>>,
     pub(crate) permissions: Mutex<HashMap<String, crate::native_sessions::PendingPermission>>,
     pub(crate) desktop_events: tokio::sync::broadcast::Sender<Value>,
@@ -54,12 +57,17 @@ impl Engine {
             .try_lock()
             .map_err(|error| anyhow::anyhow!("cannot acquire local engine ownership: {error}"))?;
         let desktop_events = tokio::sync::broadcast::channel(1024).0;
-        let mut catalog = Catalog::load()?;
+        let directory = path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_default();
+        let mut catalog = Catalog::load_saved(&directory)?;
         crate::free_tier::configure(&mut catalog);
         Ok(Self {
             _ownership: ownership,
             store: Store::open(path)?,
-            catalog,
+            catalog: std::sync::RwLock::new(Arc::new(catalog)),
+            directory,
             login_attempts: Mutex::new(HashMap::new()),
             chatgpt_attempts: Mutex::new(HashMap::new()),
             chatgpt_token: Mutex::new(None),
@@ -72,6 +80,35 @@ impl Engine {
             ptys: crate::pty::PtyManager::new(desktop_events.clone()),
             desktop_events,
         })
+    }
+
+    /// The model catalog in use.
+    pub fn catalog(&self) -> Arc<Catalog> {
+        self.catalog.read().unwrap().clone()
+    }
+
+    /// Puts a catalog in use, with Cryzo Free's models added.
+    pub fn set_catalog(&self, mut catalog: Catalog) {
+        crate::free_tier::configure(&mut catalog);
+        *self.catalog.write().unwrap() = Arc::new(catalog);
+    }
+
+    /// Keeps the model catalog current while Cryzo runs: fetched now and every hour after, so a
+    /// model released today shows up without updating Cryzo. A failed fetch keeps the last one.
+    pub fn refresh_catalog(self: &Arc<Self>) {
+        let engine = Arc::downgrade(self);
+        tokio::spawn(async move {
+            loop {
+                let Some(current) = engine.upgrade() else {
+                    return;
+                };
+                if let Ok(catalog) = Catalog::fetch(&current.directory).await {
+                    current.set_catalog(catalog);
+                }
+                drop(current);
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        });
     }
 
     /// Lets previews open in the desktop app's browser pane.
@@ -102,7 +139,7 @@ impl Engine {
             !text.trim().is_empty() && text.len() <= 1_000_000,
             "prompt must contain between 1 and 1,000,000 bytes"
         );
-        let endpoint = self.catalog.chat_endpoint(&provider, &model)?.to_owned();
+        let endpoint = self.catalog().chat_endpoint(&provider, &model)?.to_owned();
         let secret = Credentials::get(&provider)?;
         let cancel = CancellationToken::new();
         {
@@ -300,7 +337,7 @@ async fn health() -> Json<Value> {
     )
 }
 async fn catalog(State(state): State<App>) -> ApiResult {
-    Ok(Json(serde_json::to_value(&state.engine.catalog)?))
+    Ok(Json(serde_json::to_value(&*state.engine.catalog())?))
 }
 async fn sessions(State(state): State<App>) -> ApiResult {
     Ok(Json(serde_json::to_value(state.engine.store.sessions()?)?))
