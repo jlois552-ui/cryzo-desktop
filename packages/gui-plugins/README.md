@@ -657,7 +657,7 @@ const setup: Plugin.Setup<typeof definition> = (ctx) => {
 export default setup
 ```
 
-5. **Register it.** A built-in joins both lists under its id, each composed with `compose`. The main list names every built-in, so their ids stay reserved, and adds pairing's main entry:
+5. **Register it.** A built-in joins both lists under its id, each composed with `compose`. The main list names every built-in, so their ids stay reserved. Cryzo leaves pairing out of both lists, since it pairs phones through Remote control, but a built-in like it is added the same way, with its main entry here:
 
 <!-- source: src/main.ts#builtins -->
 
@@ -672,7 +672,6 @@ export const builtins = compose({
   review,
   details,
   browser: { ...browser, mainEntry: () => import("./browser/main") },
-  pairing: { ...pairing, mainEntry: () => import("./pairing/main") },
   updater: { ...updater, mainEntry: () => import("./updater/main") },
   ssh: { ...ssh, mainEntry: () => import("./ssh/main") },
   wsl: { ...wsl, mainEntry: () => import("./wsl/main") },
@@ -696,7 +695,6 @@ export const builtins = compose({
   review: { ...review, windowEntry: eager(reviewRenderer) },
   details: { ...details, windowEntry: eager(detailsRenderer) },
   browser: { ...browser, windowEntry: eager(browserRenderer) },
-  pairing: { ...pairing, windowEntry: eager(pairingRenderer) },
   updater: { ...updater, windowEntry: eager(updaterRenderer) },
   ssh: { ...ssh, windowEntry: eager(sshRenderer) },
   wsl: { ...wsl, windowEntry: eager(wslRenderer) },
