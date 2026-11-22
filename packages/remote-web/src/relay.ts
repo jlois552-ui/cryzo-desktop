@@ -12,6 +12,9 @@ type Frame = {
   cursor?: number
 }
 
+/** How long a request may wait for the computer to start answering. */
+const ANSWER_MS = 45_000
+
 type Pending = {
   head(status: number, headers: [string, string][]): void
   data(bytes: Uint8Array): void
@@ -80,13 +83,23 @@ export class Relay {
         this.pending.get(id)?.fail("aborted")
       }
       request.signal.addEventListener("abort", abort, { once: true })
+      // A computer that stalls or drops the link mid-request never answers. Without a limit the
+      // request (a sent message, say) waited forever with nothing on screen saying it was lost;
+      // failing it lets the app report it and keep the draft.
+      const silence = setTimeout(() => {
+        if (started) return
+        this.send({ t: "abort", id })
+        this.pending.get(id)?.fail("Your computer didn't answer in time, so this didn't go through. Try again.")
+      }, ANSWER_MS)
       const done = () => {
+        clearTimeout(silence)
         this.pending.delete(id)
         request.signal.removeEventListener("abort", abort)
       }
       this.pending.set(id, {
         head: (status, headers) => {
           started = true
+          clearTimeout(silence)
           resolve(new Response([101, 204, 205, 304].includes(status) ? null : stream, { status, headers }))
         },
         data: (bytes) => controller?.enqueue(bytes),
