@@ -14,6 +14,7 @@
     "./timeline": "./src/timeline/session-timeline.tsx",
     "./basic-tool": "./src/components/basic-tool.tsx",
     "./tool-renderer": "./src/tools/tool-renderer.tsx",
+    "./computer-name": "./src/tools/computer-name.ts",
     "./dock-prompt": "./src/components/dock-prompt.tsx",
     "./file": "./src/components/file.tsx",
     "./file-media": "./src/components/file-media.tsx",

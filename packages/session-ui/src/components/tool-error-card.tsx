@@ -17,6 +17,8 @@ export interface ToolErrorCardProps extends Omit<ComponentProps<typeof Card>, "c
   subtitle?: string
   href?: string
   onSubtitleClick?: (event: MouseEvent) => void
+  /** A failure the run recovers from (a computer-use retry, or a Stop), shown as a quiet note. */
+  muted?: boolean
 }
 
 export function ToolErrorCard(props: ToolErrorCardProps) {
@@ -52,6 +54,7 @@ export function ToolErrorCard(props: ToolErrorCardProps) {
     "subtitle",
     "href",
     "onSubtitleClick",
+    "muted",
   ])
 
   const setOpen = (value: boolean) => {
@@ -140,7 +143,14 @@ export function ToolErrorCard(props: ToolErrorCardProps) {
   )
 
   return (
-    <Card {...rest} data-kind="tool-error-card" data-tool={split.tool} data-open={open() ? "true" : "false"} variant="error">
+    <Card
+      {...rest}
+      data-kind="tool-error-card"
+      data-tool={split.tool}
+      data-tone={split.muted ? "muted" : undefined}
+      data-open={open() ? "true" : "false"}
+      variant={split.muted ? "normal" : "error"}
+    >
       <Collapsible class="tool-collapsible" data-open={open() ? "true" : "false"} open={open()} onOpenChange={setOpen}>
         <Collapsible.Trigger>
           <div data-component="tool-trigger">

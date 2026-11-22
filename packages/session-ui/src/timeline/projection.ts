@@ -17,6 +17,7 @@ import {
 } from "../message/current-tool-state"
 import { TimelineRow, type PartGroup, type PartRef, type TimelineRowMap } from "./timeline-row"
 import { timelineCategory, timelineNoticePlacement, timelineNoticeRequired, type TimelineDetail } from "./detail"
+import { isComputerTool } from "../tools/computer-name"
 
 export { TimelineRow, type PartGroup, type PartRef, type TimelineRowMap }
 
@@ -1020,7 +1021,8 @@ function toolGroupType(
 
     if (currentToolGroupedRead(content)) return "read"
 
-    if (currentToolFailed(content)) return undefined
+    // A failed computer-use step stays with the steps around it: it is usually retried another way.
+    if (currentToolFailed(content) && !isComputerTool(content.name)) return undefined
 
     if (content.name === "patch" || content.name === "edit" || content.name === "write") return "file"
 

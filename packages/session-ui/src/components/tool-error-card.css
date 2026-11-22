@@ -164,3 +164,15 @@
     color: var(--v2-text-text-base);
   }
 }
+
+/* A failure the run recovers from (a computer-use retry, or a Stop) reads as a quiet note, not an alarm. */
+[data-component="card"][data-kind="tool-error-card"][data-tone="muted"] {
+  [data-slot="tool-error-card-summary"],
+  [data-slot="tool-error-card-content"] [data-slot="card-description"] {
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-component="tool-error-card-icon"] {
+    color: var(--v2-text-text-faint);
+  }
+}

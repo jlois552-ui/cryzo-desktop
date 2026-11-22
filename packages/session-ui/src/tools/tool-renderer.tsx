@@ -1,4 +1,5 @@
 // Current Session tool presentation grouped by visual family.
+import { ComputerTool, computerStep, isComputerTool } from "./computer-tool"
 import {
   Component,
   batch,
@@ -126,6 +127,8 @@ const toolInput = Schema.decodeUnknownSync(
     agent: optional(Schema.String),
     description: optional(Schema.String),
     command: optional(Schema.String),
+    program: optional(Schema.String),
+    args: optional(Schema.Array(Schema.String)),
     code: optional(Schema.String),
     oldString: optional(Schema.String),
     newString: optional(Schema.String),
@@ -135,6 +138,25 @@ const toolInput = Schema.decodeUnknownSync(
     questions: optional(Schema.Array(Schema.Unknown)),
   }),
 )
+
+/** The command line a shell call ran: OpenCode's `command`, or Cryzo's `program` with its `args`. */
+function shellCommandLine(input: ReturnType<typeof toolInput>) {
+  if (input.command) return input.command
+  if (!input.program) return undefined
+  return [input.program, ...(input.args ?? [])].map((part) => (/\s/.test(part) ? JSON.stringify(part) : part)).join(" ")
+}
+
+/** Cryzo's shell result is `{exit_code, stdout, stderr}`; the console shows the text a terminal would. */
+function shellResultText(output: string) {
+  if (!output.startsWith("{") || !output.includes('"exit_code"')) return output
+  const parsed = Schema.decodeUnknownOption(
+    Schema.fromJsonString(
+      Schema.Struct({ stdout: optional(Schema.String), stderr: optional(Schema.String) }),
+    ),
+  )(output)
+  if (Option.isNone(parsed)) return output
+  return [parsed.value.stdout, parsed.value.stderr].filter(Boolean).join("\n").trimEnd()
+}
 
 const toolMetadata = Schema.decodeUnknownSync(
   Schema.Struct({
@@ -306,7 +328,7 @@ function toolTitle(tool: SessionMessageAssistantTool, i18n: UiI18n) {
     case "skill":
       return i18n.t("ui.tool.skill")
     default:
-      return tool.name
+      return isComputerTool(tool.name) ? i18n.t("ui.tool.computer") : tool.name
   }
 }
 
@@ -485,6 +507,24 @@ export function CurrentContextToolGroup(props: {
 
     const title = names() || i18n.plural("ui.messagePart.context.thought", thoughts)
     const count = props.parts.filter((part) => part.type === "tool" || part.type === "shell").length || thoughts
+    const actions = props.parts.filter((part) => part.type === "tool" || part.type === "shell")
+
+    if (actions.length > 0 && actions.every((part) => part.type === "tool" && isComputerTool(part.name))) {
+      const text = i18n.plural("ui.computer.used", count, { count })
+      const countText = String(count)
+      const countIndex = text.indexOf(countText)
+
+      if (countIndex === -1) return { text, title: "", before: text, count: undefined, between: "", after: "" }
+
+      return {
+        text,
+        title: "",
+        before: text.slice(0, countIndex).trim(),
+        count,
+        between: text.slice(countIndex + countText.length).trim(),
+        after: "",
+      }
+    }
     const text = i18n.plural("ui.messagePart.tools.used", count, { tools: title })
     const index = text.indexOf(title)
     const before = text.slice(0, index).trim()
@@ -1364,7 +1404,13 @@ export function ToolDisplay(
 
   const errorSubtitle = createMemo(() => toolErrorSubtitle(props, i18n))
   const error = createMemo(() => toolDisplayError(props))
-  const render = createMemo(() => ToolRegistry.render(props.tool) ?? GenericTool)
+  const render = createMemo(
+    () => ToolRegistry.render(props.tool) ?? (isComputerTool(props.tool) ? ComputerTool : GenericTool),
+  )
+  // A failed computer-use step is usually retried another way, and a stopped tool is the user's own doing: both
+  // read as quiet notes rather than alarms.
+  const computer = createMemo(() => isComputerTool(props.tool))
+  const stopped = createMemo(() => /\b(tool|generation) interrupted\b/i.test(error() ?? ""))
 
   return (
     <Show when={!hideQuestion()}>
@@ -1387,11 +1433,14 @@ export function ToolDisplay(
               return (
                 <ToolErrorCard
                   tool={props.tool}
-                  error={error()}
+                  error={stopped() ? i18n.t("ui.tool.stopped") : error()}
+                  muted={computer() || stopped()}
                   title={
                     props.tool === "websearch"
                       ? webSearchProviderLabel(toolMetadata(props.metadata).provider, i18n)
-                      : undefined
+                      : computer()
+                        ? computerStep(i18n, props.tool, props.input, undefined)
+                        : undefined
                   }
                   defaultOpen={props.defaultOpen}
                   open={props.open}
@@ -1427,7 +1476,7 @@ function toolErrorSubtitle(props: ToolProps, i18n: UiI18n) {
   const input = toolInput(props.input)
   const metadata = toolMetadata(props.metadata)
 
-  if (props.tool === "shell") return input.command || metadata.command || undefined
+  if (props.tool === "shell") return shellCommandLine(input) || metadata.command || undefined
 
   if (props.tool === "read" || props.tool === "edit" || props.tool === "write") return getFilename(input.path ?? "")
 
@@ -2258,7 +2307,7 @@ ToolRegistry.register({
     }
 
     const sawStreaming = streaming()
-    const command = createMemo(() => toolInput(props.input).command ?? metadata().command ?? "")
+    const command = createMemo(() => shellCommandLine(toolInput(props.input)) ?? metadata().command ?? "")
 
     function Output() {
       const [streamed, setStreamed] = createSignal("")
@@ -2280,7 +2329,7 @@ ToolRegistry.register({
       })
 
       const output = createMemo(() =>
-        stripAnsi(saved() ?? ((metadata().shellID !== undefined && streamed()) || props.output || "")).replace(
+        stripAnsi(saved() ?? ((metadata().shellID !== undefined && streamed()) || shellResultText(props.output || ""))).replace(
           /\r\n?/g,
           "\n",
         ),

@@ -1,15 +1,16 @@
 import type { SessionMessageInfo } from "@opencode/client/promise"
 import { Spinner } from "@opencode/ui/spinner"
 import { useLanguage } from "@/runtime/i18n/language"
+import { isComputerTool } from "@opencode/session-ui/computer-name"
 
-/** Whether the turn in progress has used computer use (a `desktop_*` tool) since the last user message. */
+/** Whether the turn in progress has used computer use (the desktop, its Chrome or the preview) since the last user message. */
 export function usingComputer(messages: readonly SessionMessageInfo[]) {
   return messages
     .slice(messages.findLastIndex((message) => message.type === "user") + 1)
     .some(
       (message) =>
         message.type === "assistant" &&
-        message.content.some((item) => item.type === "tool" && item.name.startsWith("desktop_")),
+        message.content.some((item) => item.type === "tool" && isComputerTool(item.name)),
     )
 }
 
