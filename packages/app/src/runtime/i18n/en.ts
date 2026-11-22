@@ -1115,6 +1115,7 @@ export const dict = {
   "import.done.other": "Imported {{count}} conversations. Their folders are now among your projects.",
   "import.earlier": "Already in Cryzo",
   "import.session.open": "Open",
+  "import.session.update": "Update",
   "import.error": "The conversations couldn't be imported.",
   "publish.card.title": "Ready to publish",
   "publish.card.description": "Your app passed Cryzo's checks. Publishing gives it its own address, database and sign-in.",

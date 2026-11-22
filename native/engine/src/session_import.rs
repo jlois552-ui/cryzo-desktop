@@ -94,6 +94,11 @@ async fn sources(State(engine): State<Arc<Engine>>) -> ApiResult {
             if let Some(session) = imported.iter().find(|(key, _)| *key == file) {
                 item["imported"] = json!(true);
                 item["session"] = session.1.clone();
+                // The other agent kept going after the import, as an open conversation does.
+                item["stale"] = json!(
+                    item["updated"].as_u64().unwrap_or(0)
+                        > session.1["updated"].as_u64().unwrap_or(0) + 60_000
+                );
             } else {
                 item["imported"] = json!(false);
             }
@@ -103,7 +108,8 @@ async fn sources(State(engine): State<Arc<Engine>>) -> ApiResult {
     Ok(Json(json!({"conversations":list})))
 }
 
-/// Imports the chosen files. Each one becomes a session; files already imported are skipped.
+/// Imports the chosen files. Each one becomes a session. Files already imported are skipped,
+/// unless `update` asks for their newer transcript.
 async fn import(State(engine): State<Arc<Engine>>, Json(input): Json<Value>) -> ApiResult {
     tokio::task::spawn_blocking(move || import_files(&engine, &input))
         .await
@@ -130,9 +136,20 @@ fn import_files(engine: &Engine, input: &Value) -> Value {
             skipped.push(json!({"file":file,"reason":"not found"}));
             continue;
         };
-        if imported(engine).iter().any(|(key, _)| *key == file) {
-            skipped.push(json!({"file":file,"reason":"already imported"}));
-            continue;
+        if let Some((_, earlier)) = imported(engine).into_iter().find(|(key, _)| *key == file) {
+            if input["update"] != true {
+                skipped.push(json!({"file":file,"reason":"already imported"}));
+                continue;
+            }
+            // Updating brings in the whole transcript again. The earlier copy goes unless the user
+            // continued it in Cryzo, in which case both stay.
+            if earlier["continued"] != true
+                && let Some(id) = earlier["id"].as_str()
+                && let Err(error) = engine.record(id, "session.deleted", json!({}))
+            {
+                skipped.push(json!({"file":file,"reason":error.to_string()}));
+                continue;
+            }
         }
         match save(engine, source, path) {
             Ok(session) => sessions.push(session),
@@ -703,7 +720,25 @@ fn imported(engine: &Engine) -> Vec<(String, Value)> {
                 .store
                 .desktop_state(entry["session"].as_str()?)
                 .ok()?;
-            (state["deleted"] != true).then(|| (file, summary(&state["info"])))
+            if state["deleted"] == true {
+                return None;
+            }
+            let mut session = summary(&state["info"]);
+            let messages = state["messages"].as_array().cloned().unwrap_or_default();
+            // When the chat last changed in Cryzo, and whether the user carried it on here with
+            // another model: then updating it must not throw that work away.
+            session["updated"] = messages
+                .iter()
+                .filter_map(|message| message["time"]["created"].as_u64())
+                .max()
+                .map_or(Value::Null, |at| json!(at));
+            session["continued"] = json!(messages.iter().any(|message| {
+                message["type"] == "assistant"
+                    && !message["model"]["providerID"]
+                        .as_str()
+                        .is_some_and(|id| id.starts_with("imported-"))
+            }));
+            Some((file, session))
         })
         .collect()
 }

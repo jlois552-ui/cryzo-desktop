@@ -14,8 +14,8 @@ import { useGlobal } from "@/runtime/server/runtime"
 import { authTokenFromCredentials } from "@/runtime/server/api"
 import { sessionHref } from "@/shell/routes/session"
 
-/** An imported conversation's Cryzo session. */
-type ImportedSession = { id: string; directory: string; title: string }
+/** An imported conversation's Cryzo session. `stale` means its transcript grew after the import. */
+type ImportedSession = { id: string; directory: string; title: string; file?: string; stale?: boolean }
 
 export type ImportableConversation = {
   source: "claude-code" | "codex"
@@ -25,6 +25,7 @@ export type ImportableConversation = {
   exists: boolean
   imported: boolean
   session?: ImportedSession
+  stale?: boolean
   updated: number
 }
 
@@ -34,6 +35,8 @@ export async function importRequest(input: {
   password?: string
   platform: Platform
   files?: string[]
+  /** Import files already imported again, from their newer transcript. */
+  update?: boolean
   fallback: string
 }) {
   const response = await (input.platform.fetch ?? fetch)(`${input.url}/api/session/import`, {
@@ -42,7 +45,7 @@ export async function importRequest(input: {
       ...(input.password ? { Authorization: `Basic ${authTokenFromCredentials({ password: input.password })}` } : {}),
       ...(input.files ? { "Content-Type": "application/json" } : {}),
     },
-    body: input.files ? JSON.stringify({ files: input.files }) : undefined,
+    body: input.files ? JSON.stringify({ files: input.files, update: input.update }) : undefined,
   })
   const data = (await response.json().catch(() => ({}))) as Record<string, unknown>
   if (!response.ok) throw new Error(typeof data.message === "string" ? data.message : input.fallback)
@@ -71,12 +74,13 @@ export function DialogImportConversations() {
   const dialog = useDialog()
   const platform = usePlatform()
   const language = useLanguage()
-  const request = (files?: string[]) =>
+  const request = (files?: string[], update?: boolean) =>
     importRequest({
       url: sdk.url,
       password: sdk.http.password,
       platform,
       files,
+      update,
       fallback: language.t("import.error"),
     })
 
@@ -94,7 +98,9 @@ export function DialogImportConversations() {
       setState("picked", list.map((item) => item.file))
       return {
         todo: list,
-        imported: conversations(data).flatMap((item) => (item.session ? [item.session] : [])),
+        imported: conversations(data).flatMap((item) =>
+          item.session ? [{ ...item.session, file: item.file, stale: item.stale }] : [],
+        ),
       }
     }),
   )
@@ -128,6 +134,19 @@ export function DialogImportConversations() {
     setState("busy", false)
   }
 
+  // Brings in the newer transcript, then opens it in place of the old copy.
+  const update = async (session: ImportedSession) => {
+    if (!session.file) return
+    setState({ busy: true, error: "" })
+    const data = await request([session.file], true).catch((error: unknown) => {
+      setState("error", error instanceof Error ? error.message : String(error))
+      return undefined
+    })
+    setState("busy", false)
+    const fresh = Array.isArray(data?.sessions) ? (data.sessions as ImportedSession[])[0] : undefined
+    if (fresh) await open(fresh)
+  }
+
   const open = async (session: ImportedSession) => {
     await addProjects([session])
     navigate(sessionHref(server.key, session.id))
@@ -145,6 +164,11 @@ export function DialogImportConversations() {
               </span>
               <span class="truncate text-[12px] leading-4 text-v2-text-text-muted">{session.directory}</span>
             </div>
+            <Show when={session.stale}>
+              <Button size="small" variant="neutral" disabled={state.busy} onClick={() => void update(session)}>
+                {state.busy ? language.t("import.busy") : language.t("import.session.update")}
+              </Button>
+            </Show>
             <Button size="small" variant="ghost-muted" onClick={() => void open(session)}>
               {language.t("import.session.open")}
             </Button>
