@@ -5,6 +5,8 @@ import { useData } from "@/runtime/server/current"
 import { useServerSDK } from "@/runtime/server/client"
 import { createSessionMessageHandoff } from "@/session/handoff"
 import { useWorkspaceLocation } from "@/workspaces/location"
+import { useLanguage } from "@/runtime/i18n/language"
+import { showToast } from "@/shell/notifications/toast"
 
 export function createActiveComposerAdapter(input: {
   sessionID: string
@@ -22,6 +24,7 @@ export function createActiveComposerAdapter(input: {
   const data = useData()
   const server = useServerSDK()
   const location = useWorkspaceLocation()
+  const language = useLanguage()
 
   const adapter: ActiveComposerAdapter = {
     kind: "active-session",
@@ -45,7 +48,14 @@ export function createActiveComposerAdapter(input: {
       server.api.session
         .interrupt({ sessionID: id, resume: true })
         .then(() => undefined)
-        .catch(() => undefined),
+        // A Stop that didn't reach the computer must say so; otherwise it looks like it worked.
+        .catch((error: unknown) => {
+          showToast({
+            variant: "error",
+            title: language.t("session.stop.failed"),
+            description: error instanceof Error ? error.message : undefined,
+          })
+        }),
   }
 
   return adapter

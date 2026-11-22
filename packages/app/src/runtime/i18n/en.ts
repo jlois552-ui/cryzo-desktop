@@ -1100,6 +1100,7 @@ export const dict = {
   "publish.data.description":
     "Saves the live database as a .sql file in your Downloads folder, to keep a copy or try real data in the local app. It contains your users' data.",
   "publish.data.saved": "Saved to {{path}}",
+  "session.stop.failed": "Couldn't stop the agent. Try again.",
   "import.tip": "Import your Claude Code and Codex conversations",
   "import.title": "Import conversations",
   "import.open": "Import…",

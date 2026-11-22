@@ -1524,6 +1524,10 @@ export function createData(config: CreateDataInput) {
           const boundary = messages.findLastIndex((entry) => entry.type === "idle")
           if ((store.session.active[sessionID] ?? "idle") === "idle")
             return boundary >= 0 && item.time.created <= messages[boundary].time.created ? "stranded" : "starting"
+          // A device that opened the session mid-run may not have loaded the input that started the run;
+          // with older history still unloaded and no idle marker in view, that run is under way, so the
+          // steer waits behind it like it does on a device that watched the whole run.
+          if (boundary < 0 && store.session.messageCursor[sessionID] !== undefined) return "steering"
           return messages
             .slice(boundary + 1)
             .some((entry) => entry.type === "user" && !pending.some((other) => other.id === entry.id))

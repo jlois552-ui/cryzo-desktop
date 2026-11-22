@@ -479,6 +479,24 @@ export function ComposerEditor(props: ComposerEditorProps) {
               </Button>
             </Show>
             <Show when={state.mode === "normal"}>{props.micControl}</Show>
+            {/* With text typed, the main button sends it as a follow-up; Stop stays one tap away. */}
+            <Show when={view.submit.working?.() && !view.submit.stopping()}>
+              <Tooltip placement="top" value={i18n.t("ui.promptInput.stop")}>
+                <IconButton
+                  data-action="composer-stop"
+                  type="button"
+                  icon={<Icon name="stop" />}
+                  variant="neutral"
+                  class="size-8 rounded-full p-[7px]"
+                  aria-label={i18n.t("ui.promptInput.stop")}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    props.controller.stop()
+                  }}
+                />
+              </Tooltip>
+            </Show>
             <ComposerEditorSubmitButton
               mode={state.mode}
               stopping={view.submit.stopping()}
