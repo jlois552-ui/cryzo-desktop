@@ -16,7 +16,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 futures-util = "0.3"
 url = "2"
 axum = "0.8"
-tokio-util = "0.7"
+tempfile = "3"
+tokio-util = { version = "0.7", features = ["codec"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 portable-pty = "0.9"
 sha2 = "0.10"
@@ -30,5 +31,4 @@ windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Security"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
-tempfile = "3"
 http-body-util = "0.1"

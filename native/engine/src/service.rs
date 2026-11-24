@@ -21,6 +21,8 @@ use tokio::sync::{Mutex, mpsc};
 use tokio_util::sync::CancellationToken;
 
 pub struct Engine {
+    #[cfg(test)]
+    pub(crate) fixture_provider: Option<crate::native_sessions::ResolvedProvider>,
     _ownership: std::fs::File,
     pub store: Store,
     /// Replaced when a newer catalog arrives; read it with `catalog()`.
@@ -64,6 +66,8 @@ impl Engine {
         let mut catalog = Catalog::load_saved(&directory)?;
         crate::free_tier::configure(&mut catalog);
         Ok(Self {
+            #[cfg(test)]
+            fixture_provider: None,
             _ownership: ownership,
             store: Store::open(path)?,
             catalog: std::sync::RwLock::new(Arc::new(catalog)),

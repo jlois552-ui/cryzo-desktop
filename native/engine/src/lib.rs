@@ -9,6 +9,7 @@ pub mod desktop_models;
 pub mod desktop_storage;
 pub mod free_tier;
 pub mod market;
+pub mod mcp_marketplace;
 pub mod native_sessions;
 pub mod preview;
 pub mod provider;
@@ -23,4 +24,7 @@ pub mod starter;
 pub mod store;
 pub mod tools;
 pub mod voice;
+pub mod websearch;
 pub mod wire;
+
+pub mod antigravity;

@@ -145,7 +145,7 @@ pub fn models(engine: &Engine) -> Result<Vec<Value>> {
             && entry["active"] == true
             && entry["value"]["methodID"] == crate::claude_code::METHOD
     });
-    Ok(available(&engine.catalog())
+    let mut result: Vec<Value> = available(&engine.catalog())
         .filter(|(provider, _)| provider.id != "cryzo" || free)
         .filter(|(provider, model)| {
             provider.id != "openai" || !chatgpt || crate::chatgpt::offered(&model.id)
@@ -177,7 +177,9 @@ pub fn models(engine: &Engine) -> Result<Vec<Value>> {
             }
             info
         })
-        .collect())
+        .collect();
+    result.extend(crate::antigravity::models(engine)?);
+    Ok(result)
 }
 pub fn router(engine: Arc<Engine>) -> Router {
     Router::new()
@@ -239,7 +241,11 @@ async fn default_model(State(engine): State<Arc<Engine>>, RawQuery(query): RawQu
 /// OpenCode's own subscriptions and GitHub Copilot's OAuth have no Cryzo route, so they are not offered.
 const UNOFFERED: &[&str] = &["opencode", "opencode-go", "github-copilot"];
 fn provider_values(engine: &Engine) -> Vec<Value> {
-    engine.catalog().providers.iter().filter(|provider|!UNOFFERED.contains(&provider.id.as_str())&&available(&engine.catalog()).any(|(p,_)|p.id==provider.id)).map(|p|json!({"id":p.id,"integrationID":p.id,"name":p.name,"activation":"auto","package":"@ai-sdk/openai-compatible"})).collect()
+    let mut values: Vec<_> = engine.catalog().providers.iter().filter(|provider|!UNOFFERED.contains(&provider.id.as_str())&&available(&engine.catalog()).any(|(p,_)|p.id==provider.id)).map(|p|json!({"id":p.id,"integrationID":p.id,"name":p.name,"activation":"auto","package":"@ai-sdk/openai-compatible"})).collect();
+    if crate::antigravity::preview() {
+        values.push(json!({"id":"antigravity","integrationID":"antigravity","name":"Google Antigravity (ACP preview)","activation":"auto","package":"agy"}));
+    }
+    values
 }
 async fn providers(State(engine): State<Arc<Engine>>, RawQuery(query): RawQuery) -> ApiResult {
     let connected = engine.store.desktop_meta("credentials").map_err(error)?;
@@ -279,6 +285,7 @@ fn integration_values(engine: &Engine) -> Result<Vec<Value>> {
         Some("cryzo")=>json!([{"id":"google","type":"oauth","label":"Sign in with Google"}]),
         Some("openai")=>json!([{"type":"key","label":"API key"},{"id":crate::chatgpt::METHOD,"type":"oauth","label":"Sign in with ChatGPT"}]),
         // Runs the user's own Claude Code, signed in to their Claude account; Cryzo never sees that sign-in.
+        Some("antigravity")=>json!([{"id":"antigravity-personal","type":"command","label":"Connect signed-in Antigravity CLI","command":["agy","acp","--login"]}]),
         Some("anthropic")=>json!([{"type":"key","label":"API key"},{"id":crate::claude_code::METHOD,"type":"command","label":"Use your Claude plan (runs Claude Code)","command":["claude","auth","login"]}]),
         _=>json!([{"type":"key","label":"API key"}]),
     };

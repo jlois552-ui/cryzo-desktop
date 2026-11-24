@@ -31,6 +31,10 @@ The development deployment is `moonlit-mosquito-262` in the `cryzo-desktop-model
 - Prompts, tool arguments, credentials and provider bodies are not logged. Model messages and tool schemas are sent to NVIDIA; tools execute locally under native approvals.
 - NVIDIA API trial terms restrict production use; production entitlement/capacity remains a rollout dependency. This code makes no purchases and does not enable a public desktop release.
 
+## Web search
+
+Set `BRAVE_SEARCH_API_KEY` in the Convex deployment environment. The `/search/web` route uses a Cryzo account token, applies daily user and deployment quotas, and returns up to six Brave result links with snippets. The native engine connects this route to the web search tool. `bun test test/search.test.ts` exercises the provider and error responses with fixtures.
+
 ## Marketing
 
 `convex/market/` serves the desktop's Marketing tab under `/market/*`, behind the same Better Auth session as Cryzo Free. The desktop engine forwards these requests with the token from the OS credential store.

@@ -25,6 +25,13 @@ pub enum Operation {
         args: Vec<String>,
     },
     Diff,
+    Websearch {
+        query: String,
+    },
+    McpDocs {
+        server: String,
+        query: String,
+    },
     /// Marketing tools run against Cryzo cloud in the session runner, not in the workspace.
     MarketChannels {},
     MarketPosts {
@@ -207,6 +214,10 @@ impl Workspace {
                 anyhow::bail!("preview tools run in the session runner")
             }
             Operation::Publish {} => anyhow::bail!("publish runs in the session runner"),
+            Operation::Websearch { query } => crate::websearch::search(query).await,
+            Operation::McpDocs { server, query } => {
+                crate::mcp_marketplace::search(store, server, query).await
+            }
             Operation::Diff => {
                 self.process(
                     "git",

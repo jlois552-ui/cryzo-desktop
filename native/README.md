@@ -60,6 +60,12 @@ NVIDIA personal-key connections reconcile with the live catalog. Public catalog 
 
 Cryzo Free routes through `services/model-gateway`, with Google device login and 100 calls per UTC day per user. Set `CRYZO_GATEWAY_URL` to the gateway's Convex site origin (for development, `https://moonlit-mosquito-262.convex.site`) when building or running the desktop; an unconfigured build reports unavailable. The owner NVIDIA key stays exclusively on the server. See the service README for configuration and remaining live setup requirements.
 
+### Antigravity ACP preview
+
+Launch the native engine with `CRYZO_ANTIGRAVITY_ACP=1` to show the connection option. Install Google's Antigravity CLI and sign in with `agy acp --login` on the desktop. Set `CRYZO_AGY_PATH` to the absolute executable path if Cryzo cannot find it. A successful ACP session discovery fills the model picker with the signed-in account's advertised models.
+
+Cryzo requires Antigravity's CLI settings to list `write_file(*)`, `command(*)`, `unsandboxed(*)`, `execute_url(*)`, and `mcp(*)` under `permissions.ask` or `permissions.deny`. The CLI grants workspace writes by default. Cryzo uses one-time approvals and requires a plan mode announced by the CLI before sending a plan turn. The preview supports text prompts. [Google ACP documentation](https://antigravity.google/docs/ide/extensions/acp/) · [CLI permission rules](https://antigravity.google/docs/permissions?tab=cli)
+
 ## Work remaining before public alpha
 
 1. **Remaining engine parity:** compaction, full steering/queue controls, custom agents/skills, MCP/OAuth, plugin compatibility, repository/worktree mutation, session-specific snapshots and reverts, media attachments, advanced search, and the remaining upstream API/event contracts. Worktree inventory and working-tree diffs are available; full repository lifecycle and per-session snapshots are not implied.

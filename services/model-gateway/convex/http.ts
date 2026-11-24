@@ -6,6 +6,7 @@ import { remoteRoutes } from "./remote/http"
 import { cloudRoutes } from "./cloud/http"
 import { appRoutes } from "./apps/http"
 import { voiceRoutes } from "./voice/http"
+import { search } from "./search"
 
 const http = httpRouter()
 authComponent.registerRoutes(http, createAuth)
@@ -18,4 +19,5 @@ remoteRoutes(http)
 cloudRoutes(http)
 appRoutes(http)
 voiceRoutes(http)
+http.route({ path: "/search/web", method: "POST", handler: search })
 export default http

@@ -339,13 +339,21 @@ struct ToolRequest {
 pub(crate) async fn run(engine: &Engine, turn: Turn<'_>) -> Result<()> {
     let session = turn.session;
     let model_id = turn.model["id"].as_str().context("model missing")?;
-    // One Claude Code conversation per Cryzo session, resumed on later turns.
-    let conversation = conversation_id(session);
-    let resume = engine
+    let previous = engine
         .store
         .desktop_meta("claude-code")?
-        .iter()
-        .any(|entry| entry["session"] == session);
+        .into_iter()
+        .find(|entry| entry["session"] == session);
+    let resume = previous.is_some();
+    let conversation = match previous {
+        Some(entry) => entry["conversation"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| conversation_id(session)),
+        // An unacknowledged launch may already have created a CLI transcript. Use a fresh ID
+        // when retrying that launch, and keep the same ID after a model step acknowledges it.
+        None => uuid::Uuid::new_v4().to_string(),
+    };
 
     let (calls, mut requests) = mpsc::channel::<ToolRequest>(8);
     let secret = uuid::Uuid::new_v4().simple().to_string();
@@ -431,13 +439,6 @@ pub(crate) async fn run(engine: &Engine, turn: Turn<'_>) -> Result<()> {
     let mut job = child
         .raw_handle()
         .and_then(|handle| crate::preview::Job::holding(handle).ok());
-    if !resume {
-        engine.store.desktop_put_meta(
-            "claude-code",
-            session,
-            Some(&json!({"session":session,"conversation":conversation})),
-        )?;
-    }
     let mut stdin = child.stdin.take().context("Claude Code input")?;
     for message in &turn.prompt {
         let line = json!({"type":"user","message":{"role":"user","content":message}});
@@ -458,7 +459,7 @@ pub(crate) async fn run(engine: &Engine, turn: Turn<'_>) -> Result<()> {
         text
     });
     let mut lines = BufReader::new(child.stdout.take().context("Claude Code output")?).lines();
-    let mut steps = Steps::new(engine, session, turn.model, turn.agent);
+    let mut steps = Steps::new(engine, session, turn.model, turn.agent, &conversation);
     let outcome: Result<()> = loop {
         tokio::select! {
             biased;
@@ -516,7 +517,7 @@ pub(crate) async fn run(engine: &Engine, turn: Turn<'_>) -> Result<()> {
     Ok(())
 }
 
-/// The same Claude Code conversation ID for a session every time, so later turns resume it.
+/// Conversation IDs used by older Cryzo builds, for resuming legacy entries.
 fn conversation_id(session: &str) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(format!("cryzo-claude-code:{session}").as_bytes());
@@ -549,6 +550,7 @@ struct Steps<'a> {
     session: &'a str,
     model: &'a Value,
     agent: &'a str,
+    conversation: &'a str,
     /// The open step: its assistant message ID, streamed text and usage.
     step: Option<Step>,
     /// Tool calls Claude has announced, waiting for Cryzo to run them: (call ID, tool name).
@@ -566,12 +568,19 @@ struct Step {
 }
 
 impl<'a> Steps<'a> {
-    fn new(engine: &'a Engine, session: &'a str, model: &'a Value, agent: &'a str) -> Self {
+    fn new(
+        engine: &'a Engine,
+        session: &'a str,
+        model: &'a Value,
+        agent: &'a str,
+        conversation: &'a str,
+    ) -> Self {
         Self {
             engine,
             session,
             model,
             agent,
+            conversation,
             step: None,
             announced: VecDeque::new(),
             answered: false,
@@ -617,6 +626,11 @@ impl<'a> Steps<'a> {
                     "session.step.started",
                     json!({"assistantMessageID":message,"agent":self.agent,"model":self.model,"started":session_store::now()}),
                 )?;
+                // message_start acknowledges the input. If spawn or input fails, a
+                // subsequent provider switch must still see the undelivered transcript.
+                self.engine.store.desktop_put_meta("claude-code", self.session, Some(&json!({
+                    "session":self.session,"conversation":self.conversation,"lastMessage":message
+                })))?;
                 self.step = Some(Step {
                     message,
                     parts: Default::default(),
@@ -944,7 +958,7 @@ mod tests {
         let info = json!({"id":"ses_steer","title":"t","agent":"build","location":{"directory":folder.path()},"time":{"created":1,"updated":1},"cost":0,"tokens":session_store::tokens()});
         engine.store.desktop_create(info).unwrap();
         let model = json!({"id":"claude-opus-5-5","providerID":"anthropic"});
-        let steps = Steps::new(&engine, "ses_steer", &model, "build");
+        let steps = Steps::new(&engine, "ses_steer", &model, "build", "fixture");
         assert!(steps.steers().unwrap().is_empty());
         engine
             .record(

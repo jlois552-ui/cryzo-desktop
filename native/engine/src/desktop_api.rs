@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc};
 
 pub fn router(engine: Arc<Engine>) -> Router {
+    let acp = crate::antigravity::router(engine.clone());
     let models = crate::desktop_models::router(engine.clone());
     let sessions = crate::native_sessions::router(engine.clone());
     let files = crate::desktop_files::router(engine.clone());
@@ -21,6 +22,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
     let cloud = crate::cloud::router(engine.clone());
     let publish = crate::publish::router(engine.clone());
     let import = crate::session_import::router(engine.clone());
+    let mcp_marketplace = crate::mcp_marketplace::router(engine.clone());
     Router::new()
         .route("/api/info", get(info))
         .route("/api/location", get(location))
@@ -49,8 +51,10 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .merge(files)
         .merge(free)
         .merge(chatgpt)
+        .merge(acp)
         .merge(claude)
         .merge(market)
+        .merge(mcp_marketplace)
         .merge(cloud)
         .merge(publish)
         .merge(crate::starter::router())

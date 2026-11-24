@@ -221,9 +221,16 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
     const pageshow = () => void start()
     // Locking a phone or switching apps hides the document without a pagehide; the socket usually
     // dies while the page is suspended, and the browser may never report that on the hung read.
+    let hiddenAt: number | undefined
     const visibility = () => {
-      if (document.visibilityState !== "visible") return
-      if (Date.now() - lastActivity < foregroundIdleThreshold) return
+      if (document.visibilityState !== "visible") {
+        hiddenAt = Date.now()
+        return
+      }
+      // A buffered heartbeat can arrive before visibilitychange when iOS resumes.
+      const quietSince = Math.min(lastActivity, hiddenAt ?? lastActivity)
+      hiddenAt = undefined
+      if (Date.now() - quietSince < foregroundIdleThreshold) return
       resync("Page returned to the foreground after the event stream went quiet")
     }
     const online = () => resync("Network connection restored")

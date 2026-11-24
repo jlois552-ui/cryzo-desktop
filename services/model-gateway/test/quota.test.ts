@@ -56,3 +56,22 @@ test("100-call daily cap and global NVIDIA retry-after are enforced", async () =
   const bob = actor("bob")
   await expect(bob.reserve("msg_wait")).rejects.toThrow("free service busy")
 })
+
+test("web search checks both daily quotas before charging either bucket", async () => {
+  const { t } = setup()
+  await t.run(async (ctx) => {
+    const day = new Date().toISOString().slice(0, 10)
+    await ctx.db.insert("searchUsage", { bucket: "user:alice", day, calls: 19 })
+    await ctx.db.insert("searchUsage", { bucket: "total", day, calls: 498 })
+  })
+
+  expect(await t.mutation(internal.quota.admitSearch, { user: "alice" })).toBe(true)
+  expect(await t.mutation(internal.quota.admitSearch, { user: "alice" })).toBe(false)
+  expect(await t.mutation(internal.quota.admitSearch, { user: "bob" })).toBe(true)
+  expect(await t.mutation(internal.quota.admitSearch, { user: "claire" })).toBe(false)
+  expect(await t.run(async (ctx) => (await ctx.db.query("searchUsage").collect()).map((row) => [row.bucket, row.calls]))).toEqual([
+    ["user:alice", 20],
+    ["total", 500],
+    ["user:bob", 1],
+  ])
+})

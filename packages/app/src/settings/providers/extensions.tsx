@@ -17,6 +17,7 @@ import { ExternalLink } from "@/runtime/platform/external-link"
 import { usePlatform } from "@/runtime/platform/platform"
 import { SettingsList } from "@/settings/list"
 import type { SettingsView } from "@/settings/surface"
+import { McpMarketplace } from "./mcp-marketplace"
 import "@/settings/settings.css"
 import "@/shell/search-list.css"
 
@@ -111,6 +112,7 @@ export const SettingsExtensions: Component<{
           </Tabs.List>
 
           <Tabs.Content value="mcps">
+            <McpMarketplace fallback={
             <div class="settings-section">
               <div class="flex items-center justify-between">
                 <span class="settings-extension-heading text-13-medium">
@@ -191,6 +193,7 @@ export const SettingsExtensions: Component<{
                 </For>
               </SettingsList>
             </div>
+            } />
           </Tabs.Content>
 
           <Tabs.Content value="plugins">

@@ -739,6 +739,199 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn phone_disconnect_does_not_interrupt_an_admitted_prompt() {
+        use crate::catalog::{Api, Catalog, Model, Provider};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let dir = tempfile::tempdir().unwrap();
+        let provider_calls = Arc::new(AtomicUsize::new(0));
+        let answering = Arc::new(tokio::sync::Notify::new());
+        let finish = Arc::new(tokio::sync::Notify::new());
+        let provider = Router::new().route("/v1/chat/completions", axum::routing::post({
+            let calls=provider_calls.clone();
+            let answering=answering.clone();
+            let finish=finish.clone();
+            move || {let calls=calls.clone(); let answering=answering.clone();let finish=finish.clone();async move {
+                let call=calls.fetch_add(1,Ordering::SeqCst);
+                let event=if call==0 {
+                    json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"write-1","function":{"name":"write","arguments":json!({"path":"result.txt","content":"one write"}).to_string()}}]},"finish_reason":"tool_calls"}]})
+                }else{
+                    answering.notify_one();
+                    finish.notified().await;
+                    json!({"choices":[{"delta":{"content":"Finished while the phone was away."},"finish_reason":"stop"}]})
+                };
+                ([(header::CONTENT_TYPE,"text/event-stream")],format!("data: {event}\n\ndata: [DONE]\n\n"))
+            }}
+        }));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+        let provider_task = tokio::spawn(async move {
+            axum::serve(listener, provider).await.unwrap();
+        });
+        let mut engine = Engine::open(&dir.path().join("cryzo.sqlite")).unwrap();
+        engine.set_catalog(Catalog {
+            upstream_commit: "fixture".into(),
+            providers: vec![Provider {
+                id: "fixture".into(),
+                name: "Fixture".into(),
+                credential_env: vec![],
+                models: vec![Model {
+                    id: "fixture-model".into(),
+                    name: "Fixture".into(),
+                    apis: vec![Api {
+                        protocol: "chat-completions".into(),
+                        base_url: Some(endpoint.clone()),
+                        compatibility: json!({}),
+                    }],
+                    details: json!({"capabilities":{"tools":{"supported":true}}}),
+                }],
+            }],
+        });
+        let model = json!({"providerID":"fixture","id":"fixture-model"});
+        engine.fixture_provider = Some(crate::native_sessions::ResolvedProvider {
+            endpoint,
+            secret: "fixture".into(),
+            model: model.clone(),
+        });
+        engine.store.desktop_create(json!({"id":"ses_remote","location":{"directory":dir.path()},"agent":"build","model":model,"cost":0,"tokens":crate::session_store::tokens()})).unwrap();
+        let engine = Arc::new(engine);
+        let events = engine.desktop_events.subscribe();
+        let (socket, mut relay) = joined().await;
+        let app = crate::service::router(engine.clone(), "local".into());
+        let cancel = CancellationToken::new();
+        let link = tokio::spawn({
+            let engine = engine.clone();
+            let cancel = cancel.clone();
+            async move {
+                let (status, _) = watch::channel(Status::default());
+                serve(socket, engine, app, "local", &status, &cancel).await
+            }
+        });
+        let frame = |id: u64, client: &str, method: &str, path: &str, body: Value| {
+            Message::text(json!({
+            "t":"req","c":client,"id":id,"method":method,"path":path,
+            "headers":[["content-type","application/json"]],"body":STANDARD.encode(body.to_string())
+        }).to_string())
+        };
+        let gone = |client: &str| Message::text(json!({"t":"gone","c":client}).to_string());
+        let wait_event = |mut events: tokio::sync::broadcast::Receiver<Value>,
+                          kind: &'static str| async move {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    let event = events.recv().await.unwrap();
+                    if event["type"] == kind {
+                        break event;
+                    }
+                }
+            })
+            .await
+            .unwrap()
+        };
+        let prompt = json!({"id":"msg_remote","text":"Write result.txt, then report completion."});
+        let guard = engine.running.lock().await;
+        let admitted = events.resubscribe();
+        relay
+            .send(frame(
+                1,
+                "phone",
+                "POST",
+                "/api/session/ses_remote/prompt",
+                prompt.clone(),
+            ))
+            .await
+            .unwrap();
+        let _ = wait_event(admitted, "session.inbox.enqueued").await;
+        relay.send(gone("phone")).await.unwrap();
+        // A second client request is ordered after the disconnect frame.
+        relay
+            .send(frame(2, "observer", "GET", "/api/info", Value::Null))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while let Some(value) = relay.next().await {
+                let value = value.unwrap();
+                if let Ok(v) = serde_json::from_str::<Value>(value.to_text().unwrap_or(""))
+                    && v["id"] == 2
+                {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let waiting = events.resubscribe();
+        drop(guard);
+
+        let permission = wait_event(waiting, "permission.asked").await;
+        let permission_id = permission["data"]["id"].as_str().unwrap();
+        assert!(!dir.path().join("result.txt").exists());
+        relay.send(gone("observer")).await.unwrap();
+        assert!(engine.permissions.lock().await.contains_key(permission_id));
+        relay
+            .send(frame(
+                3,
+                "approval",
+                "POST",
+                &format!("/api/session/ses_remote/permission/{permission_id}/reply"),
+                json!({"decision":"once"}),
+            ))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), answering.notified())
+            .await
+            .unwrap();
+        relay.send(gone("approval")).await.unwrap();
+        let complete = events.resubscribe();
+        finish.notify_one();
+        let _ = wait_event(complete, "session.execution.succeeded").await;
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("result.txt")).unwrap(),
+            "one write"
+        );
+        assert_eq!(provider_calls.load(Ordering::SeqCst), 2);
+        let state = engine.store.desktop_state("ses_remote").unwrap();
+        assert_eq!(state["status"], "idle");
+        assert_eq!(
+            state["messages"][2]["content"][0]["text"],
+            "Finished while the phone was away."
+        );
+
+        // A phone can retry its original request ID after losing the acknowledgement.
+        relay
+            .send(frame(
+                4,
+                "returning",
+                "POST",
+                "/api/session/ses_remote/prompt",
+                prompt,
+            ))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while let Some(value) = relay.next().await {
+                let value = value.unwrap();
+                if let Ok(v) = serde_json::from_str::<Value>(value.to_text().unwrap_or(""))
+                    && v["id"] == 4
+                    && v["t"] == "head"
+                {
+                    assert_eq!(v["status"], 200);
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            engine.store.desktop_state("ses_remote").unwrap()["messages"],
+            state["messages"]
+        );
+        assert_eq!(provider_calls.load(Ordering::SeqCst), 2);
+        cancel.cancel();
+        provider_task.abort();
+        let _ = link.await;
+    }
+
+    #[tokio::test]
     async fn only_the_session_api_is_reachable() {
         let (mut relay, _status, cancel, _directory) = link().await;
         for path in ["/v0/health", "/api/../v0/health", "http://evil/api/hello"] {

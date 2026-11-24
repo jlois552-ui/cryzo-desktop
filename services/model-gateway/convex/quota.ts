@@ -2,6 +2,27 @@ import { v, ConvexError } from "convex/values"
 import { internalMutation } from "./_generated/server"
 import { limit } from "./lib/limits"
 
+export const admitSearch = internalMutation({
+  args: { user: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const day = new Date().toISOString().slice(0, 10)
+    const caps = await Promise.all([
+      { bucket: `user:${args.user}`, limit: 20 },
+      { bucket: "total", limit: 500 },
+    ].map(async (cap) => ({
+      ...cap,
+      row: await ctx.db.query("searchUsage").withIndex("by_bucket_and_day", (q) => q.eq("bucket", cap.bucket).eq("day", day)).unique(),
+    })))
+    if (caps.some((cap) => (cap.row?.calls ?? 0) >= cap.limit)) return false
+    for (const cap of caps) {
+      if (cap.row) await ctx.db.patch(cap.row._id, { calls: cap.row.calls + 1 })
+      else await ctx.db.insert("searchUsage", { bucket: cap.bucket, day, calls: 1 })
+    }
+    return true
+  },
+})
+
 // Internal: only the gateway HTTP actions in this deployment can reserve or settle calls.
 export const reserve = internalMutation({
   args: { user: v.string(), step: v.string() },
