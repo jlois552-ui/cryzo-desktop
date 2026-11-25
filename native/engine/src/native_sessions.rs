@@ -1219,9 +1219,24 @@ pub(crate) fn external_prompt(
         }
     }
     notes.reverse();
+    // The new message is the task. Saying the earlier request was the latest instruction made
+    // models finish a request the user had already moved on from before reading the new one.
     if let Some(instruction) = instruction {
+        let after = latest_user.map_or(&unseen[..0], |i| &unseen[i + 1..fresh]);
+        let status = if after.iter().any(|m| m.get("error").is_some()) {
+            "not finished: the run stopped with an error"
+        } else if after.iter().any(|m| m["outcome"] == "interrupted") {
+            "not finished: the user interrupted it"
+        } else {
+            "answered above"
+        };
+        let guidance = if unseen[fresh..].iter().any(|m| m["type"] == "user") {
+            "This is background. Your task is the user's new message below; continue the previous request only if that message asks you to."
+        } else {
+            "Continue this request from where the earlier run left off."
+        };
         notes.push(format!(
-            "Most recent user instruction before the handoff: {instruction}"
+            "The user's previous request ({status}): {instruction}\n{guidance}"
         ));
     }
     let mut blocks = Vec::new();
@@ -2230,6 +2245,11 @@ mod handoff_tests {
             assert_eq!(text.matches(term).count(), 1, "{term}");
         }
         assert!(!text.contains("commands.tsx"));
+        assert!(text.contains(
+            "The user's previous request (not finished: the run stopped with an error): Investigate the phone disconnect"
+        ));
+        assert!(text.contains("Your task is the user's new message below"));
+        assert!(!text.contains("Most recent user instruction"));
         let messages = state["messages"].as_array_mut().unwrap();
         messages.extend([
             json!({"id":"ack","type":"assistant"}),
