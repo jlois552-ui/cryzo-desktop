@@ -34,6 +34,30 @@ Use `--outcome-waits` with the same workflow command to have the current Cryzo b
 
 The six-trial outcome rerun used the same nine calls and save checks. All lanes used a fixture with a visible Draft saved label. The four action calls took a median of 807 ms with Cryzo outcome waits, 2,093.5 ms with the previous Cryzo build, and 1,386.5 ms with Vercel default. Whole-workflow medians were 1,166.5 ms, 2,400.5 ms, and 2,932 ms respectively. Each saved six exact drafts with zero recorded decoy events. Vercel headed lost focus in all six trials. Separate tests caught the 275 ms and 350 ms delayed validation and save messages with both Cryzo wait modes and confirmed that a missing or already-visible outcome falls back without repeating the action.
 
+### Cold Electron app: open Cursor and type into its chat box
+
+On November 25, 2026, Claude Opus took 4 min 19 s to open Cursor and type "hello, Grok" in Cryzo.
+- The model answered each step in 1 to 2 s.
+- Cryzo's tools took 201 s.
+- About half the run went to an older, unfinished request that the model handoff presented as the latest instruction.
+
+These are the same calls against a freshly started Cursor, timed one tool call at a time through `cryzo-desktop-mcp`:
+
+| Step | Previous build | Current build |
+|---|---|---|
+| Launch | 4.4 s, by AUMID found with a shell; returned only the window title | 8.3 s, by the name "Cursor"; returns the full tree |
+| Snapshot | 1.2 s, then 16.7 s; still only `statusbar "Loading"` | 0.34 s |
+| Find the chat box (`find "" role edit`) | no match | 0.26 s, `edit "Prompt"` |
+| Type "hello, Grok" | — | 0.96 s, verified in the field |
+| OCR | blank; the window printed as one colour | 0.41 s, reads the window |
+
+The same six-trial ticket workflow with `--outcome-waits` measured these medians:
+- 1,033 ms for this build.
+- 2,475 ms for the previous build.
+- 2,099 ms for Vercel default.
+
+All three saved six exact drafts with zero decoy events. Vercel headed lost focus in all six trials.
+
 For the model phase, use a dedicated interactive Windows profile with no personal windows or documents. Sign in with ChatGPT there, quit Cryzo so the benchmark owns the model connection, and run the same commands with the model bridge built too.
 
 ```powershell
