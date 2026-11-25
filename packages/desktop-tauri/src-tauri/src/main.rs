@@ -184,6 +184,8 @@ fn tray(app: &tauri::App) -> tauri::Result<()> {
 }
 
 fn main() {
+    // On macOS desktop control draws its overlay from a copy of this executable.
+    cryzo_desktop_control::overlay_helper();
     // Before anything else starts: apps opened from the Dock or an app menu need the login shell's PATH.
     cryzo_engine::shell_env::adopt();
     // Started at sign-in: open into the tray rather than in front of the user.

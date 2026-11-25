@@ -18,8 +18,9 @@ use crate::{
     ax::quote,
     common::{
         OUTCOME_WAIT, Rect, changes, clean, clip, line_id, outcome_matches, outcome_note,
-        outcome_query, stopped, summary,
+        outcome_query, stopped, summary, verb,
     },
+    motion::Indicator,
 };
 
 /// Most children shown per element before the rest are only counted.
@@ -83,6 +84,14 @@ pub trait Backend {
     fn ocr(&mut self, window: &Window<Self::Node>) -> Result<Vec<String>>;
     /// The app under a screen point, for approvals.
     fn app_at(&mut self, x: i32, y: i32) -> Option<String>;
+    /// Where an element is on screen, for the agent cursor.
+    fn bounds(&mut self, _node: &Self::Node) -> Option<Rect> {
+        None
+    }
+    /// Starts the on-screen overlay. None where the platform has none.
+    fn start_overlay(&mut self) -> Option<Indicator> {
+        None
+    }
 }
 
 struct Target<N> {
@@ -103,6 +112,8 @@ pub struct Desktop<B: Backend> {
     /// Previous snapshot lines per window key, for diff mode.
     last: HashMap<String, Vec<String>>,
     browser: Option<crate::browser::Browser>,
+    /// The on-screen overlay, started by the first action.
+    overlay: Option<Option<Indicator>>,
 }
 
 impl<B: Backend> Desktop<B> {
@@ -115,6 +126,7 @@ impl<B: Backend> Desktop<B> {
             targets: HashMap::new(),
             last: HashMap::new(),
             browser: None,
+            overlay: None,
         }
     }
 
@@ -122,11 +134,49 @@ impl<B: Backend> Desktop<B> {
         self.settings = settings;
     }
 
+    /// A new user turn: a Stop from the previous turn is cleared, because sending a new message
+    /// is the user letting Cryzo act again.
     pub fn begin_turn(&mut self) {
         crate::common::STOPPED.store(false, std::sync::atomic::Ordering::SeqCst);
+        if let Some(overlay) = self.running_overlay() {
+            overlay.resume();
+        }
     }
 
-    pub fn end_turn(&mut self) {}
+    /// The turn ended: the overlay goes away now instead of fading out on its own.
+    pub fn end_turn(&mut self) {
+        if let Some(overlay) = self.running_overlay() {
+            overlay.done();
+        }
+    }
+
+    /// The on-screen overlay, started by the first action. None when the platform has none.
+    fn overlay(&mut self) -> Option<Indicator> {
+        if self.overlay.is_none() {
+            self.overlay = Some(self.backend.start_overlay());
+        }
+        self.running_overlay()
+    }
+
+    /// The overlay only when an action has already started it, so reading alone never shows it.
+    fn running_overlay(&self) -> Option<Indicator> {
+        self.overlay.clone().flatten()
+    }
+
+    /// Shows the step on the overlay, gliding the agent cursor to `node` when it has a place on
+    /// screen. Returns when the cursor arrives, for input that goes to the pointer.
+    fn show(&mut self, step: &str, node: Option<&B::Node>) -> Option<Instant> {
+        let overlay = self.overlay()?;
+        match node.and_then(|node| self.backend.bounds(node)) {
+            Some(rect) if rect.right > rect.left && rect.bottom > rect.top => {
+                Some(overlay.preview(step, rect))
+            }
+            _ => {
+                overlay.step(step);
+                None
+            }
+        }
+    }
 
     pub fn call(&mut self, command: &str, args: &Value) -> Result<Output> {
         let text = |key: &str| args.get(key).and_then(Value::as_str);
@@ -136,6 +186,19 @@ impl<B: Backend> Desktop<B> {
                 .and_then(Value::as_i64)
                 .ok_or_else(|| anyhow!("{command} needs {key}"))
         };
+        // While a call runs, however long, the overlay stays up instead of fading as idle.
+        let overlay = self.running_overlay();
+        let _busy = overlay.as_ref().map(Indicator::busy);
+        if let Some(overlay) = &overlay {
+            match command {
+                "windows" | "snapshot" | "find" | "wait_for" | "ocr" | "screenshot" => {
+                    overlay.step("Reading the screen")
+                }
+                "browser_snapshot" | "browser_find" | "browser_downloads" | "browser_tabs"
+                | "browser_capture" => overlay.step("Reading the page"),
+                _ => {}
+            }
+        }
         let output = match command {
             "windows" => self.windows(),
             "snapshot" => self.snapshot(
@@ -195,8 +258,17 @@ impl<B: Backend> Desktop<B> {
             command if command.starts_with("browser_") => {
                 let (max_lines, passwords) =
                     (self.settings.max_lines, self.settings.type_into_passwords);
+                // Windows' overlay is its own type; this one serves macOS and Linux.
+                #[cfg(not(windows))]
+                let overlay = if crate::acts(command) {
+                    self.overlay()
+                } else {
+                    None
+                };
+                #[cfg(windows)]
+                let overlay = None;
                 self.browser()?
-                    .call(command, args, max_lines, passwords, None)
+                    .call(command, args, max_lines, passwords, overlay.as_ref())
             }
             _ => Err(anyhow!("Unknown desktop tool {command:?}")),
         };
@@ -381,7 +453,12 @@ impl<B: Backend> Desktop<B> {
     pub fn snapshot(&mut self, window: Option<&str>, diff: bool) -> Result<String> {
         let window = self.window(window)?;
         self.blocked(&window)?;
-        let (lines, truncated) = self.read(&window);
+        let first = self.read(&window);
+        let (lines, truncated) = if first.0.len() < 8 {
+            self.warm(&window, Duration::from_secs(3))
+        } else {
+            first
+        };
         let header = header(&window);
         let previous = self.last.insert(window.key.clone(), lines.clone());
         let ocr = self.ocr_note(&window, &lines);
@@ -495,6 +572,10 @@ impl<B: Backend> Desktop<B> {
             let (lines, truncated) = self.read(&window);
             (query, outcome_matches(&lines, truncated, query) == Some(0))
         });
+        let arrives = self.show(
+            &format!("{} {}", verb(action), target_label(&label)),
+            Some(&node),
+        );
         stopped()?;
         match action {
             "type" => {
@@ -505,6 +586,11 @@ impl<B: Backend> Desktop<B> {
                     );
                 }
                 if !self.backend.set_text(&node, text)? {
+                    // Keystrokes go where the focus is; let the agent cursor get there first.
+                    if let Some(arrives) = arrives {
+                        std::thread::sleep(arrives.saturating_duration_since(Instant::now()));
+                    }
+                    stopped()?;
                     self.backend.perform(&node, "focus")?;
                     self.backend.type_text(text)?;
                 }
@@ -513,6 +599,13 @@ impl<B: Backend> Desktop<B> {
             | "expand" | "collapse" | "scroll_into_view" | "scroll_down" | "scroll_up"
             | "focus" => self.backend.perform(&node, action)?,
             _ => bail!("Unknown action {action:?}"),
+        }
+        if matches!(
+            action,
+            "click" | "double_click" | "right_click" | "toggle" | "select"
+        ) && let Some(overlay) = self.running_overlay()
+        {
+            overlay.click();
         }
         self.audit(&window.app, &label, action);
         Ok(format!(
@@ -525,6 +618,16 @@ impl<B: Backend> Desktop<B> {
         stopped()?;
         let window = self.window(window)?;
         self.blocked(&window)?;
+        let plain = !keys.contains(['{', '}', '(', ')', '\n', '\t']);
+        let title = clean(&window.title);
+        self.show(
+            &if plain {
+                format!("Typing in {title}")
+            } else {
+                format!("Pressing {} in {title}", clip(keys, 30))
+            },
+            None,
+        );
         self.backend.raise(&window)?;
         for press in presses(keys)? {
             stopped()?;
@@ -541,31 +644,81 @@ impl<B: Backend> Desktop<B> {
         stopped()?;
         let window = self.window(Some(window))?;
         self.blocked(&window)?;
+        self.show(&format!("Switching to {}", clean(&window.title)), None);
         self.backend.raise(&window)?;
         Ok(format!("focused {}", header(&window)))
     }
 
+    /// Opens an app, file or URL, waits for its window and returns it as a snapshot, so the model
+    /// can act on it without asking again.
     pub fn launch(&mut self, app: &str) -> Result<String> {
         stopped()?;
         if let Some(entry) = self.blocked_entry(app, app) {
             bail!("{entry} is on the blocked apps list in desktop-control settings.");
         }
+        self.show(&format!("Opening {}", clip(app, 60)), None);
         let before = self.foreground_key();
+        let existing = self
+            .backend
+            .windows()
+            .map(|windows| windows.into_iter().map(|window| window.key).collect())
+            .unwrap_or_else(|_| HashSet::new());
         self.backend.launch(app)?;
+        // Either the app's window comes to the front, or a new one appears behind another window.
         let deadline = Instant::now() + Duration::from_secs(10);
-        while Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(250));
+        let opened = loop {
+            std::thread::sleep(Duration::from_millis(150));
             if let Some(window) = self
                 .foreground()
                 .filter(|window| Some(&window.key) != before.as_ref())
             {
-                std::thread::sleep(QUIET);
-                return Ok(format!("opened {}", header(&window)));
+                break Some(window);
             }
-        }
+            if let Some(window) = self.backend.windows().ok().and_then(|windows| {
+                windows
+                    .into_iter()
+                    .find(|window| !existing.contains(&window.key))
+            }) {
+                break Some(window);
+            }
+            if Instant::now() >= deadline {
+                break None;
+            }
+        };
+        let Some(window) = opened else {
+            return Ok(format!(
+                "asked the system to open {app:?}; no new window appeared within 10 seconds. If it was already open, find it with windows."
+            ));
+        };
+        self.blocked(&window)?;
+        self.audit(&window.app, app, "launch");
+        // A new window is still drawing itself, and Chromium apps build their accessibility tree
+        // only once asked, so the first reads can be empty for a few seconds.
+        std::thread::sleep(QUIET);
+        let (lines, truncated) = self.warm(&window, Duration::from_secs(8));
+        self.last.insert(window.key.clone(), lines.clone());
+        let note = if truncated {
+            "\n  … cut off at the line budget; use find to reach the rest"
+        } else {
+            ""
+        };
         Ok(format!(
-            "asked the system to open {app:?}; no new window came to the front within 10 seconds"
+            "opened {}\n{}{note}",
+            header(&window),
+            lines.join("\n")
         ))
+    }
+
+    /// Reads a window until its tree has content, for at most `limit`.
+    fn warm(&mut self, window: &Window<B::Node>, limit: Duration) -> (Vec<String>, bool) {
+        let deadline = Instant::now() + limit;
+        loop {
+            let read = self.read(window);
+            if read.0.len() >= 8 || Instant::now() >= deadline {
+                return read;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
     }
 
     pub fn ocr(&mut self, window: Option<&str>) -> Result<String> {
@@ -580,6 +733,19 @@ impl<B: Backend> Desktop<B> {
         let app = self.backend.app_at(x, y).unwrap_or_default();
         if let Some(entry) = self.blocked_entry(&app, &app) {
             bail!("{entry} is on the blocked apps list in desktop-control settings.");
+        }
+        if let Some(overlay) = self.overlay() {
+            overlay.point(
+                format!("Clicking at {x}, {y}"),
+                Rect {
+                    left: x - 10,
+                    top: y - 10,
+                    right: x + 10,
+                    bottom: y + 10,
+                },
+            );
+            stopped()?;
+            overlay.click();
         }
         self.backend.click(x, y, button)?;
         self.audit(&app, &format!("point {x},{y}"), "click_at");
@@ -967,6 +1133,11 @@ impl<B: Backend> Desktop<B> {
 enum Line {
     Shown(String, String),
     Skipped,
+}
+
+/// An element's label without its ID, for the overlay: `button "Send"` from `[e4] button "Send"`.
+fn target_label(label: &str) -> &str {
+    label.split_once("] ").map_or(label, |(_, rest)| rest)
 }
 
 fn header<N>(window: &Window<N>) -> String {

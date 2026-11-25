@@ -556,6 +556,14 @@ impl Backend for Mac {
         bail!("OCR isn't available on macOS yet; use screenshot for visual content")
     }
 
+    fn bounds(&mut self, node: &Element) -> Option<Rect> {
+        node.frame()
+    }
+
+    fn start_overlay(&mut self) -> Option<crate::motion::Indicator> {
+        crate::mac_overlay::start()
+    }
+
     fn app_at(&mut self, x: i32, y: i32) -> Option<String> {
         // SAFETY: a new system-wide element, released by Element; the hit element is ours too.
         let system = Element::owned(unsafe { AXUIElementCreateSystemWide() })?;

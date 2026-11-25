@@ -47,21 +47,11 @@ use windows::{
     core::{BOOL, PCWSTR, w},
 };
 
-/// Cryzo violet.
-const ACCENT: (f32, f32, f32) = (124.0, 92.0, 255.0);
-/// The agent cursor's travel time grows with distance, between these bounds.
-const GLIDE_MIN: Duration = Duration::from_millis(90);
-const GLIDE_MAX: Duration = Duration::from_millis(320);
-const RIPPLE: Duration = Duration::from_millis(450);
-const FADE: Duration = Duration::from_millis(250);
-/// The outline leaves this long after the last action. The agent cursor rests where it is, and it,
-/// the glow and the pill stay for the whole turn: between calls the pill says "Thinking…", so
-/// nothing flickers while the model decides. `IDLE` with no call at all is only a safety net for
-/// clients that never end a turn.
-const OUTLINE_IDLE: Duration = Duration::from_secs(4);
-const IDLE: Duration = Duration::from_secs(45);
-/// How long after a call ends the pill switches to "Thinking…".
-const THINKING_AFTER: Duration = Duration::from_millis(900);
+use crate::motion::{
+    ACCENT, FADE, GLIDE_MIN, IDLE, OUTLINE_IDLE, POINTER, RIPPLE, STOPPED_LABEL, THINKING_AFTER,
+    TIP, glide_position, glide_time, outline_pad, paint_glow, paint_outline, paint_pointer,
+};
+
 const FRAME_MS: u32 = 16;
 
 enum Signal {
@@ -112,12 +102,6 @@ impl Drop for Busy {
     fn drop(&mut self) {
         self.0.send(Signal::Busy(false));
     }
-}
-
-/// Travel time for a glide of `distance` pixels: short hops are quick, long ones stay readable.
-fn glide_time(distance: f32) -> Duration {
-    let span = (GLIDE_MAX - GLIDE_MIN).as_millis() as f32;
-    GLIDE_MIN + Duration::from_millis((span * (distance / 1200.0).clamp(0.0, 1.0).sqrt()) as u64)
 }
 
 impl Overlay {
@@ -527,7 +511,7 @@ struct State {
 
 impl State {
     fn new(windows: Windows) -> Self {
-        let size = (96.0 * windows.scale) as i32;
+        let size = (POINTER * windows.scale) as i32;
         let pointer = Layer::new(windows.pointer, size, size);
         let now = Instant::now();
         let mut state = Self {
@@ -669,7 +653,7 @@ impl State {
         let now = Instant::now();
         if crate::uia::is_stopped() && !PILL.with_borrow(|pill| pill.stopped) {
             PILL.with_borrow_mut(|pill| pill.stopped = true);
-            self.label("Stopped. Cryzo won't act again until you send a new message.");
+            self.label(STOPPED_LABEL);
         }
         if !self.busy
             && !self.thinking
@@ -728,16 +712,12 @@ impl State {
         }
     }
 
-    /// Where the agent cursor is now, easing out along a slightly bowed path, as a hand moves.
+    /// Where the agent cursor is now.
     fn position(&self, now: Instant) -> (f32, f32) {
-        let t =
-            (now.duration_since(self.glide).as_secs_f32() / self.glide_time.as_secs_f32()).min(1.0);
-        let eased = 1.0 - (1.0 - t).powi(3);
-        let (dx, dy) = (self.to.0 - self.from.0, self.to.1 - self.from.1);
-        let bow = 0.32 * eased * (1.0 - eased);
-        (
-            self.from.0 + dx * eased - dy * bow,
-            self.from.1 + dy * eased + dx * bow,
+        glide_position(
+            self.from,
+            self.to,
+            now.duration_since(self.glide).as_secs_f32() / self.glide_time.as_secs_f32(),
         )
     }
 
@@ -795,109 +775,31 @@ impl State {
     }
 
     fn draw_outline(&mut self, rect: RECT) {
-        let scale = self.windows.scale;
-        let margin = 6.0 * scale;
-        let glow = 10.0 * scale;
-        let pad = (margin + glow) as i32;
-        let (left, top) = (rect.left - pad, rect.top - pad);
+        let pad = outline_pad(self.windows.scale);
         let width = rect.right - rect.left + pad * 2;
         let height = rect.bottom - rect.top + pad * 2;
-        if rect.right <= rect.left || rect.bottom <= rect.top || width * height > 16_000_000 {
+        let Some(image) = paint_outline(width, height, self.windows.scale) else {
             self.outline = None;
             let _ = unsafe { ShowWindow(self.windows.outline, SW_HIDE) };
             return;
-        }
+        };
         let Some(mut layer) = Layer::new(self.windows.outline, width, height) else {
             return;
         };
-        let centre = (width as f32 / 2.0, height as f32 / 2.0);
-        let half = (
-            (rect.right - rect.left) as f32 / 2.0 + margin,
-            (rect.bottom - rect.top) as f32 / 2.0 + margin,
-        );
-        let radius = (8.0 * scale).min(half.0).min(half.1);
-        let stroke = 2.0 * scale;
-        let pixels = layer.pixels();
-        for y in 0..height {
-            for x in 0..width {
-                let p = (x as f32 + 0.5 - centre.0, y as f32 + 0.5 - centre.1);
-                let d = rounded_rect(p, half, radius);
-                let pixel = &mut pixels[(y * width + x) as usize];
-                if d > 0.0 {
-                    over(pixel, ACCENT, 0.25 * (-d / (4.0 * scale)).exp());
-                } else {
-                    over(pixel, ACCENT, 0.06);
-                }
-                over(
-                    pixel,
-                    ACCENT,
-                    (stroke / 2.0 + 0.5 - d.abs()).clamp(0.0, 1.0),
-                );
-            }
-        }
-        layer.push(left, top, 255);
+        layer.pixels().copy_from_slice(&image);
+        layer.push(rect.left - pad, rect.top - pad, 255);
         let _ = unsafe { ShowWindow(self.windows.outline, SW_SHOWNOACTIVATE) };
         self.outline = Some(layer);
     }
 
     fn draw_pointer(&mut self, ripple: Option<f32>) {
         let scale = self.windows.scale;
-        let Some(layer) = &mut self.pointer else {
-            return;
-        };
-        let size = layer.width;
-        let tip = TIP * scale;
-        let arrow = ARROW
-            .iter()
-            .map(|(x, y)| (tip + x * scale, tip + y * scale))
-            .collect::<Vec<_>>();
-        let shadow = arrow
-            .iter()
-            .map(|(x, y)| (x + 1.2 * scale, y + 2.0 * scale))
-            .collect::<Vec<_>>();
-        let pixels = layer.pixels();
-        pixels.fill(0);
-        for y in 0..size {
-            for x in 0..size {
-                let p = (x as f32 + 0.5, y as f32 + 0.5);
-                let pixel = &mut pixels[(y * size + x) as usize];
-                if let Some(t) = ripple {
-                    let distance = ((p.0 - tip).powi(2) + (p.1 - tip).powi(2)).sqrt();
-                    let radius = (6.0 + 22.0 * t) * scale;
-                    let ring = (1.5 * scale + 0.5 - (distance - radius).abs()).clamp(0.0, 1.0);
-                    over(pixel, ACCENT, ring * (1.0 - t) * 0.9);
-                }
-                let shade = polygon(p, &shadow);
-                over(
-                    pixel,
-                    (0.0, 0.0, 0.0),
-                    0.3 * ((2.5 * scale - shade) / (2.5 * scale)).clamp(0.0, 1.0),
-                );
-                let d = polygon(p, &arrow);
-                over(
-                    pixel,
-                    (255.0, 255.0, 255.0),
-                    (1.6 * scale + 0.5 - d).clamp(0.0, 1.0),
-                );
-                over(pixel, ACCENT, (0.5 - d).clamp(0.0, 1.0));
-            }
+        if let Some(layer) = &mut self.pointer {
+            let size = layer.width;
+            paint_pointer(layer.pixels(), size, scale, ripple);
         }
     }
 }
-
-/// Where the arrow's tip sits inside the pointer window, in unscaled pixels; the room around it
-/// holds the click ripple.
-const TIP: f32 = 30.0;
-/// The arrow, tip at the origin, in unscaled pixels.
-const ARROW: [(f32, f32); 7] = [
-    (0.0, 0.0),
-    (0.0, 19.0),
-    (4.6, 15.0),
-    (7.6, 22.0),
-    (10.6, 20.7),
-    (7.7, 14.0),
-    (13.6, 14.0),
-];
 
 /// The glow around every monitor, drawn into one window that spans the virtual screen.
 fn draw_glow(hwnd: HWND, scale: f32) -> Option<Layer> {
@@ -924,36 +826,16 @@ fn draw_glow(hwnd: HWND, scale: f32) -> Option<Layer> {
             LPARAM(&mut monitors as *mut _ as isize),
         );
     }
-    let band = (12.0 * scale).max(4.0) as i32;
-    let pixels = layer.pixels();
-    for monitor in monitors {
-        let (left, top) = (monitor.left - origin.0, monitor.top - origin.1);
-        let (right, bottom) = (monitor.right - origin.0, monitor.bottom - origin.1);
-        for y in top.max(0)..bottom.min(height) {
-            let edge_row = y - top < band || bottom - 1 - y < band;
-            // Edge rows run the full width; other rows only touch the left and right bands.
-            let columns = if edge_row {
-                [left..right, 0..0]
-            } else {
-                [left..left + band, right - band..right]
-            };
-            for x in columns.into_iter().flatten() {
-                if x < 0 || x >= width {
-                    continue;
-                }
-                let edge = (x - left)
-                    .min(right - 1 - x)
-                    .min(y - top)
-                    .min(bottom - 1 - y);
-                let strength = (band - edge) as f32 / band as f32;
-                over(
-                    &mut pixels[(y * width + x) as usize],
-                    ACCENT,
-                    strength * strength * 0.85,
-                );
-            }
-        }
-    }
+    let monitors = monitors
+        .into_iter()
+        .map(|monitor| crate::common::Rect {
+            left: monitor.left - origin.0,
+            top: monitor.top - origin.1,
+            right: monitor.right - origin.0,
+            bottom: monitor.bottom - origin.1,
+        })
+        .collect::<Vec<_>>();
+    paint_glow(layer.pixels(), width, height, &monitors, scale);
     Some(layer)
 }
 
@@ -1075,74 +957,5 @@ fn blend(alpha: u8) -> BLENDFUNCTION {
         BlendFlags: 0,
         SourceConstantAlpha: alpha,
         AlphaFormat: AC_SRC_ALPHA as u8,
-    }
-}
-
-/// Paints `color` at opacity `alpha` over a premultiplied BGRA pixel.
-fn over(pixel: &mut u32, color: (f32, f32, f32), alpha: f32) {
-    if alpha <= 0.0 {
-        return;
-    }
-    let alpha = alpha.min(1.0);
-    let old = *pixel;
-    let mix = |value: f32, shift: u32| {
-        let under = ((old >> shift) & 0xff) as f32;
-        (value * alpha + under * (1.0 - alpha))
-            .round()
-            .clamp(0.0, 255.0) as u32
-    };
-    *pixel = mix(255.0, 24) << 24 | mix(color.0, 16) << 16 | mix(color.1, 8) << 8 | mix(color.2, 0);
-}
-
-/// Signed distance from `p` to a rounded rectangle centred on the origin: negative inside.
-fn rounded_rect(p: (f32, f32), half: (f32, f32), radius: f32) -> f32 {
-    let q = (p.0.abs() - (half.0 - radius), p.1.abs() - (half.1 - radius));
-    let outside = (q.0.max(0.0).powi(2) + q.1.max(0.0).powi(2)).sqrt();
-    outside + q.0.max(q.1).min(0.0) - radius
-}
-
-/// Signed distance from `p` to a polygon: negative inside.
-fn polygon(p: (f32, f32), points: &[(f32, f32)]) -> f32 {
-    let mut distance = f32::MAX;
-    let mut inside = false;
-    for (index, a) in points.iter().enumerate() {
-        let b = points[(index + 1) % points.len()];
-        let edge = (b.0 - a.0, b.1 - a.1);
-        let to_p = (p.0 - a.0, p.1 - a.1);
-        let along = ((to_p.0 * edge.0 + to_p.1 * edge.1) / (edge.0 * edge.0 + edge.1 * edge.1))
-            .clamp(0.0, 1.0);
-        let gap = (to_p.0 - edge.0 * along, to_p.1 - edge.1 * along);
-        distance = distance.min((gap.0 * gap.0 + gap.1 * gap.1).sqrt());
-        if (a.1 > p.1) != (b.1 > p.1) && p.0 < a.0 + (p.1 - a.1) / (b.1 - a.1) * (b.0 - a.0) {
-            inside = !inside;
-        }
-    }
-    if inside { -distance } else { distance }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{ARROW, GLIDE_MAX, GLIDE_MIN, glide_time, over, polygon, rounded_rect};
-
-    #[test]
-    fn longer_trips_glide_longer() {
-        assert_eq!(glide_time(0.0), GLIDE_MIN);
-        assert!(glide_time(100.0) < glide_time(800.0));
-        assert_eq!(glide_time(5000.0), GLIDE_MAX);
-    }
-
-    #[test]
-    fn shapes_measure_inside_as_negative() {
-        assert!(polygon((2.0, 8.0), &ARROW) < 0.0);
-        assert!(polygon((12.0, 2.0), &ARROW) > 0.0);
-        assert!(rounded_rect((0.0, 0.0), (10.0, 5.0), 2.0) < 0.0);
-        assert!((rounded_rect((12.0, 0.0), (10.0, 5.0), 2.0) - 2.0).abs() < 1e-4);
-    }
-
-    #[test]
-    fn painting_premultiplies() {
-        let mut pixel = 0;
-        over(&mut pixel, (200.0, 100.0, 0.0), 0.5);
-        assert_eq!(pixel, 128 << 24 | 100 << 16 | 50 << 8);
     }
 }

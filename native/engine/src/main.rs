@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    cryzo_desktop_control::overlay_helper();
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if args.first().map(String::as_str) == Some("credential") {
         let provider = args

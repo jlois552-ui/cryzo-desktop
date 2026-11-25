@@ -44,7 +44,15 @@ windows = { version = "0.62.2", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 
+[target.'cfg(not(windows))'.dependencies]
+# The overlay pill's text on macOS and Linux.
+fontdue = "0.9"
+
 [target.'cfg(target_os = "macos")'.dependencies]
+# The overlay's windows, drawn by an AppKit helper process.
+objc2 = "0.6"
+objc2-foundation = "0.3"
+foreign-types = "0.5"
 accessibility-sys = "0.2"
 core-foundation = "0.10"
 # "highsierra" adds scroll-wheel events.
@@ -54,4 +62,4 @@ core-graphics = { version = "0.25", features = ["highsierra"] }
 atspi = { version = "0.30", default-features = false, features = ["connection", "proxies", "tokio", "zbus"] }
 jpeg-encoder = "0.7"
 tokio = { workspace = true }
-x11rb = { version = "0.14", features = ["xtest"] }
+x11rb = { version = "0.14", features = ["randr", "shape", "xfixes", "xtest"] }

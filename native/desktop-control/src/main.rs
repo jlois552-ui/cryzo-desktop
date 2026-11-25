@@ -8,6 +8,7 @@ use cryzo_desktop_control::{Desktop, INSTRUCTIONS, Output, Settings, start_stop_
 use serde_json::{Value, json};
 
 fn main() -> anyhow::Result<()> {
+    cryzo_desktop_control::overlay_helper();
     let mut desktop = Desktop::new(Settings::load()?)?;
     start_stop_hotkey();
     let mut stdout = std::io::stdout().lock();

@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 pub mod ax;
 mod browser;
 mod common;
+mod motion;
 // The macOS and Linux desktop control, over each platform's accessibility API. Compiled on Windows
 // too, for its tests.
 #[cfg(windows)]
@@ -30,11 +31,17 @@ pub mod portable;
 // Elsewhere the browser tools run without the on-screen overlay.
 #[cfg(all(unix, not(target_os = "macos")))]
 mod linux;
+#[cfg(all(unix, not(target_os = "macos")))]
+mod linux_overlay;
 #[cfg(target_os = "macos")]
 mod mac;
+#[cfg(target_os = "macos")]
+mod mac_overlay;
 #[cfg(not(windows))]
 #[path = "no_overlay.rs"]
 mod overlay;
+#[cfg(not(windows))]
+mod pill;
 #[cfg(windows)]
 mod uia;
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -43,6 +50,17 @@ pub use linux::{Desktop, start_stop_hotkey};
 pub use mac::{Desktop, start_stop_hotkey};
 #[cfg(windows)]
 pub use uia::{Desktop, start_stop_hotkey};
+
+/// On macOS, runs the on-screen overlay and exits when this process was started as its helper
+/// (AppKit windows need a main thread of their own). Every executable that uses desktop control
+/// calls this first in `main`; elsewhere it does nothing.
+pub fn overlay_helper() {
+    #[cfg(target_os = "macos")]
+    if std::env::args().nth(1).as_deref() == Some(mac_overlay::HELPER) {
+        mac_overlay::run();
+        std::process::exit(0);
+    }
+}
 
 /// User settings with safe defaults. Every limit here is a setting the user can loosen, except the
 /// stop hotkey, which is always on.

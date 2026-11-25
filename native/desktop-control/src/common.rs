@@ -137,7 +137,7 @@ mod outcome_tests {
 }
 
 /// A rectangle in physical screen pixels.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Rect {
     pub left: i32,
     pub top: i32,

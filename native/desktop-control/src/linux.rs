@@ -523,6 +523,14 @@ impl Backend for Linux {
         Ok(ocr_lines(&String::from_utf8_lossy(&output.stdout), bounds))
     }
 
+    fn bounds(&mut self, node: &Node) -> Option<Rect> {
+        self.extents(node)
+    }
+
+    fn start_overlay(&mut self) -> Option<crate::motion::Indicator> {
+        crate::linux_overlay::start()
+    }
+
     fn app_at(&mut self, _x: i32, _y: i32) -> Option<String> {
         None
     }
