@@ -79,6 +79,21 @@ pub(crate) struct Overlay {
     window: isize,
 }
 
+/// The remaining preview time for actions that inject physical input.
+#[derive(Default)]
+pub(crate) struct CursorPreview(Option<Instant>);
+
+impl CursorPreview {
+    pub(crate) fn wait(&self) {
+        if let Some(started) = self.0 {
+            let remaining = GLIDE.saturating_sub(started.elapsed());
+            if !remaining.is_zero() {
+                std::thread::sleep(remaining);
+            }
+        }
+    }
+}
+
 impl Overlay {
     /// Starts the overlay thread with its windows hidden. None when windows could not be made,
     /// which leaves desktop control working without the overlay.
@@ -110,9 +125,17 @@ impl Overlay {
         self.send(Signal::Step(step.into()));
     }
 
-    /// Glides the agent cursor to the middle of `rect` and outlines it, then waits for the glide,
-    /// so the user sees the target before the action lands.
+    /// Shows the target before delivering coordinate-based input.
     pub(crate) fn point(&self, step: impl Into<String>, rect: crate::common::Rect) {
+        self.preview(step, rect).wait();
+    }
+
+    /// Starts the cursor glide and outline on the overlay thread.
+    pub(crate) fn preview(
+        &self,
+        step: impl Into<String>,
+        rect: crate::common::Rect,
+    ) -> CursorPreview {
         self.send(Signal::Point {
             step: step.into(),
             rect: RECT {
@@ -122,7 +145,7 @@ impl Overlay {
                 bottom: rect.bottom,
             },
         });
-        std::thread::sleep(GLIDE);
+        CursorPreview(Some(Instant::now()))
     }
 
     /// A ripple under the agent cursor.
@@ -506,6 +529,8 @@ impl State {
                 };
                 self.to = target;
                 self.glide = now;
+                self.ripple = None;
+                self.redraw = true;
                 self.last_point = now;
                 self.pointing = true;
                 self.draw_outline(rect);
@@ -514,7 +539,7 @@ impl State {
                 }
             }
             Signal::Click => {
-                self.ripple = Some(now);
+                self.ripple = Some(now.max(self.glide + GLIDE));
                 self.last_point = now;
             }
             Signal::Done | Signal::Resume => {}
@@ -579,9 +604,10 @@ impl State {
         }
         let ripple = self
             .ripple
-            .map(|start| now.duration_since(start).as_secs_f32() / RIPPLE.as_secs_f32())
+            .and_then(|start| now.checked_duration_since(start))
+            .map(|elapsed| elapsed.as_secs_f32() / RIPPLE.as_secs_f32())
             .filter(|progress| *progress < 1.0);
-        if ripple.is_none() {
+        if self.ripple.is_some_and(|start| now >= start + RIPPLE) {
             self.ripple = None;
         }
         if ripple.is_some() || self.redraw {

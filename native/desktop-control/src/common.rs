@@ -14,6 +14,127 @@ use crate::ax::invisible;
 pub(crate) static STOPPED: AtomicBool = AtomicBool::new(false);
 /// Elements that disappeared are listed one by one up to this many, then only counted.
 const GONE: usize = 8;
+pub(crate) const OUTCOME_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+
+pub(crate) fn outcome_query<'a>(
+    args: &'a serde_json::Value,
+    action: &str,
+) -> Result<Option<&'a str>> {
+    let Some(value) = args.get("waitFor") else {
+        return Ok(None);
+    };
+    let Some(query) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|query| !query.is_empty() && !query.contains(['\r', '\n']))
+    else {
+        bail!("waitFor needs a nonempty element name or snapshot line on one line");
+    };
+    if action == "read" {
+        bail!("waitFor requires an action that can change the window");
+    }
+    Ok(Some(query))
+}
+
+pub(crate) fn outcome_matches(lines: &[String], truncated: bool, query: &str) -> Option<usize> {
+    if truncated
+        || lines.is_empty()
+        || lines.iter().any(|line| {
+            let line = line.trim_start();
+            line.starts_with("…") || line.starts_with("(could not read this window")
+        })
+    {
+        return None;
+    }
+    Some(
+        lines
+            .iter()
+            .filter(|line| {
+                let Some((_, body)) = line
+                    .trim_start()
+                    .strip_prefix("[e")
+                    .and_then(|line| line.split_once("] "))
+                else {
+                    return false;
+                };
+                let body = body.strip_suffix(" focused").unwrap_or(body);
+                if body == query && !body.contains('…') {
+                    return true;
+                }
+                let Some((_, attributes)) = body.split_once(' ') else {
+                    return false;
+                };
+                serde_json::Deserializer::from_str(attributes)
+                    .into_iter::<String>()
+                    .next()
+                    .is_some_and(|name| name.is_ok_and(|name| name == query))
+            })
+            .count(),
+    )
+}
+
+pub(crate) fn outcome_note(outcome: Option<(&str, bool)>, matched: bool) -> &'static str {
+    match (outcome, matched) {
+        (Some(_), true) => "\nOutcome observed.",
+        (Some((_, false)), _) => {
+            "\nOutcome could not be verified as new. Returned the normal window update."
+        }
+        (Some(_), false) => {
+            "\nOutcome was not observed. Returned the normal window update; the action was already sent."
+        }
+        (None, _) => "",
+    }
+}
+
+#[cfg(test)]
+mod outcome_tests {
+    use super::outcome_matches;
+
+    #[test]
+    fn outcomes_match_exact_names_and_states() {
+        let lines = [
+            r#"  [e1] text "Draft saved""#.into(),
+            r#"  [e2] checkbox "Reviewed" checked focused"#.into(),
+            r#"  [e3] edit "Notes" value="One\nTwo""#.into(),
+        ];
+        assert_eq!(outcome_matches(&lines, false, "Draft saved"), Some(1));
+        assert_eq!(outcome_matches(&lines, false, "saved"), Some(0));
+        assert_eq!(
+            outcome_matches(&lines, false, r#"checkbox "Reviewed" checked"#),
+            Some(1)
+        );
+        assert_eq!(
+            outcome_matches(&lines, false, r#"checkbox "Reviewed" unchecked"#),
+            Some(0)
+        );
+        assert_eq!(
+            outcome_matches(&lines, false, r#"edit "Notes" value="One\nTwo""#),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn duplicate_outcomes_remain_ambiguous_and_clipped_values_do_not_match() {
+        let lines = [
+            r#"[e1] text "Draft saved""#.into(),
+            r#"[e2] text "Draft saved""#.into(),
+            r#"[e3] edit "Notes" value="One…""#.into(),
+        ];
+        assert_eq!(outcome_matches(&lines, false, "Draft saved"), Some(2));
+        assert_eq!(
+            outcome_matches(&lines, false, r#"edit "Notes" value="One…""#),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn incomplete_observations_cannot_confirm_an_outcome() {
+        assert_eq!(outcome_matches(&[], false, "Saved"), None);
+        let lines = [r#"[e1] text "Saved""#.into(), "  … 20 more".into()];
+        assert_eq!(outcome_matches(&lines, false, "Saved"), None);
+        assert_eq!(outcome_matches(&lines[..1], true, "Saved"), None);
+    }
+}
 
 /// A rectangle in physical screen pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

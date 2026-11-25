@@ -7,6 +7,7 @@ use std::{
 };
 
 pub(crate) use crate::ax::quote;
+use crate::common::{OUTCOME_WAIT, outcome_matches, outcome_note, outcome_query};
 use crate::common::{STOPPED, line_id, summary};
 pub(crate) use crate::common::{changes, clean, clip, is_stopped, stop, stopped, verb};
 use anyhow::{Result, anyhow, bail, ensure};
@@ -47,7 +48,11 @@ use windows::{
 
 use serde_json::Value;
 
-use crate::{Output, Settings, capture::capture, overlay::Overlay};
+use crate::{
+    Output, Settings,
+    capture::capture,
+    overlay::{CursorPreview, Overlay},
+};
 
 /// Everything `line_for` and `states` read, fetched in one cache request per snapshot.
 const PROPERTIES: [UIProperty; 15] = [
@@ -195,7 +200,8 @@ impl Desktop {
                         text("window"),
                     )?,
                 };
-                self.act(&id, required("action")?, text("value"))
+                let action = required("action")?;
+                self.act(&id, action, text("value"), outcome_query(args, action)?)
             }
             "batch" => self.batch(
                 args.get("steps")
@@ -565,7 +571,14 @@ impl Desktop {
     }
 
     /// Acts on an element from a snapshot, then returns what changed in its window.
-    pub fn act(&mut self, id: &str, action: &str, value: Option<&str>) -> Result<String> {
+    pub fn act(
+        &mut self,
+        id: &str,
+        action: &str,
+        value: Option<&str>,
+        wait_for: Option<&str>,
+    ) -> Result<String> {
+        let started = Instant::now();
         stopped()?;
         let target = self
             .targets
@@ -587,14 +600,36 @@ impl Desktop {
             return Ok(format!("{label} text:\n{}", full_text(&element)));
         }
         let step = format!("{} {}", verb(action), target.label);
-        self.show(&step, Some(&element));
+        let outcome = wait_for.map(|query| {
+            let (lines, truncated) = self.read(&window, window_id);
+            (query, outcome_matches(&lines, truncated, query) == Some(0))
+        });
+        let prepared = Instant::now();
+        let preview = self.show(&step, Some(&element));
+        let presented = Instant::now();
+        // Semantic patterns address their UIA element directly. Physical input still previews
+        // its target before delivery, including when a semantic pattern cannot take the action.
+        let before_input = || {
+            preview.wait();
+            stopped()
+        };
+        stopped()?;
         match action {
             "click" => match element.get_pattern::<UIInvokePattern>() {
                 Ok(pattern) => pattern.invoke()?,
-                Err(_) => element.click()?,
+                Err(_) => {
+                    before_input()?;
+                    element.click()?;
+                }
             },
-            "double_click" => element.double_click()?,
-            "right_click" => element.right_click()?,
+            "double_click" => {
+                before_input()?;
+                element.double_click()?;
+            }
+            "right_click" => {
+                before_input()?;
+                element.right_click()?;
+            }
             "type" => {
                 let text = value.ok_or_else(|| anyhow!("type needs a value"))?;
                 if password && !self.settings.type_into_passwords {
@@ -629,8 +664,10 @@ impl Desktop {
                         self.editing()
                     );
                 }
+                stopped()?;
                 let set = field.is_some_and(|pattern| pattern.set_value(text).is_ok());
                 if !set {
+                    before_input()?;
                     element.set_focus()?;
                     type_text(text, None)?;
                 }
@@ -641,7 +678,10 @@ impl Desktop {
                 Ok(pattern) => pattern.select()?,
                 Err(_) => match element.get_pattern::<UIInvokePattern>() {
                     Ok(pattern) => pattern.invoke()?,
-                    Err(_) => element.click()?,
+                    Err(_) => {
+                        before_input()?;
+                        element.click()?;
+                    }
                 },
             },
             // Like Ctrl+click: keeps what is already selected, for picking several files.
@@ -676,8 +716,22 @@ impl Desktop {
         {
             overlay.click();
         }
+        let delivered = Instant::now();
         self.audit(&window, &label, action);
-        Ok(format!("{action} {label}: done\n{}", self.after(window_id)))
+        let observing = Instant::now();
+        let observation = self.after_action(window_id, outcome);
+        if std::env::var_os("CRYZO_DESKTOP_PROFILE_SETTLE").is_some() {
+            eprintln!(
+                "desktop action prepare_ms={} preview_ms={} delivery_ms={} audit_ms={} observation_ms={} total_ms={}",
+                (prepared - started).as_millis(),
+                (presented - prepared).as_millis(),
+                (delivered - presented).as_millis(),
+                (observing - delivered).as_millis(),
+                observing.elapsed().as_millis(),
+                started.elapsed().as_millis(),
+            );
+        }
+        Ok(format!("{action} {label}: done\n{observation}"))
     }
 
     /// Sends keys to a window (the foreground one when None). Syntax: plain text types literally;
@@ -705,7 +759,8 @@ impl Desktop {
         } else {
             format!("Pressing {} in {title}", clip(keys, 30))
         };
-        self.show(&step, focused.as_ref());
+        self.show(&step, focused.as_ref()).wait();
+        stopped()?;
         // Plain text into an empty field is set exactly instead of typed. Otherwise it is typed,
         // and the field is read back so lost keystrokes are reported instead of passing silently.
         let field = focused
@@ -762,9 +817,9 @@ impl Desktop {
 
     /// Shows the step on the overlay, gliding the agent cursor to `element` when it has a place
     /// on screen.
-    fn show(&self, step: &str, element: Option<&UIElement>) {
+    fn show(&self, step: &str, element: Option<&UIElement>) -> CursorPreview {
         let Some(overlay) = self.overlay() else {
-            return;
+            return CursorPreview::default();
         };
         let rect = element
             .and_then(|element| element.get_bounding_rectangle().ok())
@@ -776,8 +831,11 @@ impl Desktop {
             })
             .filter(|rect| rect.right > rect.left && rect.bottom > rect.top);
         match rect {
-            Some(rect) => overlay.point(step, rect.into()),
-            None => overlay.step(step),
+            Some(rect) => overlay.preview(step, rect.into()),
+            None => {
+                overlay.step(step);
+                CursorPreview::default()
+            }
         }
     }
 
@@ -855,6 +913,7 @@ impl Desktop {
                 bottom: y + 10,
             };
             overlay.point(format!("Clicking at {x}, {y}"), spot.into());
+            stopped()?;
             overlay.click();
         }
         let mouse = Mouse::default();
@@ -1161,7 +1220,16 @@ impl Desktop {
     }
 
     fn id_for(&mut self, element: &UIElement) -> String {
-        let key = element.get_runtime_id().unwrap_or_default();
+        // RuntimeId travels with the cached properties. Avoid a separate provider call for
+        // each control on every poll when the provider supplied the cached ID.
+        let cached: Option<Vec<i32>> = element
+            .get_cached_property_value(UIProperty::RuntimeId)
+            .and_then(|value| value.get_array())
+            .and_then(|array| array.try_into())
+            .ok();
+        let key = cached
+            .filter(|id| !id.is_empty())
+            .unwrap_or_else(|| element.get_runtime_id().unwrap_or_default());
         if let Some(id) = self.ids.get(&key).filter(|_| !key.is_empty()) {
             return id.clone();
         }
@@ -1187,14 +1255,24 @@ impl Desktop {
     /// What changed in the acted-on window once it settles, plus the new foreground window when
     /// it moved.
     fn after(&mut self, window_id: isize) -> String {
-        let settled = self
-            .settle(window_id)
-            .unwrap_or_else(|error| format!("(the window is unreadable: {error})"));
+        self.after_action(window_id, None)
+    }
+
+    fn after_action(&mut self, window_id: isize, outcome: Option<(&str, bool)>) -> String {
+        let settled = self.settle(window_id, outcome).unwrap_or_else(|error| {
+            format!(
+                "(the window is unreadable: {error}){}",
+                outcome_note(outcome, false)
+            )
+        });
         let changes = if unsafe { IsWindow(Some(HWND(window_id as *mut _))) }.as_bool() {
             settled
         } else {
             self.last.remove(&window_id);
-            format!("window [w{window_id:x}] closed")
+            format!(
+                "window [w{window_id:x}] closed{}",
+                outcome_note(outcome, false)
+            )
         };
         let foreground = unsafe { GetForegroundWindow() }.0 as isize;
         if foreground == window_id || foreground == 0 {
@@ -1210,20 +1288,67 @@ impl Desktop {
 
     /// Re-reads the window until it stops changing, then diffs it against its last snapshot (or
     /// prints it whole when there is none).
-    fn settle(&mut self, window_id: isize) -> Result<String> {
+    fn settle(&mut self, window_id: isize, outcome: Option<(&str, bool)>) -> Result<String> {
         let window = self
             .automation
             .element_from_handle(Handle::from(window_id))?;
-        let deadline = Instant::now() + SETTLE_LIMIT;
-        std::thread::sleep(POLL);
-        let mut lines = self.read(&window, window_id).0;
-        let mut quiet = Instant::now();
-        while quiet.elapsed() < QUIET && Instant::now() < deadline {
-            std::thread::sleep(POLL);
-            let next = self.read(&window, window_id).0;
+        let started = Instant::now();
+        let deadline = started + SETTLE_LIMIT;
+        let profile = std::env::var_os("CRYZO_DESKTOP_PROFILE_SETTLE").is_some();
+        let mut scans = 0;
+        let mut scan_time = Duration::ZERO;
+        let mut sleep_time = Duration::ZERO;
+        let mut read = || {
+            let before = Instant::now();
+            let (lines, truncated) = self.read(&window, window_id);
+            let duration = before.elapsed();
+            scan_time += duration;
+            scans += 1;
+            (lines, truncated, duration)
+        };
+        // Read immediately, but retain the original initial observation window. A delayed
+        // change resets the full quiet period. Take the last sample at the quiet deadline
+        // instead of waiting an extra poll interval to check it.
+        let query = outcome.and_then(|(query, fresh)| fresh.then_some(query));
+        let earliest = started
+            + if query.is_some() {
+                OUTCOME_WAIT
+            } else {
+                POLL + QUIET
+            };
+        let (mut lines, mut truncated, mut last_scan) = read();
+        let mut quiet_until = Instant::now() + QUIET;
+        let mut matched = false;
+        loop {
+            if query.is_some_and(|query| outcome_matches(&lines, truncated, query) == Some(1)) {
+                matched = true;
+                break;
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                break;
+            }
+            let ready_at = earliest.max(quiet_until).min(deadline);
+            let remaining = ready_at.saturating_duration_since(now);
+            // A poll about to run into the final sample would put two full scans back to back.
+            let wait = if remaining <= POLL + last_scan.min(POLL) {
+                remaining
+            } else {
+                POLL
+            };
+            if !wait.is_zero() {
+                std::thread::sleep(wait);
+                sleep_time += now.elapsed();
+            }
+            let sample_at = Instant::now();
+            let (next, more, duration) = read();
+            truncated = more;
+            last_scan = duration;
             if next != lines {
                 lines = next;
-                quiet = Instant::now();
+                quiet_until = Instant::now() + QUIET;
+            } else if sample_at >= ready_at {
+                break;
             }
         }
         let header = header(&window);
@@ -1232,10 +1357,19 @@ impl Desktop {
         } else {
             String::new()
         };
-        Ok(match self.last.insert(window_id, lines.clone()) {
+        if profile {
+            eprintln!(
+                "desktop settle elapsed_ms={} sleep_ms={} scan_ms={} scans={scans}",
+                started.elapsed().as_millis(),
+                sleep_time.as_millis(),
+                scan_time.as_millis(),
+            );
+        }
+        let update = match self.last.insert(window_id, lines.clone()) {
             Some(previous) => format!("{}{ocr}", changes(&header, &previous, &lines)),
             None => format!("{header}\n{}{ocr}", lines.join("\n")),
-        })
+        };
+        Ok(format!("{update}{}", outcome_note(outcome, matched)))
     }
 
     fn top_level(&self) -> Result<Vec<UIElement>> {

@@ -16,7 +16,10 @@ use serde_json::Value;
 use crate::{
     Output, Settings,
     ax::quote,
-    common::{Rect, changes, clean, clip, line_id, stopped, summary},
+    common::{
+        OUTCOME_WAIT, Rect, changes, clean, clip, line_id, outcome_matches, outcome_note,
+        outcome_query, stopped, summary,
+    },
 };
 
 /// Most children shown per element before the rest are only counted.
@@ -153,7 +156,8 @@ impl<B: Backend> Desktop<B> {
                         text("window"),
                     )?,
                 };
-                self.act(&id, required("action")?, text("value"))
+                let action = required("action")?;
+                self.act(&id, action, text("value"), outcome_query(args, action)?)
             }
             "batch" => self.batch(
                 args.get("steps")
@@ -463,7 +467,13 @@ impl<B: Backend> Desktop<B> {
         Ok(results.join("\n"))
     }
 
-    pub fn act(&mut self, id: &str, action: &str, value: Option<&str>) -> Result<String> {
+    pub fn act(
+        &mut self,
+        id: &str,
+        action: &str,
+        value: Option<&str>,
+        wait_for: Option<&str>,
+    ) -> Result<String> {
         stopped()?;
         let target = self
             .targets
@@ -481,6 +491,11 @@ impl<B: Backend> Desktop<B> {
             );
             return Ok(format!("{label} text:\n{}", self.backend.text(&node)));
         }
+        let outcome = wait_for.map(|query| {
+            let (lines, truncated) = self.read(&window);
+            (query, outcome_matches(&lines, truncated, query) == Some(0))
+        });
+        stopped()?;
         match action {
             "type" => {
                 let text = value.ok_or_else(|| anyhow!("type needs a value"))?;
@@ -502,7 +517,7 @@ impl<B: Backend> Desktop<B> {
         self.audit(&window.app, &label, action);
         Ok(format!(
             "{action} {label}: done\n{}",
-            self.after(&window.key)
+            self.after_action(&window.key, outcome)
         ))
     }
 
@@ -777,12 +792,16 @@ impl<B: Backend> Desktop<B> {
 
     /// What changed in the acted-on window once it settles, plus the new foreground window.
     fn after(&mut self, key: &str) -> String {
+        self.after_action(key, None)
+    }
+
+    fn after_action(&mut self, key: &str, outcome: Option<(&str, bool)>) -> String {
         let changes = match self.window(Some(&format!("w{key}"))) {
             Err(_) => {
                 self.last.remove(key);
-                format!("window [w{key}] closed")
+                format!("window [w{key}] closed{}", outcome_note(outcome, false))
             }
-            Ok(window) => self.settle(&window),
+            Ok(window) => self.settle(&window, outcome),
         };
         match self.foreground() {
             Some(window) if window.key != key => {
@@ -796,25 +815,44 @@ impl<B: Backend> Desktop<B> {
         }
     }
 
-    fn settle(&mut self, window: &Window<B::Node>) -> String {
-        let deadline = Instant::now() + SETTLE_LIMIT;
-        std::thread::sleep(POLL);
-        let mut lines = self.read(window).0;
-        let mut quiet = Instant::now();
-        while quiet.elapsed() < QUIET && Instant::now() < deadline {
+    fn settle(&mut self, window: &Window<B::Node>, outcome: Option<(&str, bool)>) -> String {
+        let query = outcome.and_then(|(query, fresh)| fresh.then_some(query));
+        let started = Instant::now();
+        let deadline = started + SETTLE_LIMIT;
+        let earliest = started
+            + if query.is_some() {
+                OUTCOME_WAIT
+            } else {
+                Duration::ZERO
+            };
+        if query.is_none() {
             std::thread::sleep(POLL);
-            let next = self.read(window).0;
+        }
+        let (mut lines, mut truncated) = self.read(window);
+        let mut quiet = Instant::now();
+        let matched = loop {
+            if query.is_some_and(|query| outcome_matches(&lines, truncated, query) == Some(1)) {
+                break true;
+            }
+            let now = Instant::now();
+            if (now >= earliest && quiet.elapsed() >= QUIET) || now >= deadline {
+                break false;
+            }
+            std::thread::sleep(POLL);
+            let (next, more) = self.read(window);
+            truncated = more;
             if next != lines {
                 lines = next;
                 quiet = Instant::now();
             }
-        }
+        };
         let header = header(window);
         let ocr = self.ocr_note(window, &lines);
-        match self.last.insert(window.key.clone(), lines.clone()) {
+        let update = match self.last.insert(window.key.clone(), lines.clone()) {
             Some(previous) => format!("{}{ocr}", changes(&header, &previous, &lines)),
             None => format!("{header}\n{}{ocr}", lines.join("\n")),
-        }
+        };
+        format!("{update}{}", outcome_note(outcome, matched))
     }
 
     /// Windows that show almost nothing (games, canvases, video) are read by OCR as well.
