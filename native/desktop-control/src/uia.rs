@@ -24,7 +24,7 @@ use uiautomation::{
 };
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, HWND, RECT},
+        Foundation::{CloseHandle, HWND, LPARAM, RECT},
         System::Threading::{
             OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
             QueryFullProcessImageNameW,
@@ -38,12 +38,12 @@ use windows::{
             },
             Shell::ShellExecuteW,
             WindowsAndMessaging::{
-                GetForegroundWindow, GetMessageW, IsWindow, MSG, SW_SHOWNORMAL,
-                SetForegroundWindow, WM_HOTKEY,
+                EnumWindows, GetClassNameW, GetForegroundWindow, GetMessageW, GetWindowTextLengthW,
+                IsWindow, IsWindowVisible, MSG, SW_SHOWNORMAL, SetForegroundWindow, WM_HOTKEY,
             },
         },
     },
-    core::{HSTRING, Interface, PCWSTR, PWSTR},
+    core::{BOOL, HSTRING, Interface, PCWSTR, PWSTR},
 };
 
 use serde_json::Value;
@@ -170,6 +170,8 @@ impl Desktop {
                 .and_then(Value::as_i64)
                 .ok_or_else(|| anyhow!("{command} needs {key}"))
         };
+        // While a call runs, however long, the overlay stays up instead of fading as idle.
+        let _busy = self.running_overlay().map(Overlay::busy);
         if let Some(overlay) = self.running_overlay() {
             match command {
                 "windows" | "snapshot" | "find" | "wait_for" | "ocr" | "screenshot" => {
@@ -456,8 +458,7 @@ impl Desktop {
         // client asks, so a near-empty first read, or a page document with nothing in it yet
         // (Chrome's toolbar alone is more than a few lines), is usually just a cold tree.
         let (lines, truncated) = if first.0.len() < 8 || cold_document(&first.0) {
-            std::thread::sleep(Duration::from_millis(700));
-            self.read(&window, hwnd)
+            self.warm(&window, hwnd, Duration::from_secs(3))
         } else {
             first
         };
@@ -759,7 +760,9 @@ impl Desktop {
         } else {
             format!("Pressing {} in {title}", clip(keys, 30))
         };
-        self.show(&step, focused.as_ref()).wait();
+        // Keys go to the focused element wherever the pointer is, so they need not wait for the
+        // agent cursor to arrive.
+        self.show(&step, focused.as_ref());
         stopped()?;
         // Plain text into an empty field is set exactly instead of typed. Otherwise it is typed,
         // and the field is read back so lost keystrokes are reported instead of passing silently.
@@ -839,20 +842,33 @@ impl Desktop {
         }
     }
 
-    /// Opens an app, file or URL through the Windows shell (no command line is parsed), then waits
-    /// for a new foreground window.
+    /// Opens an app by its Start menu name ("Cursor", "Notepad"), or a file, URL or path through the
+    /// Windows shell (no command line is parsed). Then waits for the app's window and returns it as
+    /// a snapshot, so the model can act on it without asking again.
     pub fn launch(&mut self, app: &str) -> Result<String> {
         stopped()?;
-        if let Some(entry) = self.blocked_entry(app, "") {
+        let installed = crate::apps::installed();
+        let (target, name) = match crate::apps::pick(&installed, app) {
+            Some(found) => (
+                format!("shell:AppsFolder\\{}", found.id),
+                found.name.clone(),
+            ),
+            None => (app.to_owned(), clip(app, 60)),
+        };
+        if let Some(entry) = self
+            .blocked_entry(app, "")
+            .or_else(|| self.blocked_entry(&name, ""))
+        {
             bail!("{entry} is on the blocked apps list in desktop-control settings.");
         }
-        self.show(&format!("Opening {}", clip(app, 60)), None);
+        self.show(&format!("Opening {name}"), None);
         let before = unsafe { GetForegroundWindow() };
+        let existing = visible_windows();
         let result = unsafe {
             ShellExecuteW(
                 None,
                 &HSTRING::from("open"),
-                &HSTRING::from(app),
+                &HSTRING::from(target.as_str()),
                 PCWSTR::null(),
                 PCWSTR::null(),
                 SW_SHOWNORMAL,
@@ -864,19 +880,61 @@ impl Desktop {
                 result.0 as isize
             );
         }
-        let deadline = Instant::now() + Duration::from_secs(8);
-        while Instant::now() < deadline {
-            let now = unsafe { GetForegroundWindow() };
-            if now != before && !now.is_invalid() {
-                std::thread::sleep(SETTLE);
-                let window = self.automation.element_from_handle(Handle::from(now))?;
-                return Ok(format!("opened {}", header(&window)));
+        // Either the app's window comes to the front, or a new one appears behind another window
+        // when Windows refuses to hand over the foreground.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let opened = loop {
+            let front = unsafe { GetForegroundWindow() };
+            if front != before && titled(front) {
+                break Some(front.0 as isize);
             }
-            std::thread::sleep(Duration::from_millis(200));
-        }
+            if let Some(new) = visible_windows()
+                .into_iter()
+                .find(|window| !existing.contains(window))
+            {
+                break Some(new);
+            }
+            if Instant::now() >= deadline {
+                break None;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        };
+        let Some(opened) = opened else {
+            return Ok(format!(
+                "asked Windows to open {name}; no new window appeared within 10 seconds. If it was already open, find it with windows."
+            ));
+        };
+        let window = self.automation.element_from_handle(Handle::from(opened))?;
+        self.blocked(&window)?;
+        bring_forward(&window);
+        self.audit(&window, &name, "launch");
+        // A new window is still drawing itself, and Chromium apps build their accessibility tree
+        // only once asked, so the first reads can be empty for a few seconds.
+        std::thread::sleep(SETTLE);
+        let (lines, truncated) = self.warm(&window, opened, Duration::from_secs(8));
+        self.last.insert(opened, lines.clone());
+        let note = if truncated {
+            "\n  … cut off at the line budget; use find to reach the rest"
+        } else {
+            ""
+        };
         Ok(format!(
-            "asked Windows to open {app:?}; no new window came to the front within 8 seconds"
+            "opened {}\n{}{note}",
+            header(&window),
+            lines.join("\n")
         ))
+    }
+
+    /// Reads a window until its tree has content, for at most `limit`.
+    fn warm(&mut self, window: &UIElement, hwnd: isize, limit: Duration) -> (Vec<String>, bool) {
+        let deadline = Instant::now() + limit;
+        loop {
+            let read = self.read(window, hwnd);
+            if (read.0.len() >= 8 && !cold_document(&read.0)) || Instant::now() >= deadline {
+                return read;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
     }
 
     /// Reads a window's text by OCR, for apps whose UI Automation tree is empty (games, canvases,
@@ -1004,7 +1062,9 @@ impl Desktop {
         filter: (String, Option<String>),
     ) -> Scan {
         let scan = self.scan(window, hwnd, Some(filter.clone()), 50);
-        if !scan.lines.is_empty() {
+        // Chromium and Electron apps expose the whole page at once, so paging them only scrolls the
+        // user's view around (and cost Cursor 16 s) without finding more.
+        if !scan.lines.is_empty() || chromium(hwnd) {
             return scan;
         }
         let areas = self
@@ -1016,7 +1076,7 @@ impl Desktop {
             )
             .and_then(|condition| window.find_all(TreeScope::Descendants, &condition))
             .unwrap_or_default();
-        let deadline = Instant::now() + Duration::from_secs(6);
+        let deadline = Instant::now() + Duration::from_secs(4);
         for area in areas {
             let Some(pattern) = area
                 .get_pattern::<UIScrollPattern>()
@@ -1434,7 +1494,6 @@ impl Desktop {
         }
         let wanted = query.to_lowercase();
         let windows = self.top_level()?;
-        let dialogs = self.dialogs(&windows);
         let title = |window: &UIElement| window.get_name().unwrap_or_default().to_lowercase();
         // An exact title or app name wins over a title that merely contains the query, so
         // "Cryzo" picks the Cryzo app, not a browser tab titled "Cryzo Desktop - App Review".
@@ -1443,8 +1502,15 @@ impl Desktop {
                 || process(window).to_lowercase().trim_end_matches(".exe")
                     == wanted.trim_end_matches(".exe")
         });
-        exact
-            .or_else(|| dialogs.iter().find(|dialog| title(dialog) == wanted))
+        if let Some(window) = exact {
+            return Ok(window.clone());
+        }
+        // Dialogs mean asking every window for its children, which a busy app answers slowly, so
+        // they are looked at only when no top-level window matches.
+        let dialogs = self.dialogs(&windows);
+        dialogs
+            .iter()
+            .find(|dialog| title(dialog) == wanted)
             .or_else(|| {
                 windows
                     .iter()
@@ -1812,17 +1878,50 @@ fn reach(app: &str) -> Option<&'static str> {
     None
 }
 
-/// Whether a page document has nothing under it: Chromium has not built that page's tree yet.
+/// Whether a page document has nothing under it, or only the "Loading" status that Electron apps
+/// such as Cursor show: Chromium has not built that page's tree yet.
 fn cold_document(lines: &[String]) -> bool {
     let depth = |line: &String| line.len() - line.trim_start().len();
     lines.iter().enumerate().any(|(index, line)| {
         line.trim_start()
             .split_once("] ")
             .is_some_and(|(_, rest)| rest.starts_with("document "))
-            && lines
-                .get(index + 1)
-                .is_none_or(|next| depth(next) <= depth(line))
+            && lines[index + 1..]
+                .iter()
+                .take_while(|next| depth(next) > depth(line))
+                .all(|child| child.contains("] statusbar \"Loading\""))
     })
+}
+
+/// Whether a window belongs to Chromium or an Electron app built on it (Chrome, Edge, Cursor,
+/// VS Code, Slack, Discord).
+fn chromium(hwnd: isize) -> bool {
+    let mut class = [0u16; 64];
+    let length = unsafe { GetClassNameW(HWND(hwnd as *mut _), &mut class) };
+    String::from_utf16_lossy(&class[..length.max(0) as usize]).starts_with("Chrome_WidgetWin_")
+}
+
+/// Visible top-level windows with a title, other than the overlay's own.
+fn visible_windows() -> Vec<isize> {
+    unsafe extern "system" fn collect(window: HWND, list: LPARAM) -> BOOL {
+        let mut class = [0u16; 32];
+        let length = unsafe { GetClassNameW(window, &mut class) };
+        let ours =
+            String::from_utf16_lossy(&class[..length.max(0) as usize]).starts_with("CryzoOverlay");
+        if titled(window) && !ours {
+            unsafe { (*(list.0 as *mut Vec<isize>)).push(window.0 as isize) };
+        }
+        BOOL(1)
+    }
+    let mut list = Vec::new();
+    let _ = unsafe { EnumWindows(Some(collect), LPARAM(&mut list as *mut _ as isize)) };
+    list
+}
+
+fn titled(window: HWND) -> bool {
+    !window.is_invalid()
+        && unsafe { IsWindowVisible(window) }.as_bool()
+        && unsafe { GetWindowTextLengthW(window) } > 0
 }
 
 /// Whether a window shows UI Automation almost nothing beyond its title bar, as games, canvases,

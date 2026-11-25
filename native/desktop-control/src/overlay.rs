@@ -21,8 +21,9 @@ use windows::{
                 CreateDIBSection, CreateFontW, CreateSolidBrush, DEFAULT_CHARSET, DIB_RGB_COLORS,
                 DT_CENTER, DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DeleteDC,
                 DeleteObject, DrawTextW, Ellipse, EndPaint, EnumDisplayMonitors, FillRect, GetDC,
-                GetStockObject, GetTextExtentPoint32W, HBITMAP, HDC, HFONT, HMONITOR,
-                InvalidateRect, NULL_PEN, OUT_DEFAULT_PRECIS, PAINTSTRUCT, ReleaseDC, RoundRect,
+                GetMonitorInfoW, GetStockObject, GetTextExtentPoint32W, HBITMAP, HDC, HFONT,
+                HMONITOR, InvalidateRect, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
+                MonitorFromWindow, NULL_PEN, OUT_DEFAULT_PRECIS, PAINTSTRUCT, ReleaseDC, RoundRect,
                 SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
             },
         },
@@ -30,13 +31,13 @@ use windows::{
         UI::{
             HiDpi::GetDpiForSystem,
             WindowsAndMessaging::{
-                CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageW,
-                GetSystemMetrics, HWND_TOPMOST, IDC_ARROW, IDC_HAND, KillTimer, LoadCursorW,
-                MA_NOACTIVATE, MSG, PostMessageW, RegisterClassW, SM_CXSCREEN, SM_CXVIRTUALSCREEN,
-                SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE,
-                SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW, SetTimer,
-                SetWindowDisplayAffinity, SetWindowPos, ShowWindow, TranslateMessage, ULW_ALPHA,
-                UpdateLayeredWindow, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WM_APP,
+                CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect,
+                GetForegroundWindow, GetMessageW, GetSystemMetrics, HWND_TOPMOST, IDC_ARROW,
+                IDC_HAND, KillTimer, LoadCursorW, MA_NOACTIVATE, MSG, PostMessageW, RegisterClassW,
+                SM_CMONITORS, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+                SM_YVIRTUALSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW,
+                SetTimer, SetWindowDisplayAffinity, SetWindowPos, ShowWindow, TranslateMessage,
+                ULW_ALPHA, UpdateLayeredWindow, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WM_APP,
                 WM_ERASEBKGND, WM_LBUTTONDOWN, WM_MOUSEACTIVATE, WM_PAINT, WM_TIMER, WNDCLASSW,
                 WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
                 WS_EX_TRANSPARENT, WS_POPUP,
@@ -48,14 +49,19 @@ use windows::{
 
 /// Cryzo violet.
 const ACCENT: (f32, f32, f32) = (124.0, 92.0, 255.0);
-const GLIDE: Duration = Duration::from_millis(220);
+/// The agent cursor's travel time grows with distance, between these bounds.
+const GLIDE_MIN: Duration = Duration::from_millis(90);
+const GLIDE_MAX: Duration = Duration::from_millis(320);
 const RIPPLE: Duration = Duration::from_millis(450);
 const FADE: Duration = Duration::from_millis(250);
 /// The outline leaves this long after the last action. The agent cursor rests where it is, and it,
-/// the glow and the pill stay until `IDLE` passes with no call at all, so nothing flickers while
-/// the model thinks.
+/// the glow and the pill stay for the whole turn: between calls the pill says "Thinking…", so
+/// nothing flickers while the model decides. `IDLE` with no call at all is only a safety net for
+/// clients that never end a turn.
 const OUTLINE_IDLE: Duration = Duration::from_secs(4);
-const IDLE: Duration = Duration::from_secs(10);
+const IDLE: Duration = Duration::from_secs(45);
+/// How long after a call ends the pill switches to "Thinking…".
+const THINKING_AFTER: Duration = Duration::from_millis(900);
 const FRAME_MS: u32 = 16;
 
 enum Signal {
@@ -63,8 +69,11 @@ enum Signal {
     Point {
         step: String,
         rect: RECT,
+        glide: Duration,
     },
     Click,
+    /// A tool call started or ended. While one runs the overlay never fades, however long it takes.
+    Busy(bool),
     /// The agent's turn ended: hide everything now.
     Done,
     /// A new turn after a Stop: the pill acts normally again.
@@ -77,21 +86,38 @@ pub(crate) struct Overlay {
     sender: Sender<Signal>,
     /// The glow window, which also receives the wake-up messages.
     window: isize,
+    /// Where the agent cursor was last sent, to time the next glide by its distance.
+    cursor: std::sync::Arc<std::sync::Mutex<Option<(f32, f32)>>>,
 }
 
-/// The remaining preview time for actions that inject physical input.
+/// When the agent cursor reaches its target, for actions that inject physical input.
 #[derive(Default)]
 pub(crate) struct CursorPreview(Option<Instant>);
 
 impl CursorPreview {
     pub(crate) fn wait(&self) {
-        if let Some(started) = self.0 {
-            let remaining = GLIDE.saturating_sub(started.elapsed());
+        if let Some(arrives) = self.0 {
+            let remaining = arrives.saturating_duration_since(Instant::now());
             if !remaining.is_zero() {
                 std::thread::sleep(remaining);
             }
         }
     }
+}
+
+/// Marks a tool call as running until dropped.
+pub(crate) struct Busy(Overlay);
+
+impl Drop for Busy {
+    fn drop(&mut self) {
+        self.0.send(Signal::Busy(false));
+    }
+}
+
+/// Travel time for a glide of `distance` pixels: short hops are quick, long ones stay readable.
+fn glide_time(distance: f32) -> Duration {
+    let span = (GLIDE_MAX - GLIDE_MIN).as_millis() as f32;
+    GLIDE_MIN + Duration::from_millis((span * (distance / 1200.0).clamp(0.0, 1.0).sqrt()) as u64)
 }
 
 impl Overlay {
@@ -117,7 +143,17 @@ impl Overlay {
             .recv_timeout(Duration::from_secs(3))
             .ok()
             .flatten()?;
-        Some(Self { sender, window })
+        Some(Self {
+            sender,
+            window,
+            cursor: Default::default(),
+        })
+    }
+
+    /// Keeps the overlay up while a tool call runs.
+    pub(crate) fn busy(&self) -> Busy {
+        self.send(Signal::Busy(true));
+        Busy(self.clone())
     }
 
     /// Shows the glow and the pill with this step, without moving the agent cursor.
@@ -136,6 +172,19 @@ impl Overlay {
         step: impl Into<String>,
         rect: crate::common::Rect,
     ) -> CursorPreview {
+        let target = (
+            (rect.left + rect.right) as f32 / 2.0,
+            (rect.top + rect.bottom) as f32 / 2.0,
+        );
+        // A first glide flies in from about 100 px away.
+        let previous = self
+            .cursor
+            .lock()
+            .map(|mut cursor| cursor.replace(target))
+            .unwrap_or_default();
+        let glide = glide_time(previous.map_or(100.0, |(x, y)| {
+            ((x - target.0).powi(2) + (y - target.1).powi(2)).sqrt()
+        }));
         self.send(Signal::Point {
             step: step.into(),
             rect: RECT {
@@ -144,8 +193,9 @@ impl Overlay {
                 right: rect.right,
                 bottom: rect.bottom,
             },
+            glide,
         });
-        CursorPreview(Some(Instant::now()))
+        CursorPreview(Some(Instant::now() + glide))
     }
 
     /// A ripple under the agent cursor.
@@ -154,6 +204,9 @@ impl Overlay {
     }
 
     pub(crate) fn done(&self) {
+        if let Ok(mut cursor) = self.cursor.lock() {
+            *cursor = None;
+        }
         self.send(Signal::Done);
     }
 
@@ -453,13 +506,20 @@ struct State {
     glow: Option<Layer>,
     pointer: Option<Layer>,
     outline: Option<Layer>,
+    /// The screen layout the glow was drawn for; it is redrawn only when that changes.
+    glow_layout: [i32; 5],
+    glow_alpha: u8,
     shown: Option<Instant>,
     last: Instant,
     last_point: Instant,
+    /// A tool call is running.
+    busy: bool,
+    thinking: bool,
     pointing: bool,
     from: (f32, f32),
     to: (f32, f32),
     glide: Instant,
+    glide_time: Duration,
     ripple: Option<Instant>,
     /// The pointer image needs drawing again (a ripple ran or just ended).
     redraw: bool,
@@ -475,13 +535,18 @@ impl State {
             glow: None,
             pointer,
             outline: None,
+            glow_layout: [0; 5],
+            glow_alpha: 0,
             shown: None,
             last: now,
             last_point: now,
+            busy: false,
+            thinking: false,
             pointing: false,
             from: (0.0, 0.0),
             to: (0.0, 0.0),
             glide: now,
+            glide_time: GLIDE_MIN,
             ripple: None,
             redraw: true,
         };
@@ -503,6 +568,12 @@ impl State {
         }
         let now = Instant::now();
         self.last = now;
+        // A call starting or ending keeps the overlay as it is; steps and points show it.
+        if let Signal::Busy(busy) = signal {
+            self.busy = busy;
+            return;
+        }
+        self.thinking = false;
         if self.shown.is_none() {
             self.show();
         }
@@ -511,14 +582,17 @@ impl State {
         match signal {
             Signal::Step(step) if !stopped => self.label(&step),
             Signal::Step(_) => {}
-            Signal::Point { step, rect } => {
-                if !stopped {
-                    self.label(&step);
-                }
+            Signal::Point { step, rect, glide } => {
                 let target = (
                     (rect.left + rect.right) as f32 / 2.0,
                     (rect.top + rect.bottom) as f32 / 2.0,
                 );
+                if !stopped {
+                    // The pill moves to the target's monitor.
+                    let previous = std::mem::replace(&mut self.to, target);
+                    self.label(&step);
+                    self.to = previous;
+                }
                 // A fresh cursor flies in from up and to the left; a visible one continues
                 // from wherever it is.
                 self.from = if self.pointing {
@@ -529,6 +603,7 @@ impl State {
                 };
                 self.to = target;
                 self.glide = now;
+                self.glide_time = glide;
                 self.ripple = None;
                 self.redraw = true;
                 self.last_point = now;
@@ -539,17 +614,31 @@ impl State {
                 }
             }
             Signal::Click => {
-                self.ripple = Some(now.max(self.glide + GLIDE));
+                self.ripple = Some(now.max(self.glide + self.glide_time));
                 self.last_point = now;
             }
-            Signal::Done | Signal::Resume => {}
+            Signal::Done | Signal::Resume | Signal::Busy(_) => {}
         }
     }
 
     fn show(&mut self) {
         self.shown = Some(Instant::now());
-        // Drawn on every show, so a monitor added or rearranged since is covered.
-        self.glow = draw_glow(self.windows.glow, self.windows.scale);
+        // The glow spans the whole virtual screen and takes tens of milliseconds to paint, so it is
+        // redrawn only when a monitor was added or rearranged since.
+        let layout = unsafe {
+            [
+                GetSystemMetrics(SM_XVIRTUALSCREEN),
+                GetSystemMetrics(SM_YVIRTUALSCREEN),
+                GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                GetSystemMetrics(SM_CYVIRTUALSCREEN),
+                GetSystemMetrics(SM_CMONITORS),
+            ]
+        };
+        if self.glow.is_none() || layout != self.glow_layout {
+            self.glow = draw_glow(self.windows.glow, self.windows.scale);
+            self.glow_layout = layout;
+        }
+        self.glow_alpha = 0;
         if let Some(glow) = &self.glow {
             glow.push(glow.origin.0, glow.origin.1, 0);
         }
@@ -562,7 +651,8 @@ impl State {
     fn hide(&mut self) {
         self.shown = None;
         self.pointing = false;
-        self.glow = None;
+        self.busy = false;
+        self.thinking = false;
         self.outline = None;
         unsafe {
             let _ = KillTimer(Some(self.windows.glow), 1);
@@ -581,7 +671,19 @@ impl State {
             PILL.with_borrow_mut(|pill| pill.stopped = true);
             self.label("Stopped. Cryzo won't act again until you send a new message.");
         }
-        let quiet = now.duration_since(self.last);
+        if !self.busy
+            && !self.thinking
+            && now.duration_since(self.last) >= THINKING_AFTER
+            && !PILL.with_borrow(|pill| pill.stopped)
+        {
+            self.thinking = true;
+            self.label("Thinking…");
+        }
+        let quiet = if self.busy {
+            Duration::ZERO
+        } else {
+            now.duration_since(self.last)
+        };
         let fade_out = quiet
             .checked_sub(IDLE)
             .map(|late| 1.0 - late.as_secs_f32() / FADE.as_secs_f32());
@@ -592,8 +694,13 @@ impl State {
         let fade_in = (now.duration_since(shown).as_secs_f32() / FADE.as_secs_f32()).min(1.0);
         let breathing = 0.8 + 0.2 * (now.duration_since(shown).as_secs_f32() * 3.0).sin();
         let alpha = fade_in * breathing * fade_out.unwrap_or(1.0);
-        if let Some(glow) = &self.glow {
-            glow.fade((alpha * 255.0) as u8);
+        // Every monitor is recomposited when the glow changes, so it changes only in visible steps.
+        let alpha = (alpha * 255.0) as u8;
+        if alpha.abs_diff(self.glow_alpha) >= 3
+            && let Some(glow) = &self.glow
+        {
+            glow.fade(alpha);
+            self.glow_alpha = alpha;
         }
         if self.outline.is_some() && now.duration_since(self.last_point) > OUTLINE_IDLE {
             self.outline = None;
@@ -621,13 +728,16 @@ impl State {
         }
     }
 
-    /// Where the agent cursor is now, easing out along its glide.
+    /// Where the agent cursor is now, easing out along a slightly bowed path, as a hand moves.
     fn position(&self, now: Instant) -> (f32, f32) {
-        let t = (now.duration_since(self.glide).as_secs_f32() / GLIDE.as_secs_f32()).min(1.0);
+        let t =
+            (now.duration_since(self.glide).as_secs_f32() / self.glide_time.as_secs_f32()).min(1.0);
         let eased = 1.0 - (1.0 - t).powi(3);
+        let (dx, dy) = (self.to.0 - self.from.0, self.to.1 - self.from.1);
+        let bow = 0.32 * eased * (1.0 - eased);
         (
-            self.from.0 + (self.to.0 - self.from.0) * eased,
-            self.from.1 + (self.to.1 - self.from.1) * eased,
+            self.from.0 + dx * eased - dy * bow,
+            self.from.1 + dy * eased + dx * bow,
         )
     }
 
@@ -650,13 +760,32 @@ impl State {
         let chrome = ((PILL_PAD * 2.0 + PILL_DOT + PILL_GAP + button) * scale) as i32;
         let height = (PILL_HEIGHT * scale) as i32;
         let total = width + chrome;
-        let screen = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+        // Top centre of the monitor being worked on: the cursor's target, else the front window.
+        let monitor = unsafe {
+            if self.to == (0.0, 0.0) {
+                MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTOPRIMARY)
+            } else {
+                MonitorFromPoint(
+                    POINT {
+                        x: self.to.0 as i32,
+                        y: self.to.1 as i32,
+                    },
+                    MONITOR_DEFAULTTOPRIMARY,
+                )
+            }
+        };
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        let _ = unsafe { GetMonitorInfoW(monitor, &mut info) };
+        let area = info.rcMonitor;
         unsafe {
             let _ = SetWindowPos(
                 self.windows.pill,
                 Some(HWND_TOPMOST),
-                (screen - total) / 2,
-                (12.0 * scale) as i32,
+                area.left + (area.right - area.left - total) / 2,
+                area.top + (12.0 * scale) as i32,
                 total,
                 height,
                 SWP_NOACTIVATE | SWP_SHOWWINDOW,
@@ -993,7 +1122,14 @@ fn polygon(p: (f32, f32), points: &[(f32, f32)]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{ARROW, over, polygon, rounded_rect};
+    use super::{ARROW, GLIDE_MAX, GLIDE_MIN, glide_time, over, polygon, rounded_rect};
+
+    #[test]
+    fn longer_trips_glide_longer() {
+        assert_eq!(glide_time(0.0), GLIDE_MIN);
+        assert!(glide_time(100.0) < glide_time(800.0));
+        assert_eq!(glide_time(5000.0), GLIDE_MAX);
+    }
 
     #[test]
     fn shapes_measure_inside_as_negative() {

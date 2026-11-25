@@ -10,11 +10,12 @@ use windows::{
     Win32::{
         Foundation::{HWND, RECT},
         Graphics::Gdi::{
-            BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleBitmap, CreateCompatibleDC,
-            DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC, SelectObject,
+            BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CreateCompatibleBitmap,
+            CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits,
+            ReleaseDC, SRCCOPY, SelectObject,
         },
         Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow},
-        UI::WindowsAndMessaging::GetWindowRect,
+        UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect},
     },
 };
 
@@ -36,14 +37,62 @@ pub fn capture(hwnd: isize) -> Result<Capture> {
     if width <= 0 || height <= 0 {
         bail!("The window has no visible area (is it minimized?)");
     }
+    // Some GPU-drawn windows, Cursor's for one, print as a single flat colour or not at all. When
+    // the window is in front, the screen itself shows it, so copy that instead.
+    let printed = grab(hwnd, rect, false);
+    let flat = |bgra: &Vec<u8>| {
+        bgra.as_chunks::<4>()
+            .0
+            .windows(2)
+            .all(|pair| pair[0] == pair[1])
+    };
+    let mut bgra = if printed.as_ref().is_ok_and(|bgra| !flat(bgra))
+        || unsafe { GetForegroundWindow() } != hwnd
+    {
+        printed?
+    } else {
+        grab(hwnd, rect, true)?
+    };
+    // GDI leaves alpha at zero, which WinRT would treat as fully transparent.
+    bgra.as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .for_each(|pixel| pixel[3] = 255);
+    Ok(Capture {
+        left: rect.left,
+        top: rect.top,
+        width,
+        height,
+        bgra,
+    })
+}
+
+/// The window's pixels, printed by the window itself or copied from the screen.
+fn grab(hwnd: HWND, rect: RECT, from_screen: bool) -> Result<Vec<u8>> {
+    let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
     let mut bgra = vec![0u8; (width * height * 4) as usize];
     let (printed, rows) = unsafe {
         let screen = GetDC(None);
         let memory = CreateCompatibleDC(Some(screen));
         let bitmap = CreateCompatibleBitmap(screen, width, height);
         let previous = SelectObject(memory, bitmap.into());
-        // PW_RENDERFULLCONTENT (2) includes GPU-composed content such as Chromium and WebView2.
-        let printed = PrintWindow(hwnd, memory, PRINT_WINDOW_FLAGS(2)).as_bool();
+        let printed = if from_screen {
+            BitBlt(
+                memory,
+                0,
+                0,
+                width,
+                height,
+                Some(screen),
+                rect.left,
+                rect.top,
+                SRCCOPY,
+            )
+            .is_ok()
+        } else {
+            // PW_RENDERFULLCONTENT (2) includes GPU-composed content such as Chromium and WebView2.
+            PrintWindow(hwnd, memory, PRINT_WINDOW_FLAGS(2)).as_bool()
+        };
         SelectObject(memory, previous);
         let mut info = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
@@ -74,24 +123,26 @@ pub fn capture(hwnd: isize) -> Result<Capture> {
     if !printed || rows == 0 {
         bail!("Windows refused to capture this window");
     }
-    // GDI leaves alpha at zero, which WinRT would treat as fully transparent.
-    bgra.as_chunks_mut::<4>()
-        .0
-        .iter_mut()
-        .for_each(|pixel| pixel[3] = 255);
-    Ok(Capture {
-        left: rect.left,
-        top: rect.top,
-        width,
-        height,
-        bgra,
-    })
+    Ok(bgra)
+}
+
+thread_local! {
+    /// Creating the OCR engine took seconds on a cold start, so each thread keeps one.
+    static OCR: std::cell::OnceCell<Option<OcrEngine>> = const { std::cell::OnceCell::new() };
 }
 
 impl Capture {
     /// Recognized lines, each with the screen point at its centre, for `click_at`.
     pub fn ocr(&self) -> Result<Vec<String>> {
-        let engine = OcrEngine::TryCreateFromUserProfileLanguages()?;
+        let engine = OCR
+            .with(|engine| {
+                engine
+                    .get_or_init(|| OcrEngine::TryCreateFromUserProfileLanguages().ok())
+                    .clone()
+            })
+            .ok_or_else(|| {
+                anyhow::anyhow!("Windows OCR is not available for this user's languages")
+            })?;
         let result = engine.RecognizeAsync(&self.bitmap()?)?.join()?;
         result
             .Lines()?
