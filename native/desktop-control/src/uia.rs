@@ -171,7 +171,13 @@ impl Desktop {
                 .ok_or_else(|| anyhow!("{command} needs {key}"))
         };
         // While a call runs, however long, the overlay stays up instead of fading as idle.
-        let _busy = self.running_overlay().map(Overlay::busy);
+        // The first action of a turn starts the overlay, and counts as running from the start.
+        let overlay = if crate::acts(command) {
+            self.overlay()
+        } else {
+            self.running_overlay()
+        };
+        let _busy = overlay.map(Overlay::busy);
         if let Some(overlay) = self.running_overlay() {
             match command {
                 "windows" | "snapshot" | "find" | "wait_for" | "ocr" | "screenshot" => {

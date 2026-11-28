@@ -110,20 +110,22 @@ impl Linux {
             .ok_or_else(|| anyhow!("Linux computer use needs an X11 display (or XWayland) for keys, clicks and screenshots"))
     }
 
+    /// Where an element is on screen. None for a native Wayland app, which only knows positions
+    /// inside its own window (Wayland keeps window positions from clients), so a point from it
+    /// would land in the wrong place.
     fn extents(&self, node: &Node) -> Option<Rect> {
         let proxy = self.accessible(node)?;
-        let (x, y, width, height) = self.runtime.block_on(async {
-            proxy
-                .proxies()
-                .await
-                .ok()?
-                .component()
-                .await
-                .ok()?
-                .get_extents(CoordType::Screen)
-                .await
-                .ok()
+        let (screen, window) = self.runtime.block_on(async {
+            let proxies = proxy.proxies().await.ok()?;
+            let component = proxies.component().await.ok()?;
+            let screen = component.get_extents(CoordType::Screen).await.ok()?;
+            let window = component.get_extents(CoordType::Window).await.ok();
+            Some((screen, window))
         })?;
+        let (x, y, width, height) = screen;
+        if window == Some(screen) && std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            return None;
+        }
         (width > 0 && height > 0).then_some(Rect {
             left: x,
             top: y,
